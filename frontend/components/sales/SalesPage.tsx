@@ -1,0 +1,169 @@
+"use client";
+import { useState, useEffect, useCallback } from "react";
+import { apiSales } from "@/lib/api";
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
+} from "recharts";
+
+interface SalesSummary {
+  omzet_bulan_ini: number;
+  total_invoice_bulan_ini: number;
+  piutang_outstanding: number;
+  total_so_pending: number;
+}
+
+interface TrendData {
+  period: string;
+  omzet: number;
+}
+
+interface TopProduct {
+  id_barang: string;
+  nama_barang: string;
+  total_qty: number;
+  total_omzet: number;
+}
+
+const COLORS = ["hsl(217,91%,60%)", "hsl(142,76%,45%)", "hsl(38,92%,50%)", "hsl(262,83%,58%)", "hsl(0,84%,60%)"];
+
+function fmt(n: number | null | undefined, prefix = "") {
+  if (n == null) return "—";
+  return `${prefix}${Number(n).toLocaleString("id")}`;
+}
+
+export default function SalesPage() {
+  const [summary, setSummary] = useState<SalesSummary | null>(null);
+  const [trend, setTrend] = useState<TrendData[]>([]);
+  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const defaultParams = { date_from: "2023-01-01", date_to: "2024-12-31" };
+      const [sumRes, trendRes, prodRes] = await Promise.allSettled([
+        apiSales.summary(defaultParams),
+        apiSales.trend({ period: "monthly", months: 24, ...defaultParams }),
+        apiSales.byProduct({ limit: 5, ...defaultParams })
+      ]);
+
+      if (sumRes.status === "fulfilled") setSummary(sumRes.value.data);
+      if (trendRes.status === "fulfilled") {
+        setTrend(
+          (trendRes.value.data as TrendData[]).map((d) => ({
+            ...d,
+            period: new Date(d.period).toLocaleDateString("id", { month: "short", year: "2-digit" }),
+          }))
+        );
+      }
+      if (prodRes.status === "fulfilled") setTopProducts(prodRes.value.data || []);
+    } catch {
+      // Handle error quietly
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="animate-fade-up">
+      <div className="page-header">
+        <h1 className="page-title">Sales Monitoring</h1>
+        <p className="page-subtitle">Performa penjualan, piutang, dan tren produk</p>
+      </div>
+
+      <div className="kpi-grid" style={{ marginBottom: "1.25rem" }}>
+        <div className="kpi-card primary">
+          <div className="kpi-icon primary">💰</div>
+          <div className="kpi-value">{fmt(summary?.omzet_bulan_ini, "Rp ")}</div>
+          <div className="kpi-label">Omzet Bulan Ini</div>
+        </div>
+        <div className="kpi-card success">
+          <div className="kpi-icon success">📄</div>
+          <div className="kpi-value">{Number(summary?.total_invoice_bulan_ini || 0).toLocaleString("id")}</div>
+          <div className="kpi-label">Total Invoice (Bulan Ini)</div>
+        </div>
+        <div className="kpi-card warning">
+          <div className="kpi-icon warning">💳</div>
+          <div className="kpi-value" style={{ color: "hsl(38,92%,65%)" }}>{fmt(summary?.piutang_outstanding, "Rp ")}</div>
+          <div className="kpi-label">Piutang Outstanding</div>
+        </div>
+        <div className="kpi-card info">
+          <div className="kpi-icon info">📦</div>
+          <div className="kpi-value">{Number(summary?.total_so_pending || 0).toLocaleString("id")}</div>
+          <div className="kpi-label">Sales Order Pending</div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1rem", marginBottom: "1.25rem" }}>
+        {/* Trend Area Chart */}
+        <div className="chart-container">
+          <div className="card-header">
+            <div className="card-title">Tren Penjualan 12 Bulan Terakhir</div>
+          </div>
+          {trend.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <AreaChart data={trend} margin={{ top: 10, right: 10, left: 20 }}>
+                <defs>
+                  <linearGradient id="colorOmzet" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(217,91%,60%)" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(217,91%,60%)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--bg-border)" vertical={false} />
+                <XAxis dataKey="period" tick={{ fill: "var(--text-muted)", fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "var(--text-muted)", fontSize: 11 }} tickFormatter={(v) => fmt(v)} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--bg-border)", borderRadius: 8 }}
+                  formatter={(v: any) => [fmt(v as number, "Rp "), "Omzet"]}
+                />
+                <Area type="monotone" dataKey="omzet" stroke="hsl(217,91%,60%)" strokeWidth={3} fillOpacity={1} fill="url(#colorOmzet)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+              {loading ? "Memuat..." : "Belum ada data tren"}
+            </div>
+          )}
+        </div>
+
+        {/* Top 5 Products */}
+        <div className="chart-container">
+          <div className="card-header">
+            <div className="card-title">Top 5 Produk (Omzet)</div>
+          </div>
+          {topProducts.length > 0 ? (
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie
+                  data={topProducts}
+                  cx="50%"
+                  cy="45%"
+                  innerRadius={60}
+                  outerRadius={80}
+                  paddingAngle={5}
+                  dataKey="total_omzet"
+                  nameKey="nama_barang"
+                >
+                  {topProducts.map((_, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--bg-border)", borderRadius: 8 }}
+                  formatter={(v: any) => fmt(v as number, "Rp ")}
+                />
+                <Legend layout="horizontal" verticalAlign="bottom" align="center" wrapperStyle={{ fontSize: "10px", paddingTop: "20px" }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)" }}>
+              {loading ? "Memuat..." : "Belum ada data"}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
