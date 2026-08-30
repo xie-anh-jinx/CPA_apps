@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
   async rewrites() {
     return [
       {
@@ -12,16 +11,12 @@ const nextConfig: NextConfig = {
   },
   images: {
     remotePatterns: [
-      {
-        protocol: "http",
-        hostname: "localhost",
-      },
-      {
-        protocol: "https",
-        hostname: "localhost",
-      }
+      { protocol: "http",  hostname: "localhost" },
+      { protocol: "https", hostname: "localhost" },
+      { protocol: "https", hostname: "**" },
     ],
   },
 };
 
 export default nextConfig;
+
