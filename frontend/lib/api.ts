@@ -3,7 +3,7 @@
  */
 import axios from "axios";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE = "";
 
 export const api = axios.create({
   baseURL: API_BASE,
@@ -91,6 +91,10 @@ export const apiSales = {
     api.get("/api/sales/by-salesperson", { params }),
   orders: (params?: Record<string, unknown>) =>
     api.get("/api/sales/orders", { params }),
+  arOutstanding: (params?: Record<string, unknown>) =>
+    api.get("/api/sales/ar-outstanding", { params }),
+  exportArExcel: (params?: Record<string, unknown>) =>
+    api.get("/api/sales/export-ar-excel", { params, responseType: "blob" }),
 };
 
 export const apiDistributions = {
@@ -103,6 +107,14 @@ export const apiDistributions = {
   mapData: (params?: Record<string, unknown>) =>
     api.get("/api/distributions/map-data", { params }),
   detail: (nomor: string) => api.get(`/api/distributions/${nomor}`),
+  internalOrders: (params?: Record<string, unknown>) =>
+    api.get("/api/distributions/internal-orders", { params }),
+  transferOrders: (params?: Record<string, unknown>) =>
+    api.get("/api/distributions/transfer-orders", { params }),
+  simulationData: (params?: Record<string, unknown>) =>
+    api.get("/api/distributions/simulation-data", { params }),
+  exportExcel: (params: { type: "IO" | "IT"; period?: string; date_from?: string; date_to?: string; status?: string }) =>
+    api.get("/api/distributions/export-excel", { params, responseType: "blob" }),
 };
 
 export const apiCustomers = {
@@ -111,7 +123,8 @@ export const apiCustomers = {
   view360: (id: string) => api.get(`/api/customers/${id}/360`),
   history: (id: string, params?: Record<string, unknown>) =>
     api.get(`/api/customers/${id}/history`, { params }),
-  segmentation: () => api.get("/api/customers/segmentation"),
+  segmentation: (params?: Record<string, unknown>) =>
+    api.get("/api/customers/segmentation", { params }),
 };
 
 export const apiCRM = {

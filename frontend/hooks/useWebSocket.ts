@@ -12,9 +12,7 @@ export function useWebSocket() {
     function connect() {
       // Use ws:// for http and wss:// for https
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = process.env.NEXT_PUBLIC_API_URL
-        ? process.env.NEXT_PUBLIC_API_URL.replace(/^http(s?):\/\//, "")
-        : "localhost:8000";
+      const host = window.location.host;
       
       const wsUrl = `${protocol}//${host}/ws`;
       

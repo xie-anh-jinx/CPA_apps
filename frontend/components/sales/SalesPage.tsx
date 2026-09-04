@@ -5,6 +5,7 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
 } from "recharts";
+import ArOutstandingModal from "./ArOutstandingModal";
 
 interface SalesSummary {
   omzet_bulan_ini: number;
@@ -37,6 +38,7 @@ export default function SalesPage() {
   const [trend, setTrend] = useState<TrendData[]>([]);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isArModalOpen, setIsArModalOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -84,10 +86,54 @@ export default function SalesPage() {
           <div className="kpi-value">{Number(summary?.total_invoice_bulan_ini || 0).toLocaleString("id")}</div>
           <div className="kpi-label">Total Invoice (Bulan Ini)</div>
         </div>
-        <div className="kpi-card warning">
-          <div className="kpi-icon warning">💳</div>
-          <div className="kpi-value" style={{ color: "hsl(38,92%,65%)" }}>{fmt(summary?.piutang_outstanding, "Rp ")}</div>
-          <div className="kpi-label">Piutang Outstanding</div>
+        <div
+          className="kpi-card warning"
+          onClick={() => setIsArModalOpen(true)}
+          style={{
+            cursor: "pointer",
+            transition: "all 0.2s cubic-bezier(0.16, 1, 0.3, 1)",
+            position: "relative",
+            overflow: "hidden",
+            boxShadow: "0 4px 14px rgba(245, 158, 11, 0.08)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-3px)";
+            e.currentTarget.style.boxShadow = "0 8px 22px rgba(245, 158, 11, 0.25)";
+            e.currentTarget.style.borderColor = "rgba(245, 158, 11, 0.6)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "0 4px 14px rgba(245, 158, 11, 0.08)";
+            e.currentTarget.style.borderColor = "";
+          }}
+          title="Klik untuk membuka Rincian Piutang AR & Time of Payment (TOP)"
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", width: "100%" }}>
+            <div className="kpi-icon warning">💳</div>
+            <span
+              style={{
+                fontSize: "0.68rem",
+                padding: "2px 7px",
+                borderRadius: "12px",
+                backgroundColor: "rgba(245, 158, 11, 0.2)",
+                color: "#f59e0b",
+                border: "1px solid rgba(245, 158, 11, 0.4)",
+                fontWeight: 600,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <span>🔍</span> Detail AR &amp; TOP
+            </span>
+          </div>
+          <div className="kpi-value" style={{ color: "hsl(38,92%,65%)", marginTop: "0.5rem" }}>
+            {fmt(summary?.piutang_outstanding, "Rp ")}
+          </div>
+          <div className="kpi-label" style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <span>Piutang Outstanding</span>
+            <span style={{ fontSize: "0.85rem", opacity: 0.8 }}>↗</span>
+          </div>
         </div>
         <div className="kpi-card info">
           <div className="kpi-icon info">📦</div>
@@ -164,6 +210,13 @@ export default function SalesPage() {
           )}
         </div>
       </div>
+
+      {/* Pop-Up Modal Data AR & Time of Payment (TOP) */}
+      <ArOutstandingModal
+        isOpen={isArModalOpen}
+        onClose={() => setIsArModalOpen(false)}
+      />
     </div>
   );
 }
+

@@ -52,3 +52,4 @@ echo ""
 echo "Cek logs dengan:"
 echo "  docker compose logs -f backend"
 echo "  docker compose logs -f frontend"
+docker restart data_warehouse-nginx-1
