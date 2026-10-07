@@ -15,17 +15,22 @@ import {
 } from "lucide-react";
 
 export default function WarehouseVisualizationPage() {
-  const [iframeUrl, setIframeUrl] = useState("http://46.250.235.222:5173/");
+  const [iframeUrl, setIframeUrl] = useState("/3d/");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
-    // Deteksi host aktif (IP publik, Tailscale, atau localhost) agar iframe selalu sinkron
     if (typeof window !== "undefined") {
-      const hostname = window.location.hostname || "46.250.235.222";
-      setIframeUrl(`http://${hostname}:5173/`);
+      // Jika diakses via HTTPS (e.g. warehouse.pengajaran.com), selalu gunakan path HTTPS aman /3d/
+      if (window.location.protocol === "https:" || window.location.hostname === "warehouse.pengajaran.com") {
+        setIframeUrl("/3d/");
+      } else if (window.location.port === "3001") {
+        setIframeUrl(`http://${window.location.hostname}:5173/3d/`);
+      } else {
+        setIframeUrl("/3d/");
+      }
     }
   }, []);
 
