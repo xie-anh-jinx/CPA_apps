@@ -58,6 +58,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Inventori",
     items: [
       { href: "/inventory", icon: <ScanBarcode size={18} strokeWidth={1.5} />, label: "Monitoring Stok" },
+      { href: "/distributions", icon: <Route size={18} strokeWidth={1.5} />, label: "Distribusi" },
       { href: "/warehouses", icon: <Network size={18} strokeWidth={1.5} />, label: "Multi Gudang" },
       { href: "/inventory/aging", icon: <History size={15} strokeWidth={1.5} />, label: "Stock Aging", isSubItem: true },
     ],
@@ -67,7 +68,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/sales", icon: <CandlestickChart size={18} strokeWidth={1.5} />, label: "Sales Monitoring" },
       { href: "/sales/orders", icon: <ReceiptText size={15} strokeWidth={1.5} />, label: "Sales Order", isSubItem: true },
-      { href: "/distributions", icon: <Route size={18} strokeWidth={1.5} />, label: "Distribusi" },
     ],
   },
   {
@@ -90,7 +90,6 @@ const SALES_NAV_GROUPS: NavGroup[] = [
     label: "Penjualan",
     items: [
       { href: "/sales/orders", icon: <ReceiptText size={18} strokeWidth={1.5} />, label: "Sales Order" },
-      { href: "/distributions", icon: <Route size={18} strokeWidth={1.5} />, label: "Distribusi" },
     ],
   },
   {
@@ -113,6 +112,7 @@ const SALES_NAV_GROUPS: NavGroup[] = [
     label: "Inventori",
     items: [
       { href: "/inventory", icon: <ScanBarcode size={18} strokeWidth={1.5} />, label: "Monitoring Stok Cabang" },
+      { href: "/distributions", icon: <Route size={18} strokeWidth={1.5} />, label: "Distribusi" },
       { href: "/inventory/aging", icon: <History size={15} strokeWidth={1.5} />, label: "Stock Aging", isSubItem: true },
     ],
   },
@@ -123,6 +123,7 @@ const WAREHOUSE_NAV_GROUPS: NavGroup[] = [
     label: "Inventori & Gudang",
     items: [
       { href: "/inventory", icon: <ScanBarcode size={18} strokeWidth={1.5} />, label: "Monitoring Stok" },
+      { href: "/distributions", icon: <Route size={18} strokeWidth={1.5} />, label: "Distribusi" },
       { href: "/warehouses", icon: <Network size={18} strokeWidth={1.5} />, label: "Multi Gudang" },
       { href: "/inventory/aging", icon: <History size={15} strokeWidth={1.5} />, label: "Stock Aging", isSubItem: true },
     ],
@@ -135,12 +136,6 @@ const WAREHOUSE_NAV_GROUPS: NavGroup[] = [
       { href: "/intelligence/sales-performance", icon: <Award size={15} strokeWidth={1.5} />, label: "Sales Performance", isSubItem: true },
       { href: "/intelligence/customers", icon: <Users size={15} strokeWidth={1.5} />, label: "Customer Dashboard", isSubItem: true },
       { href: "/forecast", icon: <TrendingUp size={18} strokeWidth={1.5} />, label: "Demand Forecast" },
-    ],
-  },
-  {
-    label: "Distribusi",
-    items: [
-      { href: "/distributions", icon: <Route size={18} strokeWidth={1.5} />, label: "Distribusi Cabang" },
     ],
   },
 ];
