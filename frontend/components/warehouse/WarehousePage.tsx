@@ -95,6 +95,8 @@ export default function WarehousePage() {
   const [transferDirection, setTransferDirection] = useState<"all" | "in" | "out">("all");
   const [transferStatus, setTransferStatus] = useState<string>("all");
   const [searchTransfer, setSearchTransfer] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const ITEMS_PER_PAGE = 20;
 
   // Modal detail state
   const [selectedTransfer, setSelectedTransfer] = useState<TransferDetailModalData | null>(null);
@@ -232,6 +234,22 @@ export default function WarehousePage() {
       return true;
     });
   }, [transfers, transferDirection, transferStatus, searchTransfer]);
+
+  // Reset pagination ke halaman 1 saat filter arah, status, atau pencarian berubah
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [transferDirection, transferStatus, searchTransfer]);
+
+  // Kalkulasi Pagination (20 baris per page)
+  const totalPages = Math.max(1, Math.ceil(filteredTransfers.length / ITEMS_PER_PAGE));
+
+  const paginatedTransfers = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredTransfers.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredTransfers, currentPage, ITEMS_PER_PAGE]);
+
+  const startRecord = filteredTransfers.length === 0 ? 0 : (currentPage - 1) * ITEMS_PER_PAGE + 1;
+  const endRecord = Math.min(currentPage * ITEMS_PER_PAGE, filteredTransfers.length);
 
   // Open IT detail modal
   const handleOpenTransferDetail = async (nomor: string) => {
@@ -620,7 +638,7 @@ export default function WarehousePage() {
                       </td>
                     </tr>
                   ) : (
-                    filteredTransfers.map((row) => {
+                    paginatedTransfers.map((row) => {
                       const stCode = (row.status || "").trim().toUpperCase();
                       const badge = IT_STATUS_BADGE[stCode] || { label: row.status || "—", bg: "var(--bg-hover)", color: "var(--text-primary)" };
                       const isReceiptIn = row.transfer_type?.includes("Masuk") || row.transfer_type?.includes("IT In");
@@ -696,6 +714,145 @@ export default function WarehousePage() {
                 </tbody>
               </table>
             </div>
+
+            {/* ─── Pagination Footer (20 Baris per Page) ─── */}
+            {filteredTransfers.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "0.75rem",
+                  padding: "0.85rem 1.25rem",
+                  borderTop: "1px solid var(--bg-border)",
+                  background: "var(--bg-surface)",
+                  fontSize: "0.82rem",
+                }}
+              >
+                {/* Info Baris */}
+                <div style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                  <span>
+                    Menampilkan <strong style={{ color: "var(--text-primary)" }}>{startRecord} - {endRecord}</strong> dari{" "}
+                    <strong style={{ color: "var(--text-primary)" }}>{filteredTransfers.length}</strong> mutasi IT
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "0.72rem",
+                      padding: "0.2rem 0.55rem",
+                      borderRadius: "4px",
+                      background: "rgba(56, 189, 248, 0.12)",
+                      color: "#38bdf8",
+                      fontWeight: 600,
+                      border: "1px solid rgba(56, 189, 248, 0.25)",
+                    }}
+                  >
+                    20 baris per page
+                  </span>
+                </div>
+
+                {/* Navigasi Tombol Halaman */}
+                <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage <= 1}
+                    className="btn btn-ghost btn-sm"
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "0.25rem 0.55rem",
+                      opacity: currentPage <= 1 ? 0.35 : 1,
+                      cursor: currentPage <= 1 ? "not-allowed" : "pointer",
+                      border: "1px solid var(--bg-border)",
+                    }}
+                    title="Halaman Pertama"
+                  >
+                    « Pertama
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage <= 1}
+                    className="btn btn-ghost btn-sm"
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "0.25rem 0.55rem",
+                      opacity: currentPage <= 1 ? 0.35 : 1,
+                      cursor: currentPage <= 1 ? "not-allowed" : "pointer",
+                      border: "1px solid var(--bg-border)",
+                    }}
+                    title="Halaman Sebelumnya"
+                  >
+                    ‹ Sebelumnya
+                  </button>
+
+                  {/* Angka Halaman Dinamis */}
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+                    .map((pageNum, idx, arr) => {
+                      const prev = arr[idx - 1];
+                      const showEllipsis = prev && pageNum - prev > 1;
+                      const isActive = currentPage === pageNum;
+                      return (
+                        <React.Fragment key={pageNum}>
+                          {showEllipsis && (
+                            <span style={{ padding: "0 0.25rem", color: "var(--text-muted)", fontSize: "0.8rem" }}>...</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setCurrentPage(pageNum)}
+                            className={`btn ${isActive ? "btn-primary" : "btn-ghost"} btn-sm`}
+                            style={{
+                              fontSize: "0.75rem",
+                              minWidth: "28px",
+                              padding: "0.25rem 0.5rem",
+                              fontWeight: isActive ? 700 : 500,
+                              background: isActive ? "var(--color-primary)" : "transparent",
+                              color: isActive ? "#000" : "var(--text-primary)",
+                              border: isActive ? "1px solid var(--color-primary)" : "1px solid var(--bg-border)",
+                            }}
+                          >
+                            {pageNum}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })}
+
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage >= totalPages}
+                    className="btn btn-ghost btn-sm"
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "0.25rem 0.55rem",
+                      opacity: currentPage >= totalPages ? 0.35 : 1,
+                      cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+                      border: "1px solid var(--bg-border)",
+                    }}
+                    title="Halaman Selanjutnya"
+                  >
+                    Selanjutnya ›
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage >= totalPages}
+                    className="btn btn-ghost btn-sm"
+                    style={{
+                      fontSize: "0.75rem",
+                      padding: "0.25rem 0.55rem",
+                      opacity: currentPage >= totalPages ? 0.35 : 1,
+                      cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+                      border: "1px solid var(--bg-border)",
+                    }}
+                    title="Halaman Terakhir"
+                  >
+                    Terakhir »
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
