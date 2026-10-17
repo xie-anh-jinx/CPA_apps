@@ -28,7 +28,10 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401 && typeof window !== "undefined") {
       localStorage.removeItem("cpa_token");
-      window.location.href = "/login";
+      const pathname = window.location.pathname;
+      if (!pathname.startsWith("/docs") && !pathname.startsWith("/login")) {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(err);
   }
@@ -65,6 +68,10 @@ export const apiInventory = {
     api.get("/api/inventory/movements", { params }),
   aging: (id_gudang?: string) =>
     api.get("/api/inventory/aging", { params: { id_gudang } }),
+  inbound: (params?: Record<string, unknown>) =>
+    api.get("/api/inventory/inbound", { params }),
+  outbound: (params?: Record<string, unknown>) =>
+    api.get("/api/inventory/outbound", { params }),
 };
 
 export const apiWarehouses = {
@@ -91,6 +98,10 @@ export const apiSales = {
     api.get("/api/sales/by-salesperson", { params }),
   orders: (params?: Record<string, unknown>) =>
     api.get("/api/sales/orders", { params }),
+  ordersKpi: (params?: Record<string, unknown>) =>
+    api.get("/api/sales/orders/summary-kpi", { params }),
+  orderDetail: (nomor: string) =>
+    api.get(`/api/sales/orders/${encodeURIComponent(nomor)}/detail`),
   arOutstanding: (params?: Record<string, unknown>) =>
     api.get("/api/sales/ar-outstanding", { params }),
   exportArExcel: (params?: Record<string, unknown>) =>
@@ -107,13 +118,17 @@ export const apiDistributions = {
   mapData: (params?: Record<string, unknown>) =>
     api.get("/api/distributions/map-data", { params }),
   detail: (nomor: string) => api.get(`/api/distributions/${nomor}`),
+  deliveryOrderReceipt: (nomor: string) =>
+    api.get("/api/distributions/delivery-order/receipt", { params: { nomor } }),
   internalOrders: (params?: Record<string, unknown>) =>
     api.get("/api/distributions/internal-orders", { params }),
+  internalOrderItems: (nomor_io: string) =>
+    api.get("/api/distributions/internal-orders/items", { params: { nomor_io } }),
   transferOrders: (params?: Record<string, unknown>) =>
     api.get("/api/distributions/transfer-orders", { params }),
-  simulationData: (params?: Record<string, unknown>) =>
-    api.get("/api/distributions/simulation-data", { params }),
-  exportExcel: (params: { type: "IO" | "IT"; period?: string; date_from?: string; date_to?: string; status?: string }) =>
+  transferOrderItems: (nomor: string) =>
+    api.get("/api/distributions/transfer-orders/items", { params: { nomor } }),
+  exportExcel: (params: { type: "IO" | "IT" | "DO"; period?: string; date_from?: string; date_to?: string; status?: string }) =>
     api.get("/api/distributions/export-excel", { params, responseType: "blob" }),
 };
 
@@ -125,6 +140,14 @@ export const apiCustomers = {
     api.get(`/api/customers/${id}/history`, { params }),
   segmentation: (params?: Record<string, unknown>) =>
     api.get("/api/customers/segmentation", { params }),
+  salesRelations: (params?: Record<string, unknown>) =>
+    api.get("/api/customers/sales-relations", { params }),
+  salesCustomers: (idSales: string) =>
+    api.get(`/api/customers/sales-relations/${idSales}/customers`),
+  creditHealth: (params?: Record<string, unknown>) =>
+    api.get("/api/customers/credit-health", { params }),
+  creditHealthInvoices: (idCustomer: string) =>
+    api.get(`/api/customers/credit-health/${idCustomer}/invoices`),
 };
 
 export const apiCRM = {
@@ -154,5 +177,63 @@ export const apiAlerts = {
 
 export const apiAnalytics = {
   kpi: (params?: Record<string, unknown>) => api.get("/api/analytics/kpi", { params }),
+  executiveSummary: (params?: Record<string, unknown>) =>
+    api.get("/api/analytics/executive-summary", { params }),
+  recentTransactions: (limit?: number) =>
+    api.get("/api/analytics/recent-transactions", { params: { limit } }),
   syncStatus: () => api.get("/api/analytics/sync-status"),
+  mainDashboard: (params?: Record<string, unknown>) =>
+    api.get("/api/analytics/main-dashboard", { params }),
 };
+
+export const apiReports = {
+  arAging: (params?: Record<string, unknown>) =>
+    api.get("/api/reports/ar-aging", { params }),
+  arAgingExportUrl: (params?: Record<string, string>) => {
+    const q = new URLSearchParams(params || {}).toString();
+    const base = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+    return `${base}/reports/ar-aging/export?${q}`;
+  },
+};
+
+export const apiForecast = {
+  summary: () => api.get("/api/forecast/summary"),
+  products: () => api.get("/api/forecast/products"),
+  productForecast: (productId: string) => api.get(`/api/forecast/products/${productId}`),
+  productHistory: (productId: string, days = 90) =>
+    api.get(`/api/forecast/products/${productId}/history`, { params: { days } }),
+  productModels: (productId: string) =>
+    api.get(`/api/forecast/products/${productId}/models`),
+};
+
+export const apiKitaAnalytics = {
+  overview: (params?: { year?: number; month?: number }) =>
+    api.get("/api/analytics/kita/overview", { params }),
+  monthlyTrends: (params?: { year?: number }) =>
+    api.get("/api/analytics/kita/monthly-trends", { params }),
+  salesPerformance: (params?: { year?: number; month?: number; area?: string }) =>
+    api.get("/api/analytics/kita/sales-performance", { params }),
+  customers: (params?: {
+    year?: number;
+    month?: number;
+    page?: number;
+    limit?: number;
+    search?: string;
+    orderby?: string;
+    column_order_desc?: string;
+  }) => api.get("/api/analytics/kita/customers", { params }),
+  sectorMix: (params?: { year?: number; month?: number }) =>
+    api.get("/api/analytics/kita/sector-mix", { params }),
+  pipelineStrength: (params?: { year?: number; month?: number }) =>
+    api.get("/api/analytics/kita/pipeline-strength", { params }),
+  focusTables: (params?: { tab: string; year?: number; month?: number }) =>
+    api.get("/api/analytics/kita/focus-tables", { params }),
+  customerGraphic: (params?: { year?: number; month?: number }) =>
+    api.get("/api/analytics/kita/customer-graphic", { params }),
+  keyAccounts: (params?: { year?: number; month?: number; limit?: number; search?: string }) =>
+    api.get("/api/analytics/kita/key-accounts", { params }),
+};
+
+
+
+

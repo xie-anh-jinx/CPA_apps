@@ -24,8 +24,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
 
 class Token(BaseModel):
     access_token: str
-    token_type: str
-    user: dict
+    token_type: str = "Bearer"
+    expires_in: int | None = 86400
+    scope: str | None = "openid profile email read write"
+    id_token: str | None = None
+    user: dict | None = None
 
 
 class UserCreate(BaseModel):
@@ -90,32 +93,98 @@ def require_roles(*roles: str):
     return checker
 
 
+def forbid_roles(*roles: str, detail: str = "Akses ditolak. Anda tidak memiliki izin untuk modul ini."):
+    """Dependency untuk memblokir role tertentu dari endpoint/router."""
+    def checker(current_user: CurrentUser):
+        if current_user.role in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=detail
+            )
+        return current_user
+    return checker
+
+
+from fastapi import Request
+
 @router.post("/token", response_model=Token)
 async def login(
-    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    request: Request,
     db: Session = Depends(get_analytics_db),
 ):
-    user = db.query(AppUser).filter_by(username=form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Username atau password salah",
-        )
-    if not user.is_active:
+    try:
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            data = await request.json()
+        else:
+            form = await request.form()
+            data = dict(form)
+    except Exception:
+        data = {}
+
+    grant_type = data.get("grant_type", "password")
+
+    if grant_type == "authorization_code":
+        code = data.get("code")
+        code_verifier = data.get("code_verifier")
+        from app.routers.oauth2_ui import get_and_consume_auth_code, verify_pkce
+        code_data = get_and_consume_auth_code(code)
+        if not code_data:
+            raise HTTPException(status_code=401, detail="Invalid or expired authorization code")
+
+        # Verify PKCE if a code challenge was stored
+        code_challenge = code_data.get("code_challenge")
+        if code_challenge:
+            if not code_verifier or not verify_pkce(code_verifier, code_challenge):
+                raise HTTPException(status_code=400, detail="Invalid PKCE code_verifier")
+
+        username = code_data.get("username")
+        user = db.query(AppUser).filter_by(username=username).first()
+    else:
+        # Default to password grant (Frontend Login)
+        username = data.get("username")
+        password = data.get("password")
+        user = db.query(AppUser).filter_by(username=username).first()
+        if not user or not verify_password(password, user.hashed_password):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Username atau password salah",
+            )
+
+    if not user or not user.is_active:
         raise HTTPException(status_code=400, detail="Akun tidak aktif")
 
     user.last_login = datetime.now()
     db.commit()
 
     access_token = create_access_token(data={"sub": user.username, "role": user.role})
+
+    # Generate OpenID Connect ID Token for ChatGPT / OAuth clients
+    client_id = data.get("client_id") or "chatgpt_mcp_client"
+    id_token_payload = {
+        "iss": "https://warehouse.pengajaran.com/mcp",
+        "sub": user.username,
+        "aud": client_id,
+        "exp": datetime.utcnow() + timedelta(days=1),
+        "iat": datetime.utcnow(),
+        "name": user.full_name or user.username,
+        "preferred_username": user.username,
+        "email": user.email or f"{user.username}@pengajaran.com",
+        "role": user.role,
+    }
+    id_token = jwt.encode(id_token_payload, settings.secret_key, algorithm=settings.algorithm)
+
     return Token(
         access_token=access_token,
-        token_type="bearer",
+        token_type="Bearer",
+        expires_in=86400,
+        scope="openid profile email read write",
+        id_token=id_token,
         user={
             "username": user.username,
             "full_name": user.full_name,
             "role": user.role,
-            "email": user.email,
+            "email": user.email or f"{user.username}@pengajaran.com",
         },
     )
 
@@ -151,5 +220,8 @@ async def get_me(current_user: CurrentUser):
         "full_name": current_user.full_name,
         "email": current_user.email,
         "role": current_user.role,
+        "id_pegawai": current_user.id_pegawai,
+        "id_gudang_access": current_user.id_gudang_access,
         "last_login": current_user.last_login,
     }
+

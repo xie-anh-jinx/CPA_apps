@@ -3,6 +3,7 @@ import { useState } from "react";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import { usePathname } from "next/navigation";
+import AIChatBox from "@/components/ai/AIChatBox";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -26,6 +27,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <main className="main-content">
         {children}
       </main>
+
+      {/* Floating AI Chat Box anchored at bottom-right */}
+      <AIChatBox variant="floating" contextPage={pathname} />
     </div>
   );
 }

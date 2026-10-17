@@ -495,7 +495,7 @@ class AppUser(AnalyticsBase):
     full_name = Column(String(100))
     role = Column(String(20), default="viewer")  # admin, manager, sales, warehouse, viewer
     id_pegawai = Column(String(10))  # relasi ke hr_pegawai di DB lama
-    id_gudang_access = Column(String(50))  # JSON list gudang yang bisa diakses
+    id_gudang_access = Column(String(500))  # Comma-separated list of gudang IDs
     is_active = Column(Boolean, default=True)
     last_login = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())

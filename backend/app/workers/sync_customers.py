@@ -69,7 +69,16 @@ def _sync_customers(existing_db, analytics_db):
                 "nama_customer": row["customer"],
                 "telepon": row["telepon"],
                 "email": row["email"],
+                "alamat_penagihan": row["alamat_penagihan"],
+                "alamat_kirim": row["alamat_kirim"],
+                "id_kategori": row["id_kategori_customer"],
+                "nama_kategori": row["nama_kategori"],
+                "batas_kredit": row["batas_kredit"],
+                "kena_pajak": row["kena_pajak"],
                 "isaktif": row["isaktif"],
+                "id_kantor": row["id_kantor"],
+                "id_salesman": row["id_sales"],
+                "top": row["top"],
                 "synced_at": datetime.now(),
             }
         )

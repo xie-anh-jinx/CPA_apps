@@ -1,10 +1,12 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { apiSales } from "@/lib/api";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend
 } from "recharts";
+import { CandlestickChart, ReceiptText } from "lucide-react";
 import ArOutstandingModal from "./ArOutstandingModal";
 
 interface SalesSummary {
@@ -42,11 +44,10 @@ export default function SalesPage() {
 
   const load = useCallback(async () => {
     try {
-      const defaultParams = { date_from: "2023-01-01", date_to: "2024-12-31" };
       const [sumRes, trendRes, prodRes] = await Promise.allSettled([
-        apiSales.summary(defaultParams),
-        apiSales.trend({ period: "monthly", months: 24, ...defaultParams }),
-        apiSales.byProduct({ limit: 5, ...defaultParams })
+        apiSales.summary({}),
+        apiSales.trend({ period: "monthly", months: 12 }),
+        apiSales.byProduct({ limit: 5 })
       ]);
 
       if (sumRes.status === "fulfilled") setSummary(sumRes.value.data);
@@ -73,6 +74,53 @@ export default function SalesPage() {
       <div className="page-header">
         <h1 className="page-title">Sales Monitoring</h1>
         <p className="page-subtitle">Performa penjualan, piutang, dan tren produk</p>
+      </div>
+
+      {/* ── SUB-NAVIGATION TABS ── */}
+      <div style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid var(--bg-border)", marginBottom: "1.25rem" }}>
+        <Link
+          href="/sales"
+          style={{
+            background: "none",
+            border: "none",
+            borderBottom: "2px solid #3B82F6",
+            color: "#60A5FA",
+            fontWeight: 700,
+            fontSize: "0.95rem",
+            padding: "0.65rem 1.25rem",
+            cursor: "pointer",
+            marginBottom: "-1px",
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.5rem",
+          }}
+        >
+          <CandlestickChart size={16} />
+          <span>Sales Monitoring</span>
+        </Link>
+        <Link
+          href="/sales/orders"
+          style={{
+            background: "none",
+            border: "none",
+            borderBottom: "2px solid transparent",
+            color: "var(--text-muted)",
+            fontWeight: 500,
+            fontSize: "0.95rem",
+            padding: "0.65rem 1.25rem",
+            cursor: "pointer",
+            marginBottom: "-1px",
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            transition: "all 0.15s ease",
+          }}
+        >
+          <ReceiptText size={16} />
+          <span>Sales Order</span>
+        </Link>
       </div>
 
       <div className="kpi-grid" style={{ marginBottom: "1.25rem" }}>

@@ -19,7 +19,16 @@ export default function LoginPage() {
     try {
       const res = await apiAuth.login(username, password);
       localStorage.setItem("cpa_token", res.data.access_token);
-      router.push("/");
+      if (res.data.user) {
+        localStorage.setItem("cpa_user", JSON.stringify(res.data.user));
+      }
+      if (res.data.user?.role === "sales_rep" || res.data.user?.role === "sales") {
+        router.push("/sales/orders");
+      } else if (res.data.user?.role === "warehouse_staff" || res.data.user?.role === "warehouse") {
+        router.push("/inventory");
+      } else {
+        router.push("/");
+      }
     } catch (err: any) {
       setError(err.response?.data?.detail || "Login gagal. Periksa kembali username & password Anda.");
     } finally {

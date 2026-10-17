@@ -17,6 +17,7 @@ services:
     #   - "5433:5432"
     networks:
       - cpa_net
+      - dwh_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${EXISTING_DB_USER:-postgres}"]
       interval: 10s
@@ -38,6 +39,7 @@ services:
     #   - "5435:5432"
     networks:
       - cpa_net
+      - dwh_network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${ANALYTICS_DB_USER:-cpa_admin}"]
       interval: 10s
@@ -80,6 +82,8 @@ services:
     networks:
       - cpa_net
       - dwh_network
+    volumes:
+      - ./backend/app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
 
   # ─── Celery Worker ───
@@ -99,6 +103,8 @@ services:
         condition: service_healthy
     networks:
       - cpa_net
+    volumes:
+      - ./backend/app:/app/app
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q sync,analytics,alerts
 
   # ─── Celery Beat (Scheduler) ───
@@ -177,3 +183,4 @@ networks:
   dwh_network:
     external: true
     name: data_warehouse_dwh_network
+

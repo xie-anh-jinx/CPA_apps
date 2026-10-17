@@ -238,12 +238,12 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
           maxWidth: "96vw",
           height: "90vh",
           maxHeight: "880px",
-          backgroundColor: "#18181b",
-          border: "1px solid rgba(255, 255, 255, 0.12)",
+          backgroundColor: "var(--bg-card)",
+          border: "1px solid var(--bg-border)",
           borderRadius: "16px",
           display: "flex",
           flexDirection: "column",
-          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05)",
+          boxShadow: "var(--shadow-lg)",
           overflow: "hidden",
           animation: "scaleUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)",
         }}
@@ -252,8 +252,8 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
         <div
           style={{
             padding: "1.25rem 1.75rem",
-            backgroundColor: "#202024",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+            backgroundColor: "var(--bg-surface)",
+            borderBottom: "1px solid var(--bg-border)",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
@@ -277,7 +277,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
             </div>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "#fff", margin: 0 }}>
+                <h2 style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
                   Piutang Outstanding (Accounts Receivable)
                 </h2>
                 <span
@@ -294,7 +294,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                   AR &amp; TOP Detail
                 </span>
               </div>
-              <p style={{ fontSize: "0.82rem", color: "#94a3b8", margin: "2px 0 0 0" }}>
+              <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", margin: "2px 0 0 0" }}>
                 Rincian faktur belum lunas, syarat pembayaran (Time of Payment), dan umur piutang
               </p>
             </div>
@@ -312,7 +312,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 borderRadius: "8px",
                 backgroundColor: "rgba(16, 185, 129, 0.15)",
                 border: "1px solid rgba(16, 185, 129, 0.35)",
-                color: "#34d399",
+                color: "#10b981",
                 fontSize: "0.85rem",
                 fontWeight: 600,
                 cursor: isExporting ? "not-allowed" : "pointer",
@@ -330,9 +330,9 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 width: "36px",
                 height: "36px",
                 borderRadius: "8px",
-                backgroundColor: "rgba(255, 255, 255, 0.05)",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                color: "#94a3b8",
+                backgroundColor: "var(--bg-hover)",
+                border: "1px solid var(--bg-border)",
+                color: "var(--text-muted)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -369,8 +369,8 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
             {/* Total Outstanding */}
             <div
               style={{
-                backgroundColor: "rgba(245, 158, 11, 0.07)",
-                border: "1px solid rgba(245, 158, 11, 0.25)",
+                backgroundColor: "rgba(245, 158, 11, 0.08)",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
                 borderRadius: "10px",
                 padding: "1rem 1.25rem",
               }}
@@ -378,10 +378,10 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
               <div style={{ fontSize: "0.78rem", color: "#f59e0b", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
                 💰 Total Piutang Outstanding
               </div>
-              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#fbbf24", marginTop: "0.35rem" }}>
+              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--text-primary)", marginTop: "0.35rem" }}>
                 {fmtCurrency(summary?.total_outstanding)}
               </div>
-              <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
                 Sisa kewajiban dari faktur yang belum lunas
               </div>
             </div>
@@ -389,19 +389,19 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
             {/* Average TOP */}
             <div
               style={{
-                backgroundColor: "rgba(14, 165, 233, 0.07)",
-                border: "1px solid rgba(14, 165, 233, 0.25)",
+                backgroundColor: "rgba(14, 165, 233, 0.08)",
+                border: "1px solid rgba(14, 165, 233, 0.3)",
                 borderRadius: "10px",
                 padding: "1rem 1.25rem",
               }}
             >
-              <div style={{ fontSize: "0.78rem", color: "#38bdf8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <div style={{ fontSize: "0.78rem", color: "var(--color-primary)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
                 ⏱️ Rata-Rata TOP (Term of Payment)
               </div>
-              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#38bdf8", marginTop: "0.35rem" }}>
+              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--color-primary)", marginTop: "0.35rem" }}>
                 {summary?.avg_top ? `${summary.avg_top} Hari` : "—"}
               </div>
-              <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
                 Tenggat pembayaran rata-rata konsumen
               </div>
             </div>
@@ -409,19 +409,19 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
             {/* Total Invoices Unpaid */}
             <div
               style={{
-                backgroundColor: "rgba(168, 85, 247, 0.07)",
-                border: "1px solid rgba(168, 85, 247, 0.25)",
+                backgroundColor: "rgba(168, 85, 247, 0.08)",
+                border: "1px solid rgba(168, 85, 247, 0.3)",
                 borderRadius: "10px",
                 padding: "1rem 1.25rem",
               }}
             >
-              <div style={{ fontSize: "0.78rem", color: "#c084fc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <div style={{ fontSize: "0.78rem", color: "#a855f7", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
                 📄 Faktur Belum Lunas
               </div>
-              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#e9d5ff", marginTop: "0.35rem" }}>
+              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--text-primary)", marginTop: "0.35rem" }}>
                 {Number(summary?.total_invoices || 0).toLocaleString("id")} Faktur
               </div>
-              <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
                 Total faktur yang belum selesai dibayar
               </div>
             </div>
@@ -429,19 +429,19 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
             {/* Total Paid */}
             <div
               style={{
-                backgroundColor: "rgba(16, 185, 129, 0.07)",
-                border: "1px solid rgba(16, 185, 129, 0.25)",
+                backgroundColor: "rgba(16, 185, 129, 0.08)",
+                border: "1px solid rgba(16, 185, 129, 0.3)",
                 borderRadius: "10px",
                 padding: "1rem 1.25rem",
               }}
             >
-              <div style={{ fontSize: "0.78rem", color: "#34d399", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              <div style={{ fontSize: "0.78rem", color: "var(--color-success)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" }}>
                 💵 Total Sudah Dibayar
               </div>
-              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "#34d399", marginTop: "0.35rem" }}>
+              <div style={{ fontSize: "1.45rem", fontWeight: 800, color: "var(--color-success)", marginTop: "0.35rem" }}>
                 {fmtCurrency(summary?.total_paid)}
               </div>
-              <div style={{ fontSize: "0.75rem", color: "#94a3b8", marginTop: "0.2rem" }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
                 Pembayaran masuk untuk faktur terkait
               </div>
             </div>
@@ -450,8 +450,8 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
           {/* TOP Filter Pills Bar */}
           <div
             style={{
-              backgroundColor: "#202024",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
+              backgroundColor: "var(--bg-surface)",
+              border: "1px solid var(--bg-border)",
               borderRadius: "10px",
               padding: "0.75rem 1rem",
               display: "flex",
@@ -461,7 +461,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginRight: "0.5rem" }}>
-              <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "#cbd5e1" }}>
+              <span style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--text-primary)" }}>
                 Filter TOP:
               </span>
             </div>
@@ -477,9 +477,9 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 borderRadius: "20px",
                 fontSize: "0.78rem",
                 fontWeight: 600,
-                border: selectedTop === null ? "1px solid #38bdf8" : "1px solid rgba(255, 255, 255, 0.1)",
-                backgroundColor: selectedTop === null ? "rgba(14, 165, 233, 0.2)" : "rgba(255, 255, 255, 0.03)",
-                color: selectedTop === null ? "#38bdf8" : "#94a3b8",
+                border: selectedTop === null ? "1px solid var(--color-primary)" : "1px solid var(--bg-border)",
+                backgroundColor: selectedTop === null ? "rgba(14, 165, 233, 0.15)" : "var(--bg-card)",
+                color: selectedTop === null ? "var(--color-primary)" : "var(--text-secondary)",
                 cursor: "pointer",
                 transition: "all 0.15s ease",
               }}
@@ -503,9 +503,9 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                     borderRadius: "20px",
                     fontSize: "0.78rem",
                     fontWeight: 600,
-                    border: isSelected ? `1px solid ${badgeStyle.color}` : "1px solid rgba(255, 255, 255, 0.1)",
-                    backgroundColor: isSelected ? badgeStyle.background : "rgba(255, 255, 255, 0.03)",
-                    color: isSelected ? badgeStyle.color : "#cbd5e1",
+                    border: isSelected ? `1px solid ${badgeStyle.color}` : "1px solid var(--bg-border)",
+                    backgroundColor: isSelected ? badgeStyle.background : "var(--bg-card)",
+                    color: isSelected ? badgeStyle.color : "var(--text-secondary)",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
@@ -518,10 +518,10 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                   <span
                     style={{
                       fontSize: "0.7rem",
-                      backgroundColor: "rgba(255, 255, 255, 0.12)",
+                      backgroundColor: "var(--bg-hover)",
                       padding: "1px 5px",
                       borderRadius: "10px",
-                      color: "#fff",
+                      color: "var(--text-primary)",
                       marginLeft: "2px",
                     }}
                   >
@@ -557,10 +557,10 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 style={{
                   width: "100%",
                   padding: "0.6rem 1rem",
-                  backgroundColor: "#202024",
-                  border: "1px solid rgba(255, 255, 255, 0.1)",
+                  backgroundColor: "var(--bg-surface)",
+                  border: "1px solid var(--bg-border)",
                   borderRadius: "8px",
-                  color: "#fff",
+                  color: "var(--text-primary)",
                   fontSize: "0.85rem",
                   outline: "none",
                   transition: "border-color 0.2s ease",
@@ -576,7 +576,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                     transform: "translateY(-50%)",
                     background: "none",
                     border: "none",
-                    color: "#94a3b8",
+                    color: "var(--text-muted)",
                     cursor: "pointer",
                     fontSize: "0.85rem",
                   }}
@@ -590,7 +590,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
               {/* Aging Filter */}
               <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                <label htmlFor={agingSelectId} style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Status:</label>
+                <label htmlFor={agingSelectId} style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Status:</label>
                 <select
                   id={agingSelectId}
                   value={selectedAging}
@@ -599,10 +599,10 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                     setPage(1);
                   }}
                   style={{
-                    backgroundColor: "#202024",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "var(--bg-surface)",
+                    border: "1px solid var(--bg-border)",
                     borderRadius: "8px",
-                    color: "#cbd5e1",
+                    color: "var(--text-primary)",
                     padding: "0.55rem 0.85rem",
                     fontSize: "0.82rem",
                     outline: "none",
@@ -620,7 +620,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
 
               {/* Sort By */}
               <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                <label htmlFor={sortSelectId} style={{ fontSize: "0.8rem", color: "#94a3b8" }}>Urutkan:</label>
+                <label htmlFor={sortSelectId} style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Urutkan:</label>
                 <select
                   id={sortSelectId}
                   value={`${sortBy}-${sortOrder}`}
@@ -631,10 +631,10 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                     setPage(1);
                   }}
                   style={{
-                    backgroundColor: "#202024",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    backgroundColor: "var(--bg-surface)",
+                    border: "1px solid var(--bg-border)",
                     borderRadius: "8px",
-                    color: "#cbd5e1",
+                    color: "var(--text-primary)",
                     padding: "0.55rem 0.85rem",
                     fontSize: "0.82rem",
                     outline: "none",
@@ -678,8 +678,8 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
           {/* Table Container */}
           <div
             style={{
-              backgroundColor: "#202024",
-              border: "1px solid rgba(255, 255, 255, 0.08)",
+              backgroundColor: "var(--bg-card)",
+              border: "1px solid var(--bg-border)",
               borderRadius: "10px",
               overflow: "hidden",
               position: "relative",
@@ -694,15 +694,15 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  backgroundColor: "rgba(24, 24, 27, 0.7)",
+                  backgroundColor: "rgba(0, 0, 0, 0.4)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   zIndex: 20,
                 }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "#38bdf8", fontWeight: 600 }}>
-                  <span className="spinner" style={{ display: "inline-block", width: "20px", height: "20px", border: "2px solid #38bdf8", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}></span>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--color-primary)", fontWeight: 600 }}>
+                  <span className="spinner" style={{ display: "inline-block", width: "20px", height: "20px", border: "2px solid var(--color-primary)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }}></span>
                   Memuat Data AR &amp; TOP...
                 </div>
               </div>
@@ -720,9 +720,9 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 <thead>
                   <tr
                     style={{
-                      backgroundColor: "#1b1b1e",
-                      borderBottom: "2px solid rgba(255, 255, 255, 0.08)",
-                      color: "#94a3b8",
+                      backgroundColor: "var(--bg-surface)",
+                      borderBottom: "1px solid var(--bg-border)",
+                      color: "var(--text-muted)",
                       fontSize: "0.75rem",
                       textTransform: "uppercase",
                       letterSpacing: "0.5px",
@@ -749,11 +749,11 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                         style={{
                           padding: "3rem 1rem",
                           textAlign: "center",
-                          color: "#94a3b8",
+                          color: "var(--text-muted)",
                         }}
                       >
                         <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🔍</div>
-                        <div style={{ fontWeight: 600, color: "#cbd5e1" }}>Tidak ada data Piutang Outstanding</div>
+                        <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>Tidak ada data Piutang Outstanding</div>
                         <div style={{ fontSize: "0.8rem", marginTop: "0.25rem" }}>Coba sesuaikan kata kunci pencarian atau filter TOP</div>
                       </td>
                     </tr>
@@ -765,35 +765,35 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                         <tr
                           key={item.ar_number || idx}
                           style={{
-                            borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
-                            backgroundColor: idx % 2 === 0 ? "transparent" : "rgba(255, 255, 255, 0.015)",
+                            borderBottom: "1px solid var(--border-table-row)",
+                            backgroundColor: idx % 2 === 0 ? "transparent" : "var(--bg-hover)",
                             transition: "background-color 0.15s ease",
                           }}
-                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.04)")}
-                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = idx % 2 === 0 ? "transparent" : "rgba(255, 255, 255, 0.015)")}
+                          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--bg-hover)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = idx % 2 === 0 ? "transparent" : "var(--bg-hover)")}
                         >
                           {/* No. Faktur / AR */}
                           <td style={{ padding: "0.85rem 1rem" }}>
-                            <div style={{ fontWeight: 600, color: "#fff", fontSize: "0.84rem" }}>
+                            <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.84rem" }}>
                               {item.no_invoice || item.ar_number}
                             </div>
-                            <div style={{ fontSize: "0.72rem", color: "#64748b", fontFamily: "monospace" }}>
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontFamily: "monospace" }}>
                               {item.ar_number}
                             </div>
                           </td>
 
                           {/* Customer */}
                           <td style={{ padding: "0.85rem 1rem" }}>
-                            <div style={{ fontWeight: 600, color: "#f1f5f9" }}>
+                            <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
                               {item.customer_name}
                             </div>
-                            <div style={{ fontSize: "0.72rem", color: "#64748b" }}>
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
                               Kode: {item.customer_code}
                             </div>
                           </td>
 
                           {/* Tgl Faktur */}
-                          <td style={{ padding: "0.85rem 1rem", color: "#cbd5e1", whiteSpace: "nowrap" }}>
+                          <td style={{ padding: "0.85rem 1rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                             {fmtDate(item.invoice_date)}
                           </td>
 
@@ -820,23 +820,23 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                           </td>
 
                           {/* Jatuh Tempo */}
-                          <td style={{ padding: "0.85rem 1rem", color: "#cbd5e1", whiteSpace: "nowrap" }}>
+                          <td style={{ padding: "0.85rem 1rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                             {fmtDate(item.due_date)}
                           </td>
 
                           {/* Total AR */}
-                          <td style={{ padding: "0.85rem 1rem", textAlign: "right", color: "#94a3b8" }}>
+                          <td style={{ padding: "0.85rem 1rem", textAlign: "right", color: "var(--text-muted)" }}>
                             {fmtCurrency(item.total_amount)}
                           </td>
 
                           {/* Sudah Bayar */}
-                          <td style={{ padding: "0.85rem 1rem", textAlign: "right", color: item.paid_amount > 0 ? "#34d399" : "#64748b" }}>
+                          <td style={{ padding: "0.85rem 1rem", textAlign: "right", color: item.paid_amount > 0 ? "var(--color-success)" : "var(--text-muted)" }}>
                             {fmtCurrency(item.paid_amount)}
                           </td>
 
                           {/* Piutang Outstanding */}
                           <td style={{ padding: "0.85rem 1rem", textAlign: "right" }}>
-                            <div style={{ fontWeight: 800, color: "#fbbf24", fontSize: "0.9rem" }}>
+                            <div style={{ fontWeight: 800, color: "#d97706", fontSize: "0.9rem" }}>
                               {fmtCurrency(item.outstanding_amount)}
                             </div>
                           </td>
@@ -875,7 +875,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
               justifyContent: "space-between",
               alignItems: "center",
               padding: "0.5rem 0",
-              color: "#94a3b8",
+              color: "var(--text-muted)",
               fontSize: "0.82rem",
             }}
           >
@@ -890,9 +890,9 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 style={{
                   padding: "0.4rem 0.8rem",
                   borderRadius: "6px",
-                  backgroundColor: "#202024",
-                  border: "1px solid rgba(255, 255, 255, 0.1)",
-                  color: page <= 1 ? "#475569" : "#cbd5e1",
+                  backgroundColor: "var(--bg-surface)",
+                  border: "1px solid var(--bg-border)",
+                  color: page <= 1 ? "var(--text-muted)" : "var(--text-primary)",
                   cursor: page <= 1 ? "not-allowed" : "pointer",
                   fontSize: "0.8rem",
                 }}
@@ -900,7 +900,7 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 ◀ Sebelumnya
               </button>
 
-              <span style={{ padding: "0 0.5rem", fontWeight: 600, color: "#fff" }}>
+              <span style={{ padding: "0 0.5rem", fontWeight: 600, color: "var(--text-primary)" }}>
                 Halaman {page} dari {totalPages}
               </span>
 
@@ -910,9 +910,9 @@ export default function ArOutstandingModal({ isOpen, onClose }: ArOutstandingMod
                 style={{
                   padding: "0.4rem 0.8rem",
                   borderRadius: "6px",
-                  backgroundColor: "#202024",
-                  border: "1px solid rgba(255, 255, 255, 0.1)",
-                  color: page >= totalPages ? "#475569" : "#cbd5e1",
+                  backgroundColor: "var(--bg-surface)",
+                  border: "1px solid var(--bg-border)",
+                  color: page >= totalPages ? "var(--text-muted)" : "var(--text-primary)",
                   cursor: page >= totalPages ? "not-allowed" : "pointer",
                   fontSize: "0.8rem",
                 }}

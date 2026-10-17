@@ -1,7 +1,7 @@
 """
 Router — Warehouses Multi-Gudang Monitoring
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
@@ -21,12 +21,12 @@ async def list_warehouses(
     extra = ""
     params = {}
     # Role-based Row-Level Security
-    if current_user and current_user.role == "warehouse":
+    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
         if current_user.id_gudang_access:
             gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
             extra = " WHERE w.id_gudang IN :gudangs"
             params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
+        elif current_user.id_pegawai and current_user.role in ("warehouse", "warehouse_staff"):
             extra = " WHERE w.id_gudang = :user_gudang"
             params["user_gudang"] = current_user.id_pegawai
 
@@ -46,7 +46,15 @@ async def list_warehouses(
         GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.inisial, w.parent
         ORDER BY w.nama_gudang
     """), params).mappings().all()
-    return [dict(r) for r in rows]
+
+    hide_financial = current_user and current_user.role in ("sales", "sales_rep", "warehouse", "warehouse_staff")
+    res = []
+    for r in rows:
+        d = dict(r)
+        if hide_financial:
+            d["total_nilai"] = None
+        res.append(d)
+    return res
 
 
 @router.get("/comparison")
@@ -58,12 +66,12 @@ async def compare_warehouses(
     extra = ""
     params = {}
     # Role-based Row-Level Security
-    if current_user and current_user.role == "warehouse":
+    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
         if current_user.id_gudang_access:
             gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
             extra = " WHERE w.id_gudang IN :gudangs"
             params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
+        elif current_user.id_pegawai and current_user.role in ("warehouse", "warehouse_staff"):
             extra = " WHERE w.id_gudang = :user_gudang"
             params["user_gudang"] = current_user.id_pegawai
 
@@ -96,7 +104,15 @@ async def compare_warehouses(
         GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor
         ORDER BY total_nilai DESC
     """), params).mappings().all()
-    return [dict(r) for r in rows]
+
+    hide_financial = current_user and current_user.role in ("sales", "sales_rep", "warehouse", "warehouse_staff")
+    res = []
+    for r in rows:
+        d = dict(r)
+        if hide_financial:
+            d["total_nilai"] = None
+        res.append(d)
+    return res
 
 
 @router.get("/{id_gudang}/stock")
@@ -124,13 +140,13 @@ async def get_warehouse_stock(
         conditions.append("ib.stok_max > 0 AND ib.on_hand > ib.stok_max")
 
     # Role-based Row-Level Security
-    if current_user and current_user.role == "warehouse":
+    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
         if current_user.id_gudang_access:
             gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
             # Just verify if id_gudang parameter is in allowed list
             if id_gudang not in gudangs:
                 raise HTTPException(status_code=403, detail="Akses gudang ditolak")
-        elif current_user.id_pegawai:
+        elif current_user.id_pegawai and current_user.role in ("warehouse", "warehouse_staff"):
             if id_gudang != current_user.id_pegawai:
                 raise HTTPException(status_code=403, detail="Akses gudang ditolak")
 
@@ -154,7 +170,16 @@ async def get_warehouse_stock(
         ORDER BY ib.available ASC
         LIMIT :limit OFFSET :offset
     """), params).mappings().all()
-    return {"id_gudang": id_gudang, "data": [dict(r) for r in rows]}
+
+    hide_financial = current_user and current_user.role in ("sales", "sales_rep", "warehouse", "warehouse_staff")
+    res = []
+    for r in rows:
+        d = dict(r)
+        if hide_financial:
+            d["hpp"] = None
+            d["nilai_persediaan"] = None
+        res.append(d)
+    return {"id_gudang": id_gudang, "data": res}
 
 
 @router.get("/transfers")
@@ -181,12 +206,12 @@ async def get_warehouse_transfers(
         params["status"] = status
 
     # Role-based Row-Level Security
-    if current_user and current_user.role == "warehouse":
+    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
         if current_user.id_gudang_access:
             gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
             conditions.append("(wt.id_gudang_asal IN :gudangs OR wt.id_gudang_tujuan IN :gudangs)")
             params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
+        elif current_user.id_pegawai and current_user.role in ("warehouse", "warehouse_staff"):
             conditions.append("(wt.id_gudang_asal = :user_gudang OR wt.id_gudang_tujuan = :user_gudang)")
             params["user_gudang"] = current_user.id_pegawai
 
@@ -216,12 +241,12 @@ async def get_warehouse_performance(
     extra = ""
     params = {"year": year, "month": month}
     # Role-based Row-Level Security
-    if current_user and current_user.role == "warehouse":
+    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
         if current_user.id_gudang_access:
             gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
             extra = " AND id_gudang IN :gudangs"
             params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
+        elif current_user.id_pegawai and current_user.role in ("warehouse", "warehouse_staff"):
             extra = " AND id_gudang = :user_gudang"
             params["user_gudang"] = current_user.id_pegawai
 
@@ -231,4 +256,15 @@ async def get_warehouse_performance(
         WHERE period_year = :year AND period_month = :month {extra}
         ORDER BY nilai_persediaan_akhir DESC
     """), params).mappings().all()
-    return [dict(r) for r in rows]
+
+    hide_financial = current_user and current_user.role in ("sales", "sales_rep", "warehouse", "warehouse_staff")
+    res = []
+    for r in rows:
+        d = dict(r)
+        if hide_financial:
+            d["nilai_persediaan_awal"] = None
+            d["nilai_persediaan_akhir"] = None
+            d["nilai_masuk"] = None
+            d["nilai_keluar"] = None
+        res.append(d)
+    return res

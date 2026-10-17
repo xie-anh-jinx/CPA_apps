@@ -23,6 +23,10 @@ interface CustomerData {
   nama_kategori?: string;
   isaktif?: boolean;
   id_salesman?: string;
+  nama_sales?: string;
+  panggilan_sales?: string;
+  telepon_sales?: string;
+  email_sales?: string;
   id_kantor?: string;
   top?: number;
   batas_kredit?: number;
@@ -37,6 +41,31 @@ interface CustomerData {
   dim_credit_limit?: string;
   dim_revenue_tier?: string;
   dim_kantor?: string;
+}
+
+interface SalesRelation {
+  id_pegawai: string;
+  nama_sales: string;
+  panggilan: string;
+  telepon_sales?: string;
+  email_sales?: string;
+  is_aktif?: boolean;
+  jumlah_customer: number;
+  total_omzet: number;
+  total_piutang: number;
+}
+
+interface SalesCustomer {
+  id_kontak: string;
+  nama_customer: string;
+  telepon?: string;
+  email?: string;
+  id_kantor?: string;
+  isaktif?: boolean;
+  total_revenue: number;
+  total_orders: number;
+  last_purchase_date?: string;
+  total_piutang: number;
 }
 
 interface SegmentItem {
@@ -143,14 +172,33 @@ export default function CustomerTab() {
   const [segmentationData, setSegmentationData] = useState<Record<string, SegmentItem[]>>({});
   const [activeDimension, setActiveDimension] = useState<string>("kategori");
   const [activeFilter, setActiveFilter] = useState<{ dim: string; val: string } | null>(null);
+  const [activeMainTab, setActiveMainTab] = useState<"direktori" | "sales">("direktori");
 
   const [customers, setCustomers] = useState<CustomerData[]>([]);
   const [customersLoading, setCustomersLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Pagination state (20 rows per page)
+  const ITEMS_PER_PAGE = 20;
+  const [custPage, setCustPage] = useState(1);
+  const [salesCustPage, setSalesCustPage] = useState(1);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [c360, setC360] = useState<any>(null);
   const [c360Loading, setC360Loading] = useState(false);
+
+  // Sales Relations State
+  const [salesList, setSalesList] = useState<SalesRelation[]>([]);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [salesSearch, setSalesSearch] = useState("");
+  const [selectedSales, setSelectedSales] = useState<SalesRelation | null>(null);
+  const [salesCustomers, setSalesCustomers] = useState<SalesCustomer[]>([]);
+  const [salesCustLoading, setSalesCustLoading] = useState(false);
+
+  // Reset page when filter or dimension changes
+  useEffect(() => {
+    setCustPage(1);
+  }, [activeFilter, activeDimension]);
 
   // Load multi-dimensional segmentation once
   const loadSegmentation = useCallback(async () => {
@@ -171,12 +219,12 @@ export default function CustomerTab() {
     }
   }, []);
 
-  // Load customer directory (supports dimension filter & search)
+  // Load customer directory (supports dimension filter & search by customer or sales/PIC)
   const loadCustomers = useCallback(async () => {
     setCustomersLoading(true);
     try {
       const params: Record<string, unknown> = {
-        limit: 100,
+        limit: 500,
       };
       if (searchQuery.trim()) {
         params.search = searchQuery.trim();
@@ -193,6 +241,117 @@ export default function CustomerTab() {
       setCustomersLoading(false);
     }
   }, [activeFilter, searchQuery]);
+
+  // Paginated data derivations
+  const totalCustPages = Math.max(1, Math.ceil(customers.length / ITEMS_PER_PAGE));
+  const safeCustPage = Math.min(custPage, totalCustPages);
+  const paginatedCustomers = useMemo(() => {
+    return customers.slice((safeCustPage - 1) * ITEMS_PER_PAGE, safeCustPage * ITEMS_PER_PAGE);
+  }, [customers, safeCustPage]);
+
+  const totalSalesCustPages = Math.max(1, Math.ceil(salesCustomers.length / ITEMS_PER_PAGE));
+  const safeSalesCustPage = Math.min(salesCustPage, totalSalesCustPages);
+  const paginatedSalesCustomers = useMemo(() => {
+    return salesCustomers.slice((safeSalesCustPage - 1) * ITEMS_PER_PAGE, safeSalesCustPage * ITEMS_PER_PAGE);
+  }, [salesCustomers, safeSalesCustPage]);
+
+  // Helper render pagination
+  const renderPagination = (
+    currentPage: number,
+    totalPages: number,
+    totalItems: number,
+    onPageChange: (newPage: number) => void
+  ) => {
+    if (totalItems === 0) return null;
+    const startIdx = (currentPage - 1) * ITEMS_PER_PAGE + 1;
+    const endIdx = Math.min(currentPage * ITEMS_PER_PAGE, totalItems);
+
+    return (
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "0.75rem",
+          padding: "0.85rem 1.25rem",
+          background: "var(--bg-surface)",
+          borderTop: "1px solid var(--bg-border)",
+          fontSize: "0.85rem",
+          color: "var(--text-muted)",
+        }}
+      >
+        <div>
+          Menampilkan <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{startIdx}</span> –{" "}
+          <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{endIdx}</span> dari{" "}
+          <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{totalItems}</span> data
+          <span style={{ marginLeft: "0.5rem", color: "var(--text-muted)", fontSize: "0.8rem" }}>
+            (20 data per halaman)
+          </span>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <button
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage <= 1}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              padding: "0.4rem 0.85rem",
+              background: currentPage <= 1 ? "var(--bg-surface)" : "var(--color-primary)",
+              color: currentPage <= 1 ? "var(--text-muted)" : "#ffffff",
+              border: "1px solid",
+              borderColor: currentPage <= 1 ? "var(--bg-border)" : "var(--color-primary)",
+              borderRadius: "6px",
+              cursor: currentPage <= 1 ? "not-allowed" : "pointer",
+              fontWeight: 500,
+              fontSize: "0.82rem",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <span>&larr;</span> Back
+          </button>
+
+          <span
+            style={{
+              padding: "0.4rem 0.85rem",
+              background: "var(--bg-hover)",
+              border: "1px solid var(--bg-border)",
+              borderRadius: "6px",
+              fontSize: "0.82rem",
+              color: "var(--text-primary)",
+              fontWeight: 600,
+            }}
+          >
+            Halaman {currentPage} / {totalPages}
+          </span>
+
+          <button
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage >= totalPages}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              padding: "0.4rem 0.85rem",
+              background: currentPage >= totalPages ? "var(--bg-surface)" : "var(--color-primary)",
+              color: currentPage >= totalPages ? "var(--text-muted)" : "#ffffff",
+              border: "1px solid",
+              borderColor: currentPage >= totalPages ? "var(--bg-border)" : "var(--color-primary)",
+              borderRadius: "6px",
+              cursor: currentPage >= totalPages ? "not-allowed" : "pointer",
+              fontWeight: 500,
+              fontSize: "0.82rem",
+              transition: "all 0.15s ease",
+            }}
+          >
+            Next Page <span>&rarr;</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
 
   useEffect(() => {
     loadSegmentation();
@@ -248,16 +407,228 @@ export default function CustomerTab() {
     }
   };
 
+  const loadSalesCustomers = useCallback(async (sales: SalesRelation) => {
+    setSelectedSales(sales);
+    setSalesCustPage(1);
+    setSalesCustLoading(true);
+    setSalesCustomers([]);
+    try {
+      const res = await apiCustomers.salesCustomers(sales.id_pegawai);
+      setSalesCustomers(res.data || []);
+    } catch {
+      // ignore
+    } finally {
+      setSalesCustLoading(false);
+    }
+  }, []);
+
+  const loadSalesRelations = useCallback(async () => {
+    setSalesLoading(true);
+    try {
+      const params: Record<string, unknown> = {};
+      if (salesSearch.trim()) params.search = salesSearch.trim();
+      const res = await apiCustomers.salesRelations(params);
+      const list: SalesRelation[] = res.data || [];
+      setSalesList(list);
+      if (list.length === 1) {
+        loadSalesCustomers(list[0]);
+      }
+    } catch (e) {
+      console.error("Failed to load sales relations:", e);
+    } finally {
+      setSalesLoading(false);
+    }
+  }, [salesSearch, loadSalesCustomers]);
+
+  useEffect(() => {
+    if (activeMainTab === "sales") loadSalesRelations();
+  }, [activeMainTab, loadSalesRelations]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+      {/* ── MAIN TAB SELECTOR ── */}
+      <div style={{ display: "flex", gap: "0", borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+        {[
+          { key: "direktori", label: "👥 Direktori & Segmentasi" },
+          { key: "sales", label: "🤝 Relasi Sales & Customer" },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveMainTab(tab.key as typeof activeMainTab)}
+            style={{
+              background: "none",
+              border: "none",
+              borderBottom: activeMainTab === tab.key ? "2px solid #3B82F6" : "2px solid transparent",
+              color: activeMainTab === tab.key ? "#60A5FA" : "var(--text-muted)",
+              fontWeight: activeMainTab === tab.key ? 700 : 500,
+              fontSize: "0.95rem",
+              padding: "0.65rem 1.25rem",
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+              marginBottom: "-1px",
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── RELASI SALES TAB ── */}
+      {activeMainTab === "sales" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+          {/* Header */}
+          <div style={{ background: "var(--bg-card)", borderRadius: "16px", padding: "1.5rem", border: "1px solid var(--bg-border)", boxShadow: "var(--shadow-sm)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.5rem" }}>
+              <span style={{ fontSize: "1.5rem" }}>🤝</span>
+              <h2 style={{ fontSize: "1.25rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Relasi Sales & Customer</h2>
+            </div>
+            <p style={{ margin: 0, fontSize: "0.875rem", color: "var(--text-secondary)" }}>
+              Mapping antara salesperson dengan customer yang menjadi tanggung jawabnya. Klik salesperson untuk melihat daftar customer yang ditangani.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
+            {/* Left: Sales Leaderboard */}
+            <div className="card" style={{ borderRadius: "16px", overflow: "hidden", flex: "1 1 400px", minWidth: 0 }}>
+              <div style={{ padding: "1rem 1.25rem", borderBottom: "1px solid var(--bg-border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontWeight: 700, fontSize: "1rem", color: "var(--text-primary)" }}>Daftar Salesperson</h3>
+                  <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 2 }}>{salesList.length} salesperson aktif</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", background: "var(--bg-surface)", border: "1px solid var(--bg-border)", borderRadius: "8px", padding: "0.35rem 0.65rem", gap: "0.4rem" }}>
+                  <span style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Cari nama sales..."
+                    value={salesSearch}
+                    onChange={(e) => setSalesSearch(e.target.value)}
+                    style={{ background: "transparent", border: "none", outline: "none", color: "var(--text-primary)", fontSize: "0.82rem", width: 160 }}
+                  />
+                </div>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Salesperson</th>
+                      <th style={{ textAlign: "right" }}>Customer</th>
+                      <th style={{ textAlign: "right" }}>Total Omzet</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {salesLoading ? (
+                      Array.from({ length: 8 }).map((_, i) => (
+                        <tr key={i}>
+                          {Array.from({ length: 4 }).map((_, j) => (
+                            <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : salesList.length === 0 ? (
+                      <tr><td colSpan={4} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>Tidak ada data.</td></tr>
+                    ) : salesList.map((s, idx) => (
+                      <tr
+                        key={s.id_pegawai}
+                        onClick={() => loadSalesCustomers(s)}
+                        style={{
+                          cursor: "pointer",
+                          background: selectedSales?.id_pegawai === s.id_pegawai ? "rgba(59,130,246,0.12)" : "transparent",
+                          borderLeft: selectedSales?.id_pegawai === s.id_pegawai ? "3px solid #3B82F6" : "3px solid transparent",
+                        }}
+                      >
+                        <td style={{ fontSize: "0.75rem", color: "var(--text-muted)", width: 32 }}>{idx + 1}</td>
+                        <td>
+                          <div style={{ fontWeight: 600, fontSize: "0.875rem", color: "var(--text-primary)" }}>{s.nama_sales}</div>
+                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{s.id_pegawai} {s.panggilan ? `· "${s.panggilan}"` : ""}</div>
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 600, color: "#60A5FA" }}>{s.jumlah_customer}</td>
+                        <td style={{ textAlign: "right", fontSize: "0.82rem", color: "#34D399", fontWeight: 600 }}>{fmtRupiah(s.total_omzet)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Right: Customer List for selected Sales */}
+            <div className="card" style={{ borderRadius: "16px", overflow: "hidden", flex: "1 1 400px", minWidth: 0 }}>
+              {selectedSales ? (
+                <>
+                  <div style={{ padding: "1rem 1.25rem", borderBottom: "1px solid var(--bg-border)", background: "rgba(59,130,246,0.08)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                      <div style={{ width: 42, height: 42, borderRadius: "50%", background: "linear-gradient(135deg,#3B82F6,#06B6D4)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "1.1rem", color: "#fff", flexShrink: 0 }}>
+                        {selectedSales.nama_sales?.charAt(0)}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: "1rem" }}>{selectedSales.nama_sales}</div>
+                        <div style={{ fontSize: "0.78rem", color: "var(--color-primary)" }}>{selectedSales.id_pegawai} · {selectedSales.jumlah_customer} customer · Omzet {fmtRupiah(selectedSales.total_omzet)}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Customer</th>
+                          <th>Kantor</th>
+                          <th style={{ textAlign: "right" }}>Total Order</th>
+                          <th style={{ textAlign: "right" }}>Omzet</th>
+                          <th>Terakhir Beli</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {salesCustLoading ? (
+                          Array.from({ length: 5 }).map((_, i) => (
+                            <tr key={i}>
+                              {Array.from({ length: 5 }).map((_, j) => (
+                                <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
+                              ))}
+                            </tr>
+                          ))
+                        ) : salesCustomers.length === 0 ? (
+                          <tr><td colSpan={5} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>Belum ada data customer.</td></tr>
+                        ) : paginatedSalesCustomers.map((c) => (
+                          <tr key={c.id_kontak}>
+                            <td>
+                              <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>{c.nama_customer}</div>
+                              <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{c.id_kontak}</div>
+                            </td>
+                            <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{c.id_kantor || "HO"}</td>
+                            <td style={{ textAlign: "right", fontWeight: 600, color: "#60A5FA" }}>{c.total_orders || 0}</td>
+                            <td style={{ textAlign: "right", fontWeight: 600, color: "#34D399", fontSize: "0.82rem" }}>{fmtRupiah(c.total_revenue)}</td>
+                            <td style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+                              {c.last_purchase_date ? new Date(c.last_purchase_date).toLocaleDateString("id") : "—"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {renderPagination(safeSalesCustPage, totalSalesCustPages, salesCustomers.length, setSalesCustPage)}
+                </>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", minHeight: 300, color: "var(--text-muted)", flexDirection: "column", gap: "0.75rem" }}>
+                  <span style={{ fontSize: "2.5rem" }}>👈</span>
+                  <div style={{ fontSize: "0.9rem" }}>Klik nama salesperson untuk melihat daftar customer</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DIREKTORI TAB ── */}
+      {activeMainTab === "direktori" && (
+        <>
       {/* ── HEADER & DIMENSION SELECTOR ── */}
       <div
         style={{
-          background: "linear-gradient(145deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.95))",
+          background: "var(--bg-card)",
           borderRadius: "16px",
           padding: "1.5rem",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+          border: "1px solid var(--bg-border)",
+          boxShadow: "var(--shadow-sm)",
         }}
       >
         <div
@@ -273,7 +644,7 @@ export default function CustomerTab() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <span style={{ fontSize: "1.5rem" }}>👥</span>
-              <h1 style={{ fontSize: "1.4rem", fontWeight: 700, margin: 0, color: "#fff" }}>
+              <h1 style={{ fontSize: "1.4rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
                 Customer Segmentation & 360 Analytics
               </h1>
             </div>
@@ -624,12 +995,12 @@ export default function CustomerTab() {
               onClick={() => handleSelectFilter(activeDimension, seg.segment)}
               style={{
                 background: isSelected
-                  ? "linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(30, 41, 59, 0.8))"
+                  ? "rgba(59, 130, 246, 0.12)"
                   : "var(--bg-card)",
                 padding: "1rem",
                 borderRadius: "12px",
                 border: isSelected ? `2px solid ${color}` : "1px solid var(--bg-border)",
-                boxShadow: isSelected ? `0 0 16px ${color}30` : "none",
+                boxShadow: isSelected ? `0 0 16px ${color}30` : "var(--shadow-sm)",
                 cursor: "pointer",
                 transition: "all 0.2s ease",
                 display: "flex",
@@ -653,7 +1024,7 @@ export default function CustomerTab() {
                     style={{
                       fontSize: "0.85rem",
                       fontWeight: 600,
-                      color: "#fff",
+                      color: "var(--text-primary)",
                       maxWidth: "140px",
                       whiteSpace: "nowrap",
                       overflow: "hidden",
@@ -680,7 +1051,7 @@ export default function CustomerTab() {
               </div>
 
               <div>
-                <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "#fff" }}>
+                <div style={{ fontSize: "1.25rem", fontWeight: 700, color: "var(--text-primary)" }}>
                   {fmtNumber(seg.jumlah)} <span style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: 400 }}>pelanggan</span>
                 </div>
               </div>
@@ -732,9 +1103,9 @@ export default function CustomerTab() {
         >
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
             <span style={{ fontSize: "1.1rem" }}>🎯</span>
-            <span style={{ fontSize: "0.9rem", color: "#fff" }}>
+            <span style={{ fontSize: "0.9rem", color: "var(--text-primary)" }}>
               Menampilkan filter segmen:{" "}
-              <strong style={{ color: "#93C5FD" }}>
+              <strong style={{ color: "var(--color-primary)" }}>
                 {dimensions.find((d) => d.id === activeFilter.dim)?.label || activeFilter.dim}
               </strong>{" "}
               → <strong style={{ color: "#34D399" }}>{activeFilter.val}</strong>
@@ -778,7 +1149,7 @@ export default function CustomerTab() {
         >
           <div>
             <h2 className="card-title" style={{ fontSize: "1.15rem", fontWeight: 700, margin: 0 }}>
-              Direktori Pelanggan CPA & Profil LTV
+              Direktori Pelanggan CPA &amp; Profil LTV
             </h2>
             <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "2px" }}>
               {activeFilter
@@ -793,8 +1164,8 @@ export default function CustomerTab() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                background: "rgba(255,255,255,0.05)",
-                border: "1px solid rgba(255,255,255,0.1)",
+                background: "var(--bg-surface)",
+                border: "1px solid var(--bg-border)",
                 borderRadius: "8px",
                 padding: "0.4rem 0.75rem",
                 gap: "0.5rem",
@@ -803,21 +1174,28 @@ export default function CustomerTab() {
               <span style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>🔍</span>
               <input
                 type="text"
-                placeholder="Cari nama / ID kontak..."
+                placeholder="Cari pelanggan, ID, nama sales, PIC..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCustPage(1);
+                }}
                 style={{
                   background: "transparent",
                   border: "none",
                   outline: "none",
-                  color: "#fff",
+                  color: "var(--text-primary)",
                   fontSize: "0.85rem",
-                  width: "220px",
+                  width: "250px",
                 }}
+                title="Pencarian menurut nama pelanggan, ID kontak, nama sales, atau PIC"
               />
               {searchQuery && (
                 <button
-                  onClick={() => setSearchQuery("")}
+                  onClick={() => {
+                    setSearchQuery("");
+                    setCustPage(1);
+                  }}
                   style={{
                     background: "none",
                     border: "none",
@@ -837,9 +1215,10 @@ export default function CustomerTab() {
           <table className="table" style={{ width: "100%", textAlign: "left", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--bg-border)", color: "var(--text-muted)", fontSize: "0.8rem" }}>
-                <th style={{ padding: "0.85rem 1rem" }}>Customer & ID</th>
-                <th style={{ padding: "0.85rem 1rem" }}>Kategori & Kantor</th>
-                <th style={{ padding: "0.85rem 1rem" }}>TOP & Plafon</th>
+                <th style={{ padding: "0.85rem 1rem" }}>Customer &amp; ID</th>
+                <th style={{ padding: "0.85rem 1rem" }}>Kategori &amp; Kantor</th>
+                <th style={{ padding: "0.85rem 1rem" }}>Sales</th>
+                <th style={{ padding: "0.85rem 1rem" }}>TOP &amp; Plafon</th>
                 <th style={{ padding: "0.85rem 1rem" }}>Status Siklus</th>
                 <th style={{ padding: "0.85rem 1rem", textAlign: "right" }}>Omzet LTV</th>
                 <th style={{ padding: "0.85rem 1rem", textAlign: "right" }}>Terakhir Transaksi</th>
@@ -849,18 +1228,18 @@ export default function CustomerTab() {
             <tbody>
               {customersLoading ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: "var(--text-muted)" }}>
+                  <td colSpan={8} style={{ padding: "2.5rem", textAlign: "center", color: "var(--text-muted)" }}>
                     Memuat data pelanggan...
                   </td>
                 </tr>
               ) : customers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ padding: "2.5rem", textAlign: "center", color: "var(--text-muted)" }}>
+                  <td colSpan={8} style={{ padding: "2.5rem", textAlign: "center", color: "var(--text-muted)" }}>
                     Tidak ada customer ditemukan pada segmen ini.
                   </td>
                 </tr>
               ) : (
-                customers.map((c) => {
+                paginatedCustomers.map((c) => {
                   const actColor = getSegmentColor(c.segment || "lead");
                   const katColor = getSegmentColor(c.dim_kategori || c.nama_kategori || "Umum");
 
@@ -896,7 +1275,7 @@ export default function CustomerTab() {
                             {c.nama_customer?.charAt(0) || "C"}
                           </div>
                           <div>
-                            <div style={{ fontWeight: 600, color: "#fff", fontSize: "0.875rem" }}>
+                            <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.875rem" }}>
                               {c.nama_customer}
                             </div>
                             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
@@ -923,7 +1302,7 @@ export default function CustomerTab() {
                           </span>
                           <span
                             style={{
-                              background: "rgba(255,255,255,0.06)",
+                              background: "var(--bg-hover)",
                               color: "var(--text-secondary)",
                               padding: "2px 7px",
                               borderRadius: "6px",
@@ -935,6 +1314,20 @@ export default function CustomerTab() {
                         </div>
                       </td>
 
+                      {/* Sales */}
+                      <td style={{ padding: "0.85rem 1rem" }}>
+                        {c.nama_sales ? (
+                          <div>
+                            <div style={{ fontWeight: 600, fontSize: "0.82rem", color: "var(--color-primary)" }}>
+                              👤 {c.panggilan_sales || c.nama_sales}
+                            </div>
+                            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{c.id_salesman}</div>
+                          </div>
+                        ) : (
+                          <span style={{ color: "var(--text-muted)", fontSize: "0.78rem" }}>—</span>
+                        )}
+                      </td>
+
                       {/* TOP & Plafon */}
                       <td style={{ padding: "0.85rem 1rem", fontSize: "0.8rem" }}>
                         <div style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
@@ -944,6 +1337,7 @@ export default function CustomerTab() {
                           Plafon: {c.batas_kredit && c.batas_kredit > 0 ? fmtRupiah(c.batas_kredit) : "Rp 0"}
                         </div>
                       </td>
+
 
                       {/* Status Siklus */}
                       <td style={{ padding: "0.85rem 1rem" }}>
@@ -1007,9 +1401,9 @@ export default function CustomerTab() {
                         <button
                           onClick={() => load360(c.id_kontak)}
                           style={{
-                            background: "rgba(59, 130, 246, 0.15)",
-                            border: "1px solid rgba(59, 130, 246, 0.4)",
-                            color: "#93C5FD",
+                            background: "rgba(59, 130, 246, 0.12)",
+                            border: "1px solid rgba(59, 130, 246, 0.3)",
+                            color: "var(--color-primary)",
                             padding: "0.35rem 0.75rem",
                             borderRadius: "6px",
                             cursor: "pointer",
@@ -1034,7 +1428,10 @@ export default function CustomerTab() {
             </tbody>
           </table>
         </div>
+        {renderPagination(safeCustPage, totalCustPages, customers.length, setCustPage)}
       </div>
+      </>
+      )}
 
       {/* ── MODAL CUSTOMER 360 ── */}
       {selectedId && (
@@ -1059,13 +1456,13 @@ export default function CustomerTab() {
             style={{
               width: "640px",
               maxWidth: "92%",
-              background: "#0F172A",
+              background: "var(--bg-surface)",
               height: "100%",
               overflowY: "auto",
-              boxShadow: "-8px 0 32px rgba(0,0,0,0.6)",
+              boxShadow: "var(--shadow-lg)",
               display: "flex",
               flexDirection: "column",
-              borderLeft: "1px solid rgba(255,255,255,0.1)",
+              borderLeft: "1px solid var(--bg-border)",
             }}
           >
             {/* Header Modal */}
@@ -1083,7 +1480,7 @@ export default function CustomerTab() {
               }}
             >
               <div>
-                <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0, color: "#fff" }}>
+                <h2 style={{ fontSize: "1.2rem", fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
                   Customer 360 Profile
                 </h2>
                 <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
@@ -1093,8 +1490,8 @@ export default function CustomerTab() {
               <button
                 onClick={() => setSelectedId(null)}
                 style={{
-                  background: "rgba(255,255,255,0.06)",
-                  border: "none",
+                  background: "var(--bg-hover)",
+                  border: "1px solid var(--bg-border)",
                   color: "var(--text-muted)",
                   width: 32,
                   height: 32,
@@ -1148,52 +1545,120 @@ export default function CustomerTab() {
                       {c360.profile?.nama_customer?.charAt(0) || "C"}
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#fff" }}>
+                      <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "var(--text-primary)" }}>
                         {c360.profile?.nama_customer}
                       </div>
                       <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: "2px" }}>
                         {c360.profile?.telepon || "No phone"} • {c360.profile?.email || "No email"}
                       </div>
                       <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
-                        <span
-                          style={{
-                            background: "rgba(59, 130, 246, 0.2)",
-                            color: "#60A5FA",
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                            fontSize: "0.72rem",
-                            fontWeight: 600,
-                          }}
-                        >
+                        <span style={{ background: "rgba(59, 130, 246, 0.15)", color: "var(--color-primary)", padding: "2px 8px", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 600 }}>
                           {c360.profile?.nama_kategori || "Umum"}
                         </span>
-                        <span
-                          style={{
-                            background: "rgba(16, 185, 129, 0.2)",
-                            color: "#34D399",
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                            fontSize: "0.72rem",
-                            fontWeight: 600,
-                          }}
-                        >
+                        <span style={{ background: "rgba(16, 185, 129, 0.15)", color: "#10B981", padding: "2px 8px", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 600 }}>
                           TOP: {c360.profile?.top ? `${c360.profile?.top} Hari` : "Cash / COD"}
                         </span>
-                        <span
-                          style={{
-                            background: "rgba(245, 158, 11, 0.2)",
-                            color: "#FBBF24",
-                            padding: "2px 8px",
-                            borderRadius: "6px",
-                            fontSize: "0.72rem",
-                            fontWeight: 600,
-                          }}
-                        >
+                        <span style={{ background: "rgba(245, 158, 11, 0.15)", color: "#D97706", padding: "2px 8px", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 600 }}>
                           Plafon: {fmtRupiah(c360.profile?.batas_kredit)}
                         </span>
+                        {c360.profile?.id_salesman && (
+                          <span style={{ background: "rgba(139, 92, 246, 0.15)", color: "#7C3AED", padding: "2px 8px", borderRadius: "6px", fontSize: "0.72rem", fontWeight: 600 }}>
+                            👤 Sales: {c360.profile?.panggilan_sales || c360.profile?.nama_sales || c360.profile?.id_salesman}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
+
+                  {/* Sales Representative Card */}
+                  {c360.profile?.id_salesman && (
+                    <div
+                      style={{
+                        padding: "0.85rem 1.1rem",
+                        background: "rgba(139, 92, 246, 0.08)",
+                        borderRadius: "12px",
+                        border: "1px solid rgba(139, 92, 246, 0.25)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: "0.75rem",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                        <div
+                          style={{
+                            width: 36,
+                            height: 36,
+                            borderRadius: "50%",
+                            background: "linear-gradient(135deg, #8B5CF6, #6D28D9)",
+                            color: "#fff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: "1rem",
+                            fontWeight: 700,
+                            boxShadow: "0 2px 8px rgba(139, 92, 246, 0.35)",
+                          }}
+                        >
+                          👤
+                        </div>
+                        <div>
+                          <div style={{ fontSize: "0.7rem", color: "#7C3AED", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            Sales Representative (Penanggung Jawab)
+                          </div>
+                          <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)", marginTop: "1px" }}>
+                            {c360.profile?.nama_sales || c360.profile?.panggilan_sales || "Sales Person"}
+                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "0.45rem", fontWeight: 400 }}>
+                              ({c360.profile?.id_salesman})
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+                        {c360.profile?.telepon_sales && (
+                          <a
+                            href={`tel:${c360.profile?.telepon_sales}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.3rem",
+                              fontSize: "0.78rem",
+                              color: "#34D399",
+                              background: "rgba(16, 185, 129, 0.12)",
+                              border: "1px solid rgba(16, 185, 129, 0.25)",
+                              padding: "0.25rem 0.6rem",
+                              borderRadius: "6px",
+                              textDecoration: "none",
+                              fontWeight: 500,
+                            }}
+                          >
+                            📞 {c360.profile?.telepon_sales}
+                          </a>
+                        )}
+                        {c360.profile?.email_sales && (
+                          <a
+                            href={`mailto:${c360.profile?.email_sales}`}
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "0.3rem",
+                              fontSize: "0.78rem",
+                              color: "#60A5FA",
+                              background: "rgba(59, 130, 246, 0.12)",
+                              border: "1px solid rgba(59, 130, 246, 0.25)",
+                              padding: "0.25rem 0.6rem",
+                              borderRadius: "6px",
+                              textDecoration: "none",
+                              fontWeight: 500,
+                            }}
+                          >
+                            ✉️ {c360.profile?.email_sales}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Summary Metric Strip */}
                   <div
@@ -1205,27 +1670,27 @@ export default function CustomerTab() {
                   >
                     <div
                       style={{
-                        background: "rgba(255,255,255,0.03)",
+                        background: "var(--bg-card)",
                         padding: "0.85rem",
                         borderRadius: "10px",
-                        border: "1px solid rgba(255,255,255,0.06)",
+                        border: "1px solid var(--bg-border)",
                       }}
                     >
                       <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Total Belanja (LTV)</div>
-                      <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#34D399", marginTop: "2px" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#10B981", marginTop: "2px" }}>
                         {fmtRupiah(c360.profile?.total_revenue)}
                       </div>
                     </div>
                     <div
                       style={{
-                        background: "rgba(255,255,255,0.03)",
+                        background: "var(--bg-card)",
                         padding: "0.85rem",
                         borderRadius: "10px",
-                        border: "1px solid rgba(255,255,255,0.06)",
+                        border: "1px solid var(--bg-border)",
                       }}
                     >
                       <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>Piutang Terbuka</div>
-                      <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#F87171", marginTop: "2px" }}>
+                      <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "#EF4444", marginTop: "2px" }}>
                         {fmtRupiah(c360.profile?.total_piutang)}
                       </div>
                     </div>
@@ -1240,7 +1705,7 @@ export default function CustomerTab() {
                         marginBottom: "0.75rem",
                         borderBottom: "1px solid var(--bg-border)",
                         paddingBottom: "0.5rem",
-                        color: "#fff",
+                        color: "var(--text-primary)",
                       }}
                     >
                       📦 Produk Sering Dibeli
@@ -1255,20 +1720,20 @@ export default function CustomerTab() {
                               justifyContent: "space-between",
                               alignItems: "center",
                               padding: "0.6rem 0.85rem",
-                              background: "rgba(255,255,255,0.02)",
+                              background: "var(--bg-card)",
                               borderRadius: "8px",
-                              border: "1px solid rgba(255,255,255,0.05)",
+                              border: "1px solid var(--bg-border)",
                             }}
                           >
                             <div>
-                              <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "#fff" }}>
+                              <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>
                                 {p.nama_barang}
                               </div>
                               <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
                                 {p.total_qty} unit • {p.order_count} order
                               </div>
                             </div>
-                            <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "#34D399" }}>
+                            <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "#10B981" }}>
                               {fmtRupiah(p.total_value)}
                             </div>
                           </div>
@@ -1290,7 +1755,7 @@ export default function CustomerTab() {
                         marginBottom: "0.75rem",
                         borderBottom: "1px solid var(--bg-border)",
                         paddingBottom: "0.5rem",
-                        color: "#fff",
+                        color: "var(--text-primary)",
                       }}
                     >
                       🧾 Riwayat Pesanan (SO)
@@ -1305,20 +1770,20 @@ export default function CustomerTab() {
                               justifyContent: "space-between",
                               alignItems: "center",
                               padding: "0.6rem 0.85rem",
-                              background: "rgba(255,255,255,0.02)",
+                              background: "var(--bg-card)",
                               borderRadius: "8px",
-                              border: "1px solid rgba(255,255,255,0.05)",
+                              border: "1px solid var(--bg-border)",
                             }}
                           >
                             <div>
-                              <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "#fff" }}>
+                              <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>
                                 {o.nomor}
                               </div>
                               <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
                                 {new Date(o.tanggal).toLocaleDateString("id")} • {o.status_label}
                               </div>
                             </div>
-                            <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "#60A5FA" }}>
+                            <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--color-primary)" }}>
                               {fmtRupiah(o.grandtotal)}
                             </div>
                           </div>
@@ -1340,7 +1805,7 @@ export default function CustomerTab() {
                         marginBottom: "0.75rem",
                         borderBottom: "1px solid var(--bg-border)",
                         paddingBottom: "0.5rem",
-                        color: "#fff",
+                        color: "var(--text-primary)",
                       }}
                     >
                       🤝 Aktivitas & Komunikasi CRM
@@ -1358,7 +1823,7 @@ export default function CustomerTab() {
                             }}
                           >
                             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.25rem" }}>
-                              <strong style={{ fontSize: "0.85rem", color: "#fff" }}>
+                              <strong style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
                                 {act.subject} ({act.activity_type})
                               </strong>
                               <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
@@ -1389,7 +1854,7 @@ export default function CustomerTab() {
                         marginBottom: "0.75rem",
                         borderBottom: "1px solid var(--bg-border)",
                         paddingBottom: "0.5rem",
-                        color: "#fff",
+                        color: "var(--text-primary)",
                       }}
                     >
                       ⚠️ Keluhan & Tiket Layanan
@@ -1408,7 +1873,7 @@ export default function CustomerTab() {
                             }}
                           >
                             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.25rem" }}>
-                              <strong style={{ fontSize: "0.85rem", color: "#fff" }}>{c.subject}</strong>
+                              <strong style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>{c.subject}</strong>
                               <span
                                 style={{
                                   fontSize: "0.72rem",

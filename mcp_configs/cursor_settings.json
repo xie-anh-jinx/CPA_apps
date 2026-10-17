@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "cpa-platform": {
+      "type": "sse",
+      "url": "https://warehouse.pengajaran.com/api/mcp/sse",
+      "headers": {
+        "X-CPA-Role": "admin"
+      }
+    },
+    "cpa-sales-rep": {
+      "type": "sse",
+      "url": "https://warehouse.pengajaran.com/api/mcp/sse?role=sales_rep"
+    },
+    "cpa-warehouse": {
+      "type": "sse",
+      "url": "https://warehouse.pengajaran.com/api/mcp/sse?role=warehouse_staff"
+    }
+  }
+}

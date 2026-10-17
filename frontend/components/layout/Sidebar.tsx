@@ -13,6 +13,7 @@ import { PieChart,
   SlidersHorizontal,
   BellRing,
   LogOut,
+  LogIn,
   ReceiptText,
   BookOpen, GitGraph, Boxes,
   TrendingUp,
@@ -37,6 +38,34 @@ interface NavGroup {
   items: NavItem[];
 }
 
+const PadiAIIcon = ({ size = 18 }: { size?: number }) => (
+  <span
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: size,
+      height: size,
+      borderRadius: "4px",
+      background: "rgba(255, 255, 255, 0.95)",
+      padding: "1px 2px",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+      flexShrink: 0,
+    }}
+  >
+    <img
+      src="/images/logo-padi-ai.png"
+      alt="PADI AI"
+      style={{
+        maxWidth: "100%",
+        maxHeight: "100%",
+        objectFit: "contain",
+        display: "block",
+      }}
+    />
+  </span>
+);
+
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "Dashboard",
@@ -47,6 +76,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Intelligence & AI",
     items: [
+      { href: "#tanya-cpa-ai", icon: <PadiAIIcon size={18} />, label: "Tanya CPA AI" },
       { href: "/main-dashboard", icon: <Gauge size={18} strokeWidth={1.5} />, label: "Main Dashboard (C3)" },
       { href: "/intelligence/analytics", icon: <PieChart size={15} strokeWidth={1.5} />, label: "Analytics (Picture of Success)", isSubItem: true },
       { href: "/intelligence/sales-performance", icon: <Award size={15} strokeWidth={1.5} />, label: "Sales Performance", isSubItem: true },
@@ -95,6 +125,7 @@ const SALES_NAV_GROUPS: NavGroup[] = [
   {
     label: "Intelligence & AI",
     items: [
+      { href: "#tanya-cpa-ai", icon: <PadiAIIcon size={18} />, label: "Tanya CPA AI" },
       { href: "/main-dashboard", icon: <Gauge size={18} strokeWidth={1.5} />, label: "Main Dashboard (C3)" },
       { href: "/intelligence/analytics", icon: <PieChart size={15} strokeWidth={1.5} />, label: "Analytics", isSubItem: true },
       { href: "/intelligence/sales-performance", icon: <Award size={15} strokeWidth={1.5} />, label: "Sales Performance", isSubItem: true },
@@ -131,6 +162,7 @@ const WAREHOUSE_NAV_GROUPS: NavGroup[] = [
   {
     label: "Intelligence & AI",
     items: [
+      { href: "#tanya-cpa-ai", icon: <PadiAIIcon size={18} />, label: "Tanya CPA AI" },
       { href: "/main-dashboard", icon: <Gauge size={18} strokeWidth={1.5} />, label: "Main Dashboard (C3)" },
       { href: "/intelligence/analytics", icon: <PieChart size={15} strokeWidth={1.5} />, label: "Analytics", isSubItem: true },
       { href: "/intelligence/sales-performance", icon: <Award size={15} strokeWidth={1.5} />, label: "Sales Performance", isSubItem: true },
@@ -150,6 +182,7 @@ const FINANCE_NAV_GROUPS: NavGroup[] = [
   {
     label: "Intelligence & AI",
     items: [
+      { href: "#tanya-cpa-ai", icon: <PadiAIIcon size={18} />, label: "Tanya CPA AI" },
       { href: "/main-dashboard", icon: <Gauge size={18} strokeWidth={1.5} />, label: "Main Dashboard (C3)" },
       { href: "/intelligence/analytics", icon: <PieChart size={15} strokeWidth={1.5} />, label: "Analytics", isSubItem: true },
       { href: "/forecast", icon: <TrendingUp size={18} strokeWidth={1.5} />, label: "Demand Forecast" },
@@ -196,10 +229,13 @@ export default function Sidebar({
       if (stored) {
         setCurrentUser(JSON.parse(stored));
       } else {
-        apiAuth.me().then((res) => {
-          setCurrentUser(res.data);
-          localStorage.setItem("cpa_user", JSON.stringify(res.data));
-        }).catch(() => {});
+        const token = localStorage.getItem("cpa_token");
+        if (token) {
+          apiAuth.me().then((res) => {
+            setCurrentUser(res.data);
+            localStorage.setItem("cpa_user", JSON.stringify(res.data));
+          }).catch(() => {});
+        }
       }
     } catch (e) {}
   }, []);
@@ -240,31 +276,96 @@ export default function Sidebar({
         {activeNavGroups.map((group) => (
           <div key={group.label}>
             <div className="sidebar-group-label">{group.label}</div>
-            {group.items.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`nav-item ${pathname === item.href ? "active" : ""}`}
-                style={item.isSubItem ? { 
-                  paddingLeft: "2.35rem", 
-                  fontSize: "0.825rem",
-                  margin: "2px 0 2px 0",
-                } : undefined}
-              >
-                <span style={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  color: pathname === item.href ? "var(--primary)" : "var(--text-muted)",
-                  transform: item.isSubItem ? "scale(0.95)" : "none"
-                }}>
-                  {item.icon}
-                </span>
-                <span style={{ fontWeight: item.isSubItem ? (pathname === item.href ? 600 : 400) : undefined }}>{item.label}</span>
-                {item.badge !== undefined && item.badge > 0 && (
-                  <span className="badge">{item.badge}</span>
-                )}
-              </Link>
-            ))}
+            {group.items.map((item) => {
+              if (item.href === "#tanya-cpa-ai") {
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      window.dispatchEvent(new CustomEvent("open-cpa-ai-chat"));
+                      if (onClose) onClose();
+                    }}
+                    className="nav-item"
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      background: "rgba(13, 153, 255, 0.05)",
+                      border: "1px solid rgba(13, 153, 255, 0.15)",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.65rem",
+                      borderRadius: "8px",
+                      margin: "3px 0",
+                      padding: "0.55rem 0.85rem",
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        color: "#0D99FF",
+                      }}
+                    >
+                      {item.icon}
+                    </span>
+                    <span
+                      style={{
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                        fontSize: "0.85rem",
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                    <span
+                      style={{
+                        marginLeft: "auto",
+                        background: "linear-gradient(135deg, #0D99FF, #9147ff)",
+                        color: "#ffffff",
+                        fontSize: "0.62rem",
+                        fontWeight: 700,
+                        padding: "1px 6px",
+                        borderRadius: "10px",
+                        letterSpacing: "0.5px",
+                      }}
+                    >
+                      AI
+                    </span>
+                  </button>
+                );
+              }
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`nav-item ${pathname === item.href ? "active" : ""}`}
+                  style={item.isSubItem ? { 
+                    paddingLeft: "2.35rem", 
+                    fontSize: "0.825rem",
+                    margin: "2px 0 2px 0",
+                  } : undefined}
+                >
+                  <span style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    color: pathname === item.href ? "var(--primary)" : "var(--text-muted)",
+                    transform: item.isSubItem ? "scale(0.95)" : "none"
+                  }}>
+                    {item.icon}
+                  </span>
+                  <span style={{ fontWeight: item.isSubItem ? (pathname === item.href ? 600 : 400) : undefined }}>{item.label}</span>
+                  {item.badge !== undefined && item.badge > 0 && (
+                    <span className="badge">{item.badge}</span>
+                  )}
+                </Link>
+              );
+            })}
           </div>
         ))}
 
@@ -363,18 +464,31 @@ export default function Sidebar({
         </div>
       )}
 
-      {/* Logout option */}
+      {/* Logout / Login option */}
       <div className="divider" />
-      <button 
-        onClick={handleLogout}
-        className="nav-item"
-        style={{ width: "100%", background: "none", border: "none", textAlign: "left", cursor: "pointer", color: "var(--text-critical)" }}
-      >
-        <span style={{ display: "flex", alignItems: "center" }}>
-          <LogOut size={18} strokeWidth={1.5} />
-        </span>
-        <span>Keluar</span>
-      </button>
+      {currentUser ? (
+        <button 
+          onClick={handleLogout}
+          className="nav-item"
+          style={{ width: "100%", background: "none", border: "none", textAlign: "left", cursor: "pointer", color: "var(--text-critical)" }}
+        >
+          <span style={{ display: "flex", alignItems: "center" }}>
+            <LogOut size={18} strokeWidth={1.5} />
+          </span>
+          <span>Keluar</span>
+        </button>
+      ) : (
+        <Link 
+          href="/login"
+          className="nav-item"
+          style={{ width: "100%", textDecoration: "none", color: "var(--primary)" }}
+        >
+          <span style={{ display: "flex", alignItems: "center" }}>
+            <LogIn size={18} strokeWidth={1.5} />
+          </span>
+          <span>Masuk / Login</span>
+        </Link>
+      )}
 
       {/* Footer */}
       <div

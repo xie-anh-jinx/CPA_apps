@@ -14,12 +14,70 @@ import {
   ShieldCheck,
 } from "lucide-react";
 
+/**
+ * ForkliftIcon — Icon Voxel/Flat SVG Forklift Industri
+ * Membawa Palet Kayu & Drum Shell Merah di Atas Garpu
+ */
+export function ForkliftIcon({ width = 48, height = 36 }: { width?: number; height?: number }) {
+  return (
+    <svg width={width} height={height} viewBox="0 0 54 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      {/* Lampu Strobo Oranye Berkedip di Atap Kabin */}
+      <circle cx="21" cy="4" r="2.5" fill="#F97316" />
+      <circle cx="21" cy="4" r="4.5" fill="#F97316" opacity="0.4" />
+
+      {/* Rangka Pelindung Kabin (Overhead ROPS Guard) */}
+      <path d="M14 18V8H26V18" stroke="#334155" strokeWidth="2" strokeLinecap="round" />
+      <path d="M20 8V18" stroke="#334155" strokeWidth="1.5" />
+
+      {/* Bodi Utama Chassis Forklift (Kuning Safety Industri) */}
+      <path d="M8 18H30V26H8Z" fill="#F59E0B" />
+      <path d="M4 22H8V26H4Z" fill="#D97706" />
+      <rect x="8" y="24" width="22" height="2" fill="#EAB308" />
+      <rect x="12" y="19" width="4" height="2" fill="#1E293B" />
+      <rect x="18" y="19" width="4" height="2" fill="#1E293B" />
+
+      {/* Tiang Angkat Vertikal Depan (Front Mast) */}
+      <path d="M30 6V28" stroke="#475569" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M33 6V28" stroke="#64748B" strokeWidth="1.5" strokeLinecap="round" />
+
+      {/* Garpu Pengangkat Horizontal (Forks) */}
+      <path d="M30 25H48V27H30" fill="#334155" />
+
+      {/* Muatan Dinamis: Palet Kayu EUR + Drum Pelumas Shell Merah */}
+      <rect x="34" y="22" width="13" height="3" fill="#B45309" rx="0.5" />
+      <rect x="36" y="10" width="9" height="12" fill="#DC2626" rx="1.5" />
+      <line x1="36" y1="13.5" x2="45" y2="13.5" stroke="#EF4444" strokeWidth="1" />
+      <line x1="36" y1="18.5" x2="45" y2="18.5" stroke="#EF4444" strokeWidth="1" />
+      <circle cx="40.5" cy="16" r="1.5" fill="#FBBF24" />
+
+      {/* Roda Depan & Belakang */}
+      <circle cx="12" cy="28" r="4.5" fill="#0F172A" />
+      <circle cx="12" cy="28" r="2" fill="#64748B" />
+      <circle cx="27" cy="28" r="4.5" fill="#0F172A" />
+      <circle cx="27" cy="28" r="2" fill="#64748B" />
+    </svg>
+  );
+}
+
 export default function WarehouseVisualizationPage() {
   const [iframeUrl, setIframeUrl] = useState("/3d/");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [progress, setProgress] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Simulasi penambahan loading progres
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setProgress((prev) => {
+        if (prev >= 100) return 0; // Loop kembali ke 0
+        return Math.min(prev + 1, 100);
+      });
+    }, 45);
+
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -36,6 +94,7 @@ export default function WarehouseVisualizationPage() {
 
   const handleRefresh = () => {
     setIsLoading(true);
+    setProgress(0);
     if (iframeRef.current) {
       iframeRef.current.src = iframeUrl;
     }
@@ -50,7 +109,7 @@ export default function WarehouseVisualizationPage() {
     if (!document.fullscreenElement) {
       containerRef.current.requestFullscreen().then(() => {
         setIsFullscreen(true);
-      }).catch(err => {
+      }).catch((err) => {
         console.error("Fullscreen error:", err);
       });
     } else {
@@ -184,7 +243,7 @@ export default function WarehouseVisualizationPage() {
                 display: "inline-block",
               }}
             />
-            <span>Port 5173 Active</span>
+            <span>3D Engine Live</span>
           </div>
 
           <div
@@ -290,6 +349,7 @@ export default function WarehouseVisualizationPage() {
           background: "#070b14",
         }}
       >
+        {/* Loading Progress Bar Animasi Forklift */}
         {isLoading && (
           <div
             style={{
@@ -299,30 +359,118 @@ export default function WarehouseVisualizationPage() {
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: "14px",
-              background: "rgba(11, 17, 32, 0.95)",
-              color: "#94a3b8",
+              background: "#0B1120",
+              padding: "30px",
               zIndex: 10,
-              backdropFilter: "blur(4px)",
+              fontFamily: "monospace, sans-serif",
             }}
           >
             <div
               style={{
-                width: "44px",
-                height: "44px",
-                border: "3px solid rgba(56, 189, 248, 0.2)",
-                borderTopColor: "#38bdf8",
-                borderRadius: "50%",
-                animation: "spin 1s linear infinite",
+                width: "100%",
+                maxWidth: "520px",
+                background: "rgba(15, 23, 42, 0.95)",
+                padding: "32px 28px 24px",
+                borderRadius: "16px",
+                border: "1px solid #1E293B",
+                boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(56, 189, 248, 0.1)",
               }}
-            />
-            <div style={{ textAlign: "center" }}>
-              <p style={{ margin: 0, fontWeight: 600, color: "#e2e8f0", fontSize: "0.95rem" }}>
-                Memuat Kanvas 3D CPA Warehouse Visualization...
-              </p>
-              <p style={{ margin: "4px 0 0 0", fontSize: "0.78rem", color: "#64748b" }}>
-                Menghubungkan ke server WebGL (Port 5173) & Sinkronisasi DB Gudang
-              </p>
+            >
+              {/* Status Header */}
+              <div
+                style={{
+                  width: "100%",
+                  maxWidth: "520px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: "8px",
+                }}
+              >
+                <span
+                  style={{
+                    color: "#38BDF8",
+                    fontSize: "13px",
+                    fontWeight: "bold",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  SYNCING DIGITAL TWIN ASSETS...
+                </span>
+                <span
+                  style={{
+                    color: "#F8FAFC",
+                    fontSize: "14px",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {progress}%
+                </span>
+              </div>
+
+              {/* Area Rel & Jalur Forklift */}
+              <div style={{ width: "100%", maxWidth: "520px", position: "relative", height: "65px" }}>
+                {/* Kontainer Forklift Berjalan */}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: `calc(${progress}% - 30px)`,
+                    bottom: "12px",
+                    transition: "left 0.05s linear",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <ForkliftIcon />
+                </div>
+
+                {/* Loading Track Dasar */}
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "0",
+                    left: "0",
+                    width: "100%",
+                    height: "10px",
+                    background: "#1E293B",
+                    borderRadius: "999px",
+                    overflow: "hidden",
+                    border: "1px solid #334155",
+                  }}
+                >
+                  {/* Bar Terisi (Warna Safety Cyan ke Emerald) */}
+                  <div
+                    style={{
+                      width: `${progress}%`,
+                      height: "100%",
+                      background: "linear-gradient(90deg, #0284C7 0%, #38BDF8 60%, #10B981 100%)",
+                      boxShadow: "0 0 12px rgba(56, 189, 248, 0.6)",
+                      transition: "width 0.05s linear",
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Indikator Strip Hazard Bawah */}
+              <div
+                style={{
+                  marginTop: "16px",
+                  fontSize: "11px",
+                  color: "#64748B",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                }}
+              >
+                <span
+                  style={{
+                    display: "inline-block",
+                    width: "8px",
+                    height: "8px",
+                    borderRadius: "50%",
+                    background: "#10B981",
+                  }}
+                />
+                INITIALIZING 3D INSTANCES & CPA WAREHOUSE TELEMETRY
+              </div>
             </div>
           </div>
         )}
@@ -342,17 +490,6 @@ export default function WarehouseVisualizationPage() {
           }}
         />
       </div>
-
-      <style jsx global>{`
-        @keyframes spin {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-      `}</style>
     </div>
   );
 }

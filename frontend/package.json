@@ -9,19 +9,27 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@types/c3": "^0.7.11",
+    "@types/d3": "^7.4.3",
+    "@xyflow/react": "^12.12.0",
     "axios": "^1.20.0",
+    "c3": "^0.7.20",
     "clsx": "^2.1.1",
+    "d3": "^7.9.0",
+    "dagre": "^0.8.5",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.35.0",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-force-graph-2d": "^1.25.4",
     "recharts": "^3.10.1",
     "swr": "^2.5.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/dagre": "^0.7.54",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

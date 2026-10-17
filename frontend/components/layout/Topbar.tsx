@@ -1,26 +1,42 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useWebSocket } from "@/hooks/useWebSocket";
 
-import { Menu } from "lucide-react";
+import { Menu, Sun, Moon } from "lucide-react";
+import { useTheme } from "@/components/providers/ThemeProvider";
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "Executive Dashboard",
   "/inventory": "Inventory Monitoring",
   "/warehouses": "Multi-Warehouse",
   "/sales": "Sales Monitoring",
+  "/sales/orders": "Sales Order",
   "/distributions": "Distribusi",
   "/crm": "CRM & Customer 360",
   "/reports": "Laporan",
   "/settings": "Pengaturan",
   "/alerts": "Notifikasi & Alert",
+  "/docs": "Dokumentasi Sistem & Teknis",
+  "/docs/database-graph": "Database Graph",
 };
 
 export default function Topbar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const pathname = usePathname();
   const [search, setSearch] = useState("");
+  const [currentUser, setCurrentUser] = useState<any>(null);
   const { isConnected, lastMessage } = useWebSocket();
+  const { theme, toggleTheme } = useTheme();
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("cpa_user");
+      if (stored) {
+        setCurrentUser(JSON.parse(stored));
+      }
+    } catch (e) {}
+  }, []);
 
   const title = PAGE_TITLES[pathname] || "CPA Platform";
 
@@ -58,7 +74,7 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar?: () => vo
         <span
           style={{
             position: "absolute",
-            left: "0.6rem",
+            left: "0.75rem",
             top: "50%",
             transform: "translateY(-50%)",
             color: "var(--text-muted)",
@@ -69,7 +85,7 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar?: () => vo
         </span>
       </div>
 
-      {/* Sync Status Indicator */}
+      {/* Connection Status */}
       <div
         title={isConnected ? `Terhubung (Live Sync). Pesan terakhir: ${lastMessage?.timestamp ? new Date(lastMessage.timestamp).toLocaleTimeString() : 'Belum ada'}` : "Terputus dari server realtime"}
         style={{
@@ -97,24 +113,77 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar?: () => vo
         {isConnected ? "Live" : "Offline"}
       </div>
 
-      {/* User Avatar */}
-      <div
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: "50%",
-          background: "var(--gradient-primary)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: "0.75rem",
-          fontWeight: 700,
-          cursor: "pointer",
-          flexShrink: 0,
-        }}
-        title="Admin"
+      {/* Theme Toggle Button */}
+      <button
+        type="button"
+        onClick={toggleTheme}
+        className="theme-toggle-btn"
+        title={theme === "dark" ? "Ganti ke Mode Terang (Light Mode)" : "Ganti ke Mode Gelap (Dark Mode)"}
+        aria-label="Toggle dark/light theme"
       >
-        A
+        {theme === "dark" ? (
+          <Sun size={17} style={{ color: "#F59E0B" }} />
+        ) : (
+          <Moon size={17} style={{ color: "#0284C7" }} />
+        )}
+      </button>
+
+      {/* User Avatar & Info */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+        {currentUser ? (
+          <>
+            <div style={{ textAlign: "right", display: "flex", flexDirection: "column" }}>
+              <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap" }}>
+                {currentUser.full_name || currentUser.username}
+              </span>
+              <span style={{ fontSize: "0.68rem", color: "var(--primary)", fontWeight: 500 }}>
+                {currentUser.role === "sales_rep" 
+                  ? "DSR - Sultanbatara" 
+                  : (currentUser.role === "warehouse_staff" || currentUser.role === "warehouse") 
+                  ? "Kepala Gudang & Admin Cabang" 
+                  : (currentUser.role || "Admin")}
+              </span>
+            </div>
+            <div
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                background: "var(--gradient-primary)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                color: "#1a1a1a",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+              title={currentUser.full_name || "User"}
+            >
+              {currentUser.full_name ? currentUser.full_name[0].toUpperCase() : "U"}
+            </div>
+          </>
+        ) : (
+          <Link
+            href="/login"
+            style={{
+              padding: "0.38rem 0.85rem",
+              fontSize: "0.75rem",
+              fontWeight: 600,
+              color: "#1a1a1a",
+              background: "var(--gradient-primary, #0D99FF)",
+              borderRadius: "8px",
+              textDecoration: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Masuk / Login
+          </Link>
+        )}
       </div>
     </header>
   );

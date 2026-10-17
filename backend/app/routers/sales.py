@@ -2,16 +2,16 @@
 Router — Sales Monitoring
 SO pipeline, invoice, trend, per salesman/customer
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from typing import Optional
 from datetime import date, timedelta
 
 from app.database import get_analytics_db, get_existing_db
-from app.routers.auth import CurrentUser
+from app.routers.auth import CurrentUser, forbid_roles
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(forbid_roles("warehouse", "warehouse_staff", detail="Akses ditolak. Pengguna gudang tidak memiliki akses data penjualan dan finansial."))])
 
 
 @router.get("/summary")
@@ -40,7 +40,7 @@ async def get_sales_summary(
         params["id_salesman"] = id_salesman
         
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         extra += " AND id_salesman = :user_pegawai"
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -128,7 +128,7 @@ async def get_sales_trend(
         params["id_gudang"] = id_gudang
 
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         extra += " AND id_salesman = :user_pegawai"
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -175,7 +175,7 @@ async def get_sales_by_product(
         params["id_gudang"] = id_gudang
         
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         extra += " AND i.id_salesman = :user_pegawai"
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -215,7 +215,7 @@ async def get_sales_by_customer(
     params = {"date_from": date_from, "date_to": date_to, "limit": limit}
     extra = ""
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         extra += " AND i.id_salesman = :user_pegawai"
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -252,7 +252,7 @@ async def get_sales_by_salesperson(
     params = {"date_from": date_from, "date_to": date_to}
     extra = ""
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         extra += " AND i.id_salesman = :user_pegawai"
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -271,24 +271,78 @@ async def get_sales_by_salesperson(
     return [dict(r) for r in rows]
 
 
-@router.get("/orders")
-async def get_sales_orders(
-    status: Optional[str] = None,
+def format_so_status(raw_status: Optional[str]):
+    st = (raw_status or "").upper().strip()
+    if st == "P":
+        return {
+            "status": "P",
+            "status_label": "Diproses",
+            "color": "#6366f1",
+            "bg": "rgba(99, 102, 241, 0.15)",
+            "badge_class": "badge-processing",
+        }
+    elif st in ("S", "R"):
+        return {
+            "status": st,
+            "status_label": "Pengiriman",
+            "color": "#f59e0b",
+            "bg": "rgba(245, 158, 11, 0.15)",
+            "badge_class": "badge-shipping",
+        }
+    elif st == "W":
+        return {
+            "status": "W",
+            "status_label": "Menunggu",
+            "color": "#eab308",
+            "bg": "rgba(234, 179, 8, 0.15)",
+            "badge_class": "badge-waiting",
+        }
+    elif st in ("D", "C"):
+        return {
+            "status": st,
+            "status_label": "Selesai",
+            "color": "#10b981",
+            "bg": "rgba(16, 185, 129, 0.15)",
+            "badge_class": "badge-completed",
+        }
+    elif st == "X":
+        return {
+            "status": "X",
+            "status_label": "Batal",
+            "color": "#ef4444",
+            "bg": "rgba(239, 68, 68, 0.15)",
+            "badge_class": "badge-cancelled",
+        }
+    else:
+        return {
+            "status": st or "DRAFT",
+            "status_label": st or "Draft",
+            "color": "#94a3b8",
+            "bg": "rgba(148, 163, 184, 0.15)",
+            "badge_class": "badge-default",
+        }
+
+
+@router.get("/orders/summary-kpi")
+async def get_sales_orders_kpi(
+    search: Optional[str] = None,
+    id_salesman: Optional[str] = None,
     id_customer: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
-    page: int = 1,
-    limit: int = 50,
-    db: Session = Depends(get_analytics_db),
+    db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Daftar Sales Order dengan pipeline status."""
+    """Ringkasan KPI status Sales Order (Interoly UI Kit style)."""
     conditions = ["1=1"]
-    params = {"limit": limit, "offset": (page - 1) * limit}
+    params = {}
 
-    if status:
-        conditions.append("so.status_label = :status")
-        params["status"] = status
+    if search and search.strip():
+        conditions.append("(so.nomor ILIKE :search OR c.customer ILIKE :search OR so.kepada ILIKE :search OR so.referensi ILIKE :search OR p.nama ILIKE :search OR p.nama_panggilan ILIKE :search)")
+        params["search"] = f"%{search.strip()}%"
+    if id_salesman:
+        conditions.append("so.id_salesman = :id_salesman")
+        params["id_salesman"] = id_salesman
     if id_customer:
         conditions.append("so.id_customer = :id_customer")
         params["id_customer"] = id_customer
@@ -300,26 +354,406 @@ async def get_sales_orders(
         params["date_to"] = date_to
 
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         conditions.append("so.id_salesman = :user_pegawai")
         params["user_pegawai"] = current_user.id_pegawai
 
     where_clause = " AND ".join(conditions)
-    rows = db.execute(text(f"""
+
+    sql = f"""
+        SELECT
+            COUNT(*) AS total_orders,
+            COALESCE(SUM(CASE WHEN so.grandtotal > 0 THEN so.grandtotal ELSE 0 END), 0) AS total_nominal,
+            COUNT(*) FILTER (WHERE so.status = 'P') AS diproses_count,
+            COALESCE(SUM(CASE WHEN so.grandtotal > 0 THEN so.grandtotal ELSE 0 END) FILTER (WHERE so.status = 'P'), 0) AS diproses_nominal,
+            COUNT(*) FILTER (WHERE so.status IN ('S', 'R')) AS pengiriman_count,
+            COALESCE(SUM(CASE WHEN so.grandtotal > 0 THEN so.grandtotal ELSE 0 END) FILTER (WHERE so.status IN ('S', 'R')), 0) AS pengiriman_nominal,
+            COUNT(*) FILTER (WHERE so.status = 'W') AS menunggu_count,
+            COALESCE(SUM(CASE WHEN so.grandtotal > 0 THEN so.grandtotal ELSE 0 END) FILTER (WHERE so.status = 'W'), 0) AS menunggu_nominal,
+            COUNT(*) FILTER (WHERE so.status IN ('D', 'C')) AS selesai_count,
+            COALESCE(SUM(CASE WHEN so.grandtotal > 0 THEN so.grandtotal ELSE 0 END) FILTER (WHERE so.status IN ('D', 'C')), 0) AS selesai_nominal,
+            COUNT(*) FILTER (WHERE so.status = 'X') AS batal_count,
+            COALESCE(SUM(CASE WHEN so.grandtotal > 0 THEN so.grandtotal ELSE 0 END) FILTER (WHERE so.status = 'X'), 0) AS batal_nominal
+        FROM public.so so
+        LEFT JOIN public.customer c ON so.id_customer = c.id_kontak
+        LEFT JOIN public.pegawai p ON so.id_salesman = p.id_pegawai
+        WHERE {where_clause}
+    """
+    row = db.execute(text(sql), params).mappings().first()
+    res = dict(row) if row else {}
+    for k, v in res.items():
+        if hasattr(v, "__float__"):
+            res[k] = float(v)
+    return res
+
+
+@router.get("/orders")
+async def get_sales_orders(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    id_customer: Optional[str] = None,
+    id_salesman: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=500),
+    db: Session = Depends(get_existing_db),
+    current_user: CurrentUser = None,
+):
+    """Daftar Sales Order dengan relasi customer & sales, filter status, pencarian, dan pagination."""
+    conditions = ["1=1"]
+    params = {"limit": limit, "offset": (page - 1) * limit}
+
+    if status and status.lower() != "all":
+        st_clean = status.lower().strip()
+        if st_clean in ("p", "diproses", "proses"):
+            conditions.append("so.status = 'P'")
+        elif st_clean in ("s", "r", "pengiriman", "kirim", "shipping"):
+            conditions.append("so.status IN ('S', 'R')")
+        elif st_clean in ("w", "menunggu", "pending"):
+            conditions.append("so.status = 'W'")
+        elif st_clean in ("d", "c", "selesai", "completed", "done"):
+            conditions.append("so.status IN ('D', 'C')")
+        elif st_clean in ("x", "batal", "cancelled", "cancel"):
+            conditions.append("so.status = 'X'")
+        else:
+            conditions.append("so.status = :status_exact")
+            params["status_exact"] = status.upper()
+
+    if search and search.strip():
+        conditions.append("(so.nomor ILIKE :search OR c.customer ILIKE :search OR so.kepada ILIKE :search OR so.referensi ILIKE :search OR p.nama ILIKE :search OR p.nama_panggilan ILIKE :search)")
+        params["search"] = f"%{search.strip()}%"
+
+    if id_customer:
+        conditions.append("so.id_customer = :id_customer")
+        params["id_customer"] = id_customer
+
+    if id_salesman:
+        conditions.append("so.id_salesman = :id_salesman")
+        params["id_salesman"] = id_salesman
+
+    if date_from:
+        conditions.append("so.tanggal >= :date_from")
+        params["date_from"] = date_from
+
+    if date_to:
+        conditions.append("so.tanggal <= :date_to")
+        params["date_to"] = date_to
+
+    # Role-based Row-Level Security
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
+        conditions.append("so.id_salesman = :user_pegawai")
+        params["user_pegawai"] = current_user.id_pegawai
+
+    where_clause = " AND ".join(conditions)
+
+    # Count total matching rows
+    count_sql = f"""
+        SELECT COUNT(*)
+        FROM public.so so
+        LEFT JOIN public.customer c ON so.id_customer = c.id_kontak
+        LEFT JOIN public.pegawai p ON so.id_salesman = p.id_pegawai
+        WHERE {where_clause}
+    """
+    total = db.execute(text(count_sql), params).scalar() or 0
+
+    # Retrieve paginated items
+    list_sql = f"""
+        SELECT
+            so.nomor,
+            so.tanggal,
+            so.id_customer,
+            COALESCE(c.customer, so.kepada, 'Customer') AS nama_customer,
+            so.kepada,
+            so.referensi,
+            so.grandtotal,
+            so.total,
+            so.total_ppn,
+            so.total_discount,
+            so.status,
+            so.top,
+            so.id_salesman,
+            so.keterangan,
+            p.nama AS nama_sales,
+            p.nama_panggilan AS panggilan_sales,
+            c.telepon AS customer_telp,
+            c.alamat_penagihan AS customer_alamat
+        FROM public.so so
+        LEFT JOIN public.customer c ON so.id_customer = c.id_kontak
+        LEFT JOIN public.pegawai p ON so.id_salesman = p.id_pegawai
+        WHERE {where_clause}
+        ORDER BY so.tanggal DESC, so.nomor DESC
+        LIMIT :limit OFFSET :offset
+    """
+    rows = db.execute(text(list_sql), params).mappings().all()
+
+    # Pre-delivery credit check for customer orders
+    cust_ids = list(set([r["id_customer"] for r in rows if r.get("id_customer")]))
+    credit_map = {}
+    if cust_ids:
+        c_placeholders = ",".join([f":cid{i}" for i in range(len(cust_ids))])
+        c_params = {f"cid{i}": cid for i, cid in enumerate(cust_ids)}
+        credit_sql = f"""
+            WITH ar_sum AS (
+                SELECT 
+                    customer_code,
+                    COALESCE(SUM(total - COALESCE(bayar, 0)), 0) AS total_piutang,
+                    COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN (total - COALESCE(bayar, 0)) ELSE 0 END), 0) AS overdue_amount,
+                    COUNT(CASE WHEN due_date < CURRENT_DATE THEN 1 END) AS overdue_count,
+                    COALESCE(MAX(CASE WHEN due_date < CURRENT_DATE THEN (CURRENT_DATE - due_date) ELSE 0 END), 0) AS max_days_overdue
+                FROM acc_ar_faktur
+                WHERE customer_code IN ({c_placeholders}) AND (total - COALESCE(bayar, 0)) > 0
+                GROUP BY customer_code
+            )
+            SELECT 
+                c.id_kontak,
+                COALESCE(c.batas_kredit, 0) AS batas_kredit,
+                COALESCE(ar.total_piutang, 0) AS total_piutang,
+                COALESCE(ar.overdue_amount, 0) AS overdue_amount,
+                COALESCE(ar.overdue_count, 0) AS overdue_count,
+                COALESCE(ar.max_days_overdue, 0) AS max_days_overdue
+            FROM customer c
+            LEFT JOIN ar_sum ar ON c.id_kontak = ar.customer_code
+            WHERE c.id_kontak IN ({c_placeholders})
+        """
+        c_rows = db.execute(text(credit_sql), c_params).mappings().all()
+        for cr in c_rows:
+            credit_map[cr["id_kontak"]] = dict(cr)
+
+    items = []
+    for r in rows:
+        d = dict(r)
+        status_info = format_so_status(d.get("status"))
+        d["status_label"] = status_info["status_label"]
+        d["status_color"] = status_info["color"]
+        d["status_bg"] = status_info["bg"]
+        d["badge_class"] = status_info["badge_class"]
+        for num_field in ("grandtotal", "total", "total_ppn", "total_discount"):
+            if d.get(num_field) is not None:
+                d[num_field] = float(d[num_field])
+
+        cid = d.get("id_customer")
+        cinfo = credit_map.get(cid, {})
+        plafon = float(cinfo.get("batas_kredit") or 0)
+        piutang = float(cinfo.get("total_piutang") or 0)
+        overdue = float(cinfo.get("overdue_amount") or 0)
+        overdue_cnt = int(cinfo.get("overdue_count") or 0)
+        max_days = int(cinfo.get("max_days_overdue") or 0)
+        gtotal = float(d.get("grandtotal") or 0)
+
+        # Credit Release Check
+        if overdue > 0:
+            c_status = "HOLD_OVERDUE"
+            c_label = "HOLD: Overdue AR"
+            c_color = "#EF4444"
+            c_bg = "rgba(239,68,68,0.15)"
+            c_recom = f"Customer memiliki {overdue_cnt} faktur jatuh tempo (Rp {overdue:,.0f}). Tahan rilis pengiriman."
+        elif plafon > 0 and (piutang + gtotal) > plafon:
+            c_status = "HOLD_LIMIT"
+            c_label = "HOLD: Over Plafon"
+            c_color = "#F59E0B"
+            c_bg = "rgba(245,158,11,0.15)"
+            c_recom = f"Eksposur piutang + order (Rp {(piutang + gtotal):,.0f}) melebihi plafon kredit (Rp {plafon:,.0f})."
+        elif plafon > 0 and (piutang + gtotal) >= (0.85 * plafon):
+            c_status = "WARNING_LIMIT"
+            c_label = "Peringatan Plafon"
+            c_color = "#FBBF24"
+            c_bg = "rgba(251,191,36,0.15)"
+            c_recom = f"Order ini mendekati batas plafon kredit ({round((piutang + gtotal)/plafon*100, 1)}%)."
+        else:
+            c_status = "APPROVED"
+            c_label = "Aman Rilis"
+            c_color = "#10B981"
+            c_bg = "rgba(16,185,129,0.15)"
+            c_recom = "Kredit customer aman. Layak untuk dirilis pengiriman."
+
+        d["credit_check"] = {
+            "status": c_status,
+            "label": c_label,
+            "color": c_color,
+            "bg": c_bg,
+            "recommendation": c_recom,
+            "batas_kredit": plafon,
+            "total_piutang": piutang,
+            "overdue_amount": overdue,
+            "overdue_count": overdue_cnt,
+            "max_days_overdue": max_days,
+            "has_overdue": overdue > 0,
+            "is_over_limit": plafon > 0 and (piutang + gtotal) > plafon,
+        }
+
+        items.append(d)
+
+    total_pages = max(1, (total + limit - 1) // limit)
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": total_pages,
+    }
+
+
+@router.get("/orders/{nomor:path}/detail")
+async def get_sales_order_detail(
+    nomor: str,
+    db: Session = Depends(get_existing_db),
+    current_user: CurrentUser = None,
+):
+    """Detail lengkap Sales Order dan rincian item (so_detail)."""
+    so_sql = """
         SELECT
             so.*,
-            d.nomor AS nomor_do,
-            d.status_label AS do_status,
-            i.no_penjualan,
-            i.is_lunas
-        FROM operational.sales_orders so
-        LEFT JOIN operational.deliveries d ON so.nomor = d.nomor
-        LEFT JOIN operational.invoices i ON d.nomor = i.no_do
-        WHERE {' AND '.join(conditions)}
-        ORDER BY so.tanggal DESC
-        LIMIT :limit OFFSET :offset
-    """), params).mappings().all()
-    return [dict(r) for r in rows]
+            COALESCE(c.customer, so.kepada, 'Customer') AS nama_customer,
+            c.telepon AS customer_telp,
+            c.email AS customer_email,
+            c.alamat_penagihan AS customer_alamat,
+            c.alamat_kirim AS customer_alamat_kirim,
+            c.no_npwp AS customer_npwp,
+            p.nama AS nama_sales,
+            p.nama_panggilan AS panggilan_sales,
+            p.hp AS telp_sales,
+            p.email AS email_sales
+        FROM public.so so
+        LEFT JOIN public.customer c ON so.id_customer = c.id_kontak
+        LEFT JOIN public.pegawai p ON so.id_salesman = p.id_pegawai
+        WHERE so.nomor = :nomor
+        LIMIT 1
+    """
+    order_row = db.execute(text(so_sql), {"nomor": nomor}).mappings().first()
+    if not order_row:
+        raise HTTPException(status_code=404, detail=f"Sales Order '{nomor}' tidak ditemukan")
+
+    order = dict(order_row)
+    status_info = format_so_status(order.get("status"))
+    order["status_label"] = status_info["status_label"]
+    order["status_color"] = status_info["color"]
+    order["status_bg"] = status_info["bg"]
+    order["badge_class"] = status_info["badge_class"]
+    for num_field in ("grandtotal", "total", "total_ppn", "total_discount", "dpp"):
+        if order.get(num_field) is not None:
+            order[num_field] = float(order[num_field])
+
+    # RLS Check
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
+        if order.get("id_salesman") != current_user.id_pegawai:
+            raise HTTPException(status_code=403, detail="Anda tidak memiliki akses ke Sales Order ini")
+
+    # Customer Pre-Delivery Credit Check
+    cid = order.get("id_customer")
+    credit_info = {}
+    if cid:
+        c_check_sql = """
+            WITH ar_sum AS (
+                SELECT 
+                    customer_code,
+                    COALESCE(SUM(total - COALESCE(bayar, 0)), 0) AS total_piutang,
+                    COALESCE(SUM(CASE WHEN due_date < CURRENT_DATE THEN (total - COALESCE(bayar, 0)) ELSE 0 END), 0) AS overdue_amount,
+                    COUNT(CASE WHEN due_date < CURRENT_DATE THEN 1 END) AS overdue_count,
+                    COALESCE(MAX(CASE WHEN due_date < CURRENT_DATE THEN (CURRENT_DATE - due_date) ELSE 0 END), 0) AS max_days_overdue
+                FROM acc_ar_faktur
+                WHERE customer_code = :cid AND (total - COALESCE(bayar, 0)) > 0
+                GROUP BY customer_code
+            )
+            SELECT 
+                c.id_kontak,
+                COALESCE(c.batas_kredit, 0) AS batas_kredit,
+                COALESCE(ar.total_piutang, 0) AS total_piutang,
+                COALESCE(ar.overdue_amount, 0) AS overdue_amount,
+                COALESCE(ar.overdue_count, 0) AS overdue_count,
+                COALESCE(ar.max_days_overdue, 0) AS max_days_overdue
+            FROM customer c
+            LEFT JOIN ar_sum ar ON c.id_kontak = ar.customer_code
+            WHERE c.id_kontak = :cid
+            LIMIT 1
+        """
+        c_row = db.execute(text(c_check_sql), {"cid": cid}).mappings().first()
+        if c_row:
+            credit_info = dict(c_row)
+
+    plafon = float(credit_info.get("batas_kredit") or 0)
+    piutang = float(credit_info.get("total_piutang") or 0)
+    overdue = float(credit_info.get("overdue_amount") or 0)
+    overdue_cnt = int(credit_info.get("overdue_count") or 0)
+    max_days = int(credit_info.get("max_days_overdue") or 0)
+    gtotal = float(order.get("grandtotal") or 0)
+
+    if overdue > 0:
+        c_status = "HOLD_OVERDUE"
+        c_label = "HOLD: Overdue AR"
+        c_color = "#EF4444"
+        c_bg = "rgba(239,68,68,0.15)"
+        c_recom = f"Customer memiliki {overdue_cnt} faktur jatuh tempo (Rp {overdue:,.0f}). Tahan rilis pengiriman sampai diselesaikan."
+    elif plafon > 0 and (piutang + gtotal) > plafon:
+        c_status = "HOLD_LIMIT"
+        c_label = "HOLD: Over Plafon"
+        c_color = "#F59E0B"
+        c_bg = "rgba(245,158,11,0.15)"
+        c_recom = f"Eksposur piutang + order (Rp {(piutang + gtotal):,.0f}) melebihi plafon kredit (Rp {plafon:,.0f}). Hubungi customer."
+    elif plafon > 0 and (piutang + gtotal) >= (0.85 * plafon):
+        c_status = "WARNING_LIMIT"
+        c_label = "Peringatan Plafon"
+        c_color = "#FBBF24"
+        c_bg = "rgba(251,191,36,0.15)"
+        c_recom = f"Order ini mendekati batas plafon kredit ({round((piutang + gtotal)/plafon*100, 1)}%)."
+    else:
+        c_status = "APPROVED"
+        c_label = "Aman Rilis"
+        c_color = "#10B981"
+        c_bg = "rgba(16,185,129,0.15)"
+        c_recom = "Kredit customer aman. Tidak ada faktur jatuh tempo dan plafon mencukupi."
+
+    order["credit_check"] = {
+        "status": c_status,
+        "label": c_label,
+        "color": c_color,
+        "bg": c_bg,
+        "recommendation": c_recom,
+        "batas_kredit": plafon,
+        "total_piutang": piutang,
+        "overdue_amount": overdue,
+        "overdue_count": overdue_cnt,
+        "max_days_overdue": max_days,
+        "has_overdue": overdue > 0,
+        "is_over_limit": plafon > 0 and (piutang + gtotal) > plafon,
+    }
+
+    # Line Items
+    items_sql = """
+        SELECT
+            sd.no_so,
+            sd.urut,
+            sd.id_barang,
+            COALESCE(b.nama_barang, sd.id_barang) AS nama_barang,
+            COALESCE(sd.id_satuan_kecil, b.id_satuan_kecil, 'PCS') AS satuan,
+            sd.qty,
+            sd.harga,
+            sd.total,
+            COALESCE(sd.diskonrp, 0) AS diskonrp,
+            COALESCE(sd.diskonpersen, 0) AS diskonpersen,
+            COALESCE(sd.diambil, 0) AS diambil,
+            COALESCE(sd.sisa, sd.qty) AS sisa,
+            sd.remark
+        FROM public.so_detail sd
+        LEFT JOIN public.barang b ON sd.id_barang = b.id_barang
+        WHERE sd.no_so = :nomor
+        ORDER BY sd.urut ASC
+    """
+    item_rows = db.execute(text(items_sql), {"nomor": nomor}).mappings().all()
+    items = []
+    for ir in item_rows:
+        item = dict(ir)
+        for num_f in ("qty", "harga", "total", "diskonrp", "diskonpersen", "diambil", "sisa"):
+            if item.get(num_f) is not None:
+                item[num_f] = float(item[num_f])
+        items.append(item)
+
+    return {
+        "order": order,
+        "items": items,
+        "total_items": len(items),
+    }
 
 
 @router.get("/ar-outstanding")

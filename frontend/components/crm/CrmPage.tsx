@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiCRM } from "@/lib/api";
 import CustomerTab from "./CustomerTab";
+import CreditHealthTab from "./CreditHealthTab";
 
 interface PipelineSummary {
   opportunities_count: number;
@@ -44,10 +45,24 @@ function fmt(n: number | null | undefined, prefix = "") {
 }
 
 export default function CrmPage() {
-  const [activeTab, setActiveTab] = useState<"pipeline" | "customers">("pipeline");
+  const [activeTab, setActiveTab] = useState<"credit_health" | "pipeline" | "customers">("pipeline");
   const [summary, setSummary] = useState<PipelineSummary | null>(null);
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isFinance, setIsFinance] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("cpa_user");
+      if (stored) {
+        const u = JSON.parse(stored);
+        if (["finance_manager", "ar_staff", "credit_control", "finance"].includes(u?.role)) {
+          setIsFinance(true);
+          setActiveTab("credit_health");
+        }
+      }
+    } catch (e) {}
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -69,7 +84,7 @@ export default function CrmPage() {
 
   // Group by stage for Kanban view
   const groupedOpp = STAGES.reduce((acc, stage) => {
-    acc[stage.id] = opportunities.filter((o) => o.stage === stage.id);
+    acc[stage.id] = opportunities.filter((o: Opportunity) => o.stage === stage.id);
     return acc;
   }, {} as Record<string, Opportunity[]>);
 
@@ -77,39 +92,70 @@ export default function CrmPage() {
     <div className="animate-fade-up">
       <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
         <div>
-          <h1 className="page-title">CRM & Pipeline</h1>
-          <p className="page-subtitle">Manajemen prospek dan interaksi pelanggan</p>
+          <h1 className="page-title">
+            {activeTab === "credit_health" ? "CRM Credit Health & Risiko Piutang" : "CRM & Pipeline"}
+          </h1>
+          <p className="page-subtitle">
+            {activeTab === "credit_health" 
+              ? "Monitoring kesehatan kredit customer, batas plafon, overdue AR, dan rekomendasi rilis pengiriman"
+              : "Manajemen prospek dan interaksi pelanggan"}
+          </p>
         </div>
         <div>
-          <button className="btn btn-primary">+ Tambah Prospek</button>
+          {activeTab === "pipeline" && (
+            <button className="btn btn-primary">+ Tambah Prospek</button>
+          )}
         </div>
       </div>
 
       {/* TABS */}
-      <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", borderBottom: "1px solid var(--bg-border)" }}>
+      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem", borderBottom: "1px solid var(--bg-border)" }}>
+        <button 
+          onClick={() => setActiveTab("credit_health")}
+          style={{ 
+            background: "none", border: "none", cursor: "pointer", 
+            padding: "0.75rem 1rem", fontSize: "0.95rem", fontWeight: 600,
+            display: "flex", alignItems: "center", gap: "0.4rem",
+            color: activeTab === "credit_health" ? "var(--color-primary)" : "var(--text-muted)",
+            borderBottom: activeTab === "credit_health" ? "2px solid var(--color-primary)" : "2px solid transparent"
+          }}>
+          <span>💳</span>
+          <span>Credit Health & Risiko</span>
+          {isFinance && (
+            <span style={{ fontSize: "0.65rem", padding: "0.15rem 0.4rem", borderRadius: "10px", background: "rgba(59,130,246,0.15)", color: "#3B82F6" }}>
+              Finance Focus
+            </span>
+          )}
+        </button>
         <button 
           onClick={() => setActiveTab("pipeline")}
           style={{ 
             background: "none", border: "none", cursor: "pointer", 
-            padding: "0.75rem 1rem", fontSize: "1rem", fontWeight: 600,
+            padding: "0.75rem 1rem", fontSize: "0.95rem", fontWeight: 600,
+            display: "flex", alignItems: "center", gap: "0.4rem",
             color: activeTab === "pipeline" ? "var(--color-primary)" : "var(--text-muted)",
             borderBottom: activeTab === "pipeline" ? "2px solid var(--color-primary)" : "2px solid transparent"
           }}>
-          Pipeline Prospek
+          <span>🎯</span>
+          <span>Pipeline Prospek</span>
         </button>
         <button 
           onClick={() => setActiveTab("customers")}
           style={{ 
             background: "none", border: "none", cursor: "pointer", 
-            padding: "0.75rem 1rem", fontSize: "1rem", fontWeight: 600,
+            padding: "0.75rem 1rem", fontSize: "0.95rem", fontWeight: 600,
+            display: "flex", alignItems: "center", gap: "0.4rem",
             color: activeTab === "customers" ? "var(--color-primary)" : "var(--text-muted)",
             borderBottom: activeTab === "customers" ? "2px solid var(--color-primary)" : "2px solid transparent"
           }}>
-          Direktori & Customer 360
+          <span>👥</span>
+          <span>Direktori & Customer 360</span>
         </button>
       </div>
 
-      {activeTab === "pipeline" ? (
+      {activeTab === "credit_health" ? (
+        <CreditHealthTab />
+      ) : activeTab === "pipeline" ? (
         <>
           <div className="kpi-grid" style={{ marginBottom: "1.25rem" }}>
             <div className="kpi-card primary">

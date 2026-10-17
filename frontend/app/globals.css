@@ -3,9 +3,12 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "./ai-chatbox.css";
+
 
 /* ── CSS Variables ──────────────────────────────────────────────────────── */
-:root {
+:root,
+[data-theme="dark"] {
   /* Brand Colors */
   --color-primary: #0D99FF;
   --color-primary-dark: #0A7ACC;
@@ -19,17 +22,20 @@
   --color-danger: #FF5E5E;
   --color-info: #0D99FF;
 
-  /* Figma CRM Theme */
+  /* Figma CRM Theme (Dark) */
   --bg-base: #1E1E1E;
   --bg-surface: #242424;
   --bg-card: #242424;
-  --bg-hover: #2a2a2a;
+  --bg-hover: #2e2e2e;
   --bg-border: #444444;
 
   /* Text */
   --text-primary: #FFFFFF;
   --text-secondary: #B6B6B6;
   --text-muted: #828690;
+
+  /* Table */
+  --border-table-row: rgba(255, 255, 255, 0.05);
 
   /* Gradients */
   --gradient-primary: linear-gradient(135deg, hsl(217,91%,55%), hsl(262,83%,58%));
@@ -55,6 +61,51 @@
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Light Mode Variables ────────────────────────────────────────────────── */
+[data-theme="light"] {
+  /* Brand Colors */
+  --color-primary: #0284C7;
+  --color-primary-dark: #0369A1;
+  --color-primary-light: #38BDF8;
+  --color-secondary: #64748B;
+  --color-accent: #10B981;
+
+  /* Status Colors */
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+  --color-info: #0284C7;
+
+  /* Modern Light Canvas Theme */
+  --bg-base: #F1F5F9;
+  --bg-surface: #FFFFFF;
+  --bg-card: #FFFFFF;
+  --bg-hover: #F8FAFC;
+  --bg-border: #E2E8F0;
+
+  /* High Contrast Clean Typography */
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
+
+  /* Table */
+  --border-table-row: #F1F5F9;
+
+  /* Gradients */
+  --gradient-primary: linear-gradient(135deg, #0284C7, #6366F1);
+  --gradient-success: linear-gradient(135deg, #059669, #10B981);
+  --gradient-danger: linear-gradient(135deg, #DC2626, #EF4444);
+  --gradient-warning: linear-gradient(135deg, #D97706, #F59E0B);
+
+  /* Clean Crisp Shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
+  --shadow-glow-primary: 0 0 16px rgba(2, 132, 199, 0.18);
+  --shadow-glow-success: 0 0 16px rgba(16, 185, 129, 0.18);
+  --shadow-glow-danger: 0 0 16px rgba(239, 68, 68, 0.18);
 }
 
 /* ── Reset & Base ───────────────────────────────────────────────────────── */
@@ -377,7 +428,7 @@ body {
 
 .data-table td {
   padding: 0.65rem 1rem;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--border-table-row);
   color: var(--text-primary);
   vertical-align: middle;
 }
@@ -712,4 +763,426 @@ body {
     justify-content: space-between;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LIGHT MODE POLISH & ACCESSIBILITY ENHANCEMENTS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Light Mode Badges & Tags ────────────────────────────────────────────── */
+[data-theme="light"] .badge-ok,
+[data-theme="light"] .badge-active,
+[data-theme="light"] .badge-delivered {
+  background: #DCFCE7 !important;
+  color: #15803D !important;
+}
+
+[data-theme="light"] .badge-warning,
+[data-theme="light"] .badge-overstock {
+  background: #FEF3C7 !important;
+  color: #B45309 !important;
+}
+
+[data-theme="light"] .badge-danger,
+[data-theme="light"] .badge-void,
+[data-theme="light"] .badge-low_stock,
+[data-theme="light"] .badge-zero {
+  background: #FEE2E2 !important;
+  color: #B91C1C !important;
+}
+
+[data-theme="light"] .badge-info,
+[data-theme="light"] .badge-in_transit {
+  background: #E0F2FE !important;
+  color: #0369A1 !important;
+}
+
+[data-theme="light"] .badge-muted,
+[data-theme="light"] .badge-draft {
+  background: #F1F5F9 !important;
+  color: #64748B !important;
+}
+
+/* ── Light Mode Buttons & Inputs ─────────────────────────────────────────── */
+[data-theme="light"] .btn-ghost {
+  background: #FFFFFF;
+  color: #334155;
+  border: 1px solid #CBD5E1;
+}
+
+[data-theme="light"] .btn-ghost:hover {
+  background: #F8FAFC;
+  color: #0F172A;
+  border-color: #94A3B8;
+}
+
+[data-theme="light"] .input {
+  background: #FFFFFF;
+  border-color: #CBD5E1;
+  color: #0F172A;
+}
+
+[data-theme="light"] .input:focus {
+  border-color: #0284C7;
+  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+}
+
+[data-theme="light"] .input::placeholder {
+  color: #94A3B8;
+}
+
+/* ── Light Mode Cards & Panels ───────────────────────────────────────────── */
+[data-theme="light"] .card {
+  box-shadow: var(--shadow-sm);
+  border-color: #E2E8F0;
+}
+
+[data-theme="light"] .card:hover {
+  border-color: #CBD5E1;
+  box-shadow: var(--shadow-md);
+}
+
+[data-theme="light"] .kpi-card {
+  background: #FFFFFF;
+  border-color: #E2E8F0;
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme="light"] .kpi-card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: #CBD5E1;
+}
+
+[data-theme="light"] .kpi-icon.primary { background: #E0F2FE; color: #0284C7; }
+[data-theme="light"] .kpi-icon.success { background: #DCFCE7; color: #16A34A; }
+[data-theme="light"] .kpi-icon.danger { background: #FEE2E2; color: #DC2626; }
+[data-theme="light"] .kpi-icon.warning { background: #FEF3C7; color: #D97706; }
+
+/* ── Light Mode Tables ───────────────────────────────────────────────────── */
+[data-theme="light"] .data-table th {
+  background: #F8FAFC;
+  border-bottom: 1px solid #E2E8F0;
+  color: #475569;
+}
+
+[data-theme="light"] .data-table tr:hover td {
+  background: #F8FAFC;
+}
+
+/* ── Light Mode Navigation ───────────────────────────────────────────────── */
+[data-theme="light"] .nav-item {
+  color: #475569;
+}
+
+[data-theme="light"] .nav-item:hover {
+  background: #F1F5F9;
+  color: #0F172A;
+}
+
+[data-theme="light"] .nav-item.active {
+  background: linear-gradient(135deg, rgba(2, 132, 199, 0.1), rgba(99, 102, 241, 0.08));
+  color: #0284C7;
+  border: 1px solid rgba(2, 132, 199, 0.25);
+  font-weight: 600;
+}
+
+[data-theme="light"] .sidebar-group-label {
+  color: #94A3B8;
+}
+
+/* ── Light Mode Scrollbar ────────────────────────────────────────────────── */
+[data-theme="light"] ::-webkit-scrollbar-track { background: #F1F5F9; }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: #CBD5E1; }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+/* ── Light Mode Skeleton ─────────────────────────────────────────────────── */
+[data-theme="light"] .skeleton {
+  background: linear-gradient(90deg, #E2E8F0 25%, #F8FAFC 50%, #E2E8F0 75%);
+  background-size: 200% 100%;
+}
+
+/* ── Light Mode Recharts Tooltip ─────────────────────────────────────────── */
+[data-theme="light"] .recharts-default-tooltip {
+  background-color: #FFFFFF !important;
+  border: 1px solid #E2E8F0 !important;
+  color: #0F172A !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.05) !important;
+  border-radius: 8px !important;
+}
+
+[data-theme="light"] .recharts-tooltip-label {
+  color: #0F172A !important;
+  font-weight: 600 !important;
+}
+
+[data-theme="light"] .recharts-cartesian-grid line {
+  stroke: #E2E8F0 !important;
+}
+
+[data-theme="light"] .recharts-text {
+  fill: #64748B !important;
+}
+
+/* ── Theme Switcher Button ───────────────────────────────────────────────── */
+.theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-border);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  transform: scale(1.05);
+}
+
+.theme-toggle-btn:active {
+  transform: scale(0.95);
+}
+
+/* ── Light Overrides for Hardcoded Component Styles ──────────────────────── */
+[data-theme="light"] [style*="background: #0f172a"],
+[data-theme="light"] [style*="background: #0F172A"],
+[data-theme="light"] [style*="background: rgb(15, 23, 42)"],
+[data-theme="light"] [style*="background: #1e293b"],
+[data-theme="light"] [style*="background: #1E293B"],
+[data-theme="light"] [style*="background: rgb(30, 41, 59)"],
+[data-theme="light"] [style*="background: #131313"],
+[data-theme="light"] [style*="background: #161616"],
+[data-theme="light"] [style*="background: #1E1E1E"],
+[data-theme="light"] [style*="background: #242424"],
+[data-theme="light"] [style*="background: #0b1329"],
+[data-theme="light"] [style*="background: #070c1e"] {
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--bg-border) !important;
+}
+
+[data-theme="light"] [style*="background: #050814"] {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Hardcoded White & Off-White Text Overrides in Light Mode */
+[data-theme="light"] [style*="color: #f8fafc"],
+[data-theme="light"] [style*="color: #F8FAFC"],
+[data-theme="light"] [style*="color: rgb(248, 250, 252)"],
+[data-theme="light"] [style*="color: #f1f5f9"],
+[data-theme="light"] [style*="color: #F1F5F9"],
+[data-theme="light"] [style*="color: rgb(241, 245, 249)"],
+[data-theme="light"] [style*="color: #e2e8f0"],
+[data-theme="light"] [style*="color: #E2E8F0"],
+[data-theme="light"] [style*="color: rgb(226, 232, 240)"] {
+  color: var(--text-primary) !important;
+}
+
+/* White text override on surfaces that became light, excluding solid color-filled buttons/badges */
+[data-theme="light"] [style*="color: #fff"]:not(.btn-primary):not([class*="badge-"]):not([style*="background: #10B981"]):not([style*="background: #0284c7"]):not([style*="background: #059669"]):not([style*="background: #ef4444"]):not([style*="background: #3b82f6"]):not([style*="background:#10B981"]):not([style*="background:#0284c7"]):not([style*="background:#059669"]):not([style*="background:#ef4444"]):not([style*="background:#3b82f6"]),
+[data-theme="light"] [style*="color: #ffffff"]:not(.btn-primary):not([class*="badge-"]):not([style*="background: #10B981"]):not([style*="background: #0284c7"]):not([style*="background: #059669"]):not([style*="background: #ef4444"]):not([style*="background: #3b82f6"]):not([style*="background:#10B981"]):not([style*="background:#0284c7"]):not([style*="background:#059669"]):not([style*="background:#ef4444"]):not([style*="background:#3b82f6"]),
+[data-theme="light"] [style*="color: #FFFFFF"]:not(.btn-primary):not([class*="badge-"]):not([style*="background: #10B981"]):not([style*="background: #0284c7"]):not([style*="background: #059669"]):not([style*="background: #ef4444"]):not([style*="background: #3b82f6"]):not([style*="background:#10B981"]):not([style*="background:#0284c7"]):not([style*="background:#059669"]):not([style*="background:#ef4444"]):not([style*="background:#3b82f6"]),
+[data-theme="light"] [style*="color: rgb(255, 255, 255)"]:not(.btn-primary):not([class*="badge-"]):not([style*="background: #10B981"]):not([style*="background: #0284c7"]):not([style*="background: #059669"]):not([style*="background: #ef4444"]):not([style*="background: #3b82f6"]) {
+  color: var(--text-primary) !important;
+}
+
+/* Light text on dark backgrounds now made readable on light backgrounds */
+[data-theme="light"] [style*="color: #cbd5e1"],
+[data-theme="light"] [style*="color: #CBD5E1"],
+[data-theme="light"] [style*="color: rgb(203, 213, 225)"],
+[data-theme="light"] [style*="color: #D1D5DB"],
+[data-theme="light"] [style*="color: #d1d5db"] {
+  color: var(--text-secondary) !important;
+}
+
+/* Low-contrast bright yellows / ambers boosted for light mode */
+[data-theme="light"] [style*="color: hsl(38,92%,65%)"],
+[data-theme="light"] [style*="color: #fbbf24"],
+[data-theme="light"] [style*="color: #facc15"],
+[data-theme="light"] [style*="color: #fde68a"],
+[data-theme="light"] [style*="color: #ffb323"],
+[data-theme="light"] [style*="color: #FFB323"] {
+  color: #D97706 !important;
+}
+
+/* Low-contrast light blues boosted for light mode */
+[data-theme="light"] [style*="color: #93c5fd"],
+[data-theme="light"] [style*="color: #93C5FD"],
+[data-theme="light"] [style*="color: #60a5fa"],
+[data-theme="light"] [style*="color: #38bdf8"]:not([class*="badge-"]) {
+  color: #0284C7 !important;
+}
+
+/* Table borders and pagination bars in light mode */
+[data-theme="light"] .table-container,
+[data-theme="light"] table {
+  background: var(--bg-card) !important;
+  color: var(--text-primary) !important;
+}
+
+[data-theme="light"] th {
+  background: var(--bg-surface) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--bg-border) !important;
+}
+
+[data-theme="light"] td {
+  border-color: var(--bg-border) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   C3.JS CHART STYLES (DUAL-THEME: DARK & LIGHT MODE)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.c3 svg {
+  font-family: inherit;
+  font-size: 11px;
+  overflow: visible;
+}
+
+.c3 path,
+.c3 line {
+  fill: none;
+  stroke: var(--bg-border);
+}
+
+.c3-axis path,
+.c3-axis line {
+  stroke: var(--bg-border);
+  shape-rendering: crispEdges;
+}
+
+.c3-axis text {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.c3-grid line {
+  stroke: var(--bg-border);
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+
+/* C3 Gauge Styles */
+.c3-chart-arcs-background {
+  fill: var(--bg-surface) !important;
+  stroke: none;
+}
+
+.c3-chart-arcs-gauge-min,
+.c3-chart-arcs-gauge-max {
+  fill: var(--text-muted);
+  font-size: 10px;
+}
+
+.c3-gauge-value {
+  fill: var(--text-primary) !important;
+  font-size: 26px !important;
+  font-weight: 800 !important;
+  font-family: inherit;
+}
+
+/* C3 Donut Chart Center Text */
+.c3-chart-arcs-title {
+  fill: var(--text-primary) !important;
+  font-size: 16px !important;
+  font-weight: 800 !important;
+  dominant-baseline: middle;
+  text-anchor: middle;
+}
+
+.c3-chart-arc text {
+  fill: #ffffff !important;
+  font-size: 11px;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* C3 Legend Styles */
+.c3-legend-item text {
+  fill: var(--text-secondary) !important;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.c3-legend-item-hidden {
+  opacity: 0.25;
+}
+
+/* C3 Tooltip Styles */
+.c3-tooltip-container {
+  z-index: 1000;
+}
+
+.c3-tooltip {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--bg-border) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
+  color: var(--text-primary) !important;
+  font-size: 12px !important;
+  padding: 8px 12px !important;
+  white-space: nowrap;
+  opacity: 0.98 !important;
+}
+
+.c3-tooltip th {
+  background: var(--bg-surface) !important;
+  color: var(--text-primary) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  padding: 4px 8px !important;
+  border-bottom: 1px solid var(--bg-border) !important;
+  text-align: left;
+  border-radius: 4px 4px 0 0;
+}
+
+.c3-tooltip td {
+  padding: 4px 8px !important;
+  color: var(--text-secondary) !important;
+  border: none !important;
+}
+
+.c3-tooltip td > span {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+}
+
+.c3-tooltip .value {
+  font-weight: 700 !important;
+  color: var(--text-primary) !important;
+  text-align: right;
+  font-family: monospace;
+}
+
+/* C3 Line Chart Dots */
+.c3-circle {
+  transition: r 0.2s ease;
+}
+
+.c3-circle:hover {
+  r: 6 !important;
+}
+
+/* C3 Bar Hover */
+.c3-bar {
+  transition: opacity 0.2s ease;
+}
+
+.c3-bar:hover {
+  opacity: 0.85;
+}
+
+
 

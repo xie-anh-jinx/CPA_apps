@@ -10,9 +10,9 @@ from datetime import datetime, date
 
 from app.database import get_analytics_db
 from app.models.analytics.models import CRMActivity, CRMOpportunity, CRMComplaint, CRMFollowupReminder
-from app.routers.auth import CurrentUser
+from app.routers.auth import CurrentUser, forbid_roles
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(forbid_roles("warehouse", "warehouse_staff", detail="Akses ditolak. Pengguna gudang tidak memiliki akses modul CRM."))])
 
 
 # ─── Pydantic Schemas ──────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ async def list_activities(
         params["id_pegawai"] = id_pegawai
 
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         conditions.append("a.id_pegawai = :user_pegawai")
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -95,9 +95,13 @@ async def create_activity(
     db: Session = Depends(get_analytics_db),
     current_user: CurrentUser = None,
 ):
+    activity_dict = data.model_dump()
+    if not activity_dict.get("id_pegawai") and current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
+        activity_dict["id_pegawai"] = current_user.id_pegawai
+
     activity = CRMActivity(
-        **data.model_dump(),
-        created_by=current_user.username,
+        **activity_dict,
+        created_by=current_user.username if current_user else "system",
     )
     db.add(activity)
     db.commit()
@@ -123,7 +127,7 @@ async def list_opportunities(
         params["id_salesman"] = id_salesman
 
     # Role-based Row-Level Security
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         conditions.append("o.id_salesman = :user_pegawai")
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -143,9 +147,21 @@ async def create_opportunity(
     db: Session = Depends(get_analytics_db),
     current_user: CurrentUser = None,
 ):
+    opp_dict = data.model_dump()
+    if not opp_dict.get("id_salesman") and current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
+        opp_dict["id_salesman"] = current_user.id_pegawai
+
+    if not opp_dict.get("nama_customer") and opp_dict.get("id_customer"):
+        cust_name = db.execute(
+            text("SELECT nama_customer FROM operational.customers WHERE id_kontak = :cid"),
+            {"cid": opp_dict["id_customer"]}
+        ).scalar()
+        if cust_name:
+            opp_dict["nama_customer"] = cust_name
+
     opp = CRMOpportunity(
-        **data.model_dump(),
-        created_by=current_user.username,
+        **opp_dict,
+        created_by=current_user.username if current_user else "system",
     )
     db.add(opp)
     db.commit()
@@ -189,6 +205,11 @@ async def list_complaints(
         conditions.append("c.id_customer = :id_customer")
         params["id_customer"] = id_customer
 
+    # Role-based Row-Level Security: Sales only see complaints for their customers
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
+        conditions.append("c.id_customer IN (SELECT id_kontak FROM operational.customers WHERE id_salesman = :user_pegawai)")
+        params["user_pegawai"] = current_user.id_pegawai
+
     rows = db.execute(text(f"""
         SELECT * FROM crm.complaints c
         WHERE {' AND '.join(conditions)}
@@ -205,8 +226,8 @@ async def create_complaint(
 ):
     complaint = CRMComplaint(
         **data.model_dump(),
-        created_by=current_user.username,
-        assigned_to=current_user.username,
+        created_by=current_user.username if current_user else "system",
+        assigned_to=current_user.username if current_user else None,
     )
     db.add(complaint)
     db.commit()
@@ -240,7 +261,7 @@ async def get_pipeline_summary(
     """Ringkasan pipeline per stage."""
     extra = ""
     params = {}
-    if current_user and current_user.role == "sales" and current_user.id_pegawai:
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
         extra = " AND id_salesman = :user_pegawai"
         params["user_pegawai"] = current_user.id_pegawai
 
@@ -264,11 +285,14 @@ async def get_pipeline_summary(
     win_rate = (win["won_count"] / win["closed_count"] * 100) if win and win["closed_count"] else 0
 
     # Open Complaints
-    complaints = db.execute(text("""
+    complaints_extra = ""
+    if current_user and current_user.role in ("sales", "sales_rep") and current_user.id_pegawai:
+        complaints_extra = " AND id_customer IN (SELECT id_kontak FROM operational.customers WHERE id_salesman = :user_pegawai)"
+    complaints = db.execute(text(f"""
         SELECT COUNT(*) AS open_complaints
         FROM crm.complaints
-        WHERE status != 'resolved'
-    """)).scalar()
+        WHERE status != 'resolved' {complaints_extra}
+    """), params).scalar()
 
     return {
         "opportunities_count": kpi["opportunities_count"] or 0,

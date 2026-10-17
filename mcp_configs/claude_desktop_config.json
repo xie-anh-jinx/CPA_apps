@@ -1,0 +1,60 @@
+{
+  "mcpServers": {
+    "cpa-analytics-admin": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "cpa_backend",
+        "python3",
+        "-m",
+        "app.mcp.server",
+        "--role",
+        "admin"
+      ]
+    },
+    "cpa-analytics-sales": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "cpa_backend",
+        "python3",
+        "-m",
+        "app.mcp.server",
+        "--user",
+        "azzuhri",
+        "--pegawai",
+        "CPA-452"
+      ]
+    },
+    "cpa-analytics-warehouse": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "cpa_backend",
+        "python3",
+        "-m",
+        "app.mcp.server",
+        "--role",
+        "warehouse_staff",
+        "--pegawai",
+        "CPA-051"
+      ]
+    },
+    "cpa-analytics-finance": {
+      "command": "docker",
+      "args": [
+        "exec",
+        "-i",
+        "cpa_backend",
+        "python3",
+        "-m",
+        "app.mcp.server",
+        "--role",
+        "finance_manager"
+      ]
+    }
+  }
+}

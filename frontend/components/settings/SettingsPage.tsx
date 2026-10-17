@@ -1,8 +1,10 @@
 "use client";
 import { useState } from "react";
+import { useTheme } from "@/components/providers/ThemeProvider";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("general");
+  const { theme, setTheme } = useTheme();
   
   return (
     <div className="animate-fade-up">
@@ -55,15 +57,18 @@ export default function SettingsPage() {
                   </select>
                 </div>
                 <div>
-                  <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.8rem", color: "var(--text-secondary)" }}>Tema Default</label>
-                  <select className="input">
-                    <option>Dark (Direkomendasikan)</option>
-                    <option>Light</option>
-                    <option>System Default</option>
+                  <label style={{ display: "block", marginBottom: "0.4rem", fontSize: "0.8rem", color: "var(--text-secondary)" }}>Tema Tampilan</label>
+                  <select 
+                    className="input" 
+                    value={theme} 
+                    onChange={(e) => setTheme(e.target.value as "dark" | "light")}
+                  >
+                    <option value="dark">🌙 Dark Mode (Figma Dark Theme)</option>
+                    <option value="light">☀️ Light Mode (Modern Clean Theme)</option>
                   </select>
                 </div>
                 <div style={{ marginTop: "1rem" }}>
-                  <button className="btn btn-primary">Simpan Perubahan</button>
+                  <button className="btn btn-primary" onClick={() => alert("Pengaturan berhasil disimpan.")}>Simpan Perubahan</button>
                 </div>
               </div>
             </div>
