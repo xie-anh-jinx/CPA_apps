@@ -3,6 +3,9 @@
   "compilerOptions": {
     "strict": true,
     "baseUrl": ".",
+    "jsx": "react-native",
+    "lib": ["DOM", "ES2021"],
+    "moduleResolution": "bundler",
     "paths": {
       "@/*": ["./*"],
       "@shared/*": ["../shared/*"]
