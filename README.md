@@ -1,6 +1,6 @@
-# CPA Inventory Intelligence & CRM Platform
+# CPA Inventory Intelligence, Finance AR & Enterprise Analytics Platform
 
-Platform monitoring dan analisis yang terintegrasi untuk bisnis distribusi, membangun lapisan analytics di atas PostgreSQL aplikasi existing secara **read-only**.
+Platform monitoring, analitik eksekutif, manajemen piutang (AR), logistik gudang, dan CRM terintegrasi untuk bisnis distribusi, yang membangun lapisan analitik cerdas di atas PostgreSQL aplikasi ERP existing secara **read-only**.
 
 ## 🏗️ Arsitektur
 
@@ -9,12 +9,12 @@ PostgreSQL Existing (READ ONLY)
         ↓ incremental sync (Celery Beat, 15-30 detik)
 PostgreSQL Analytics
 ├── operational (mirror data lama)
-├── analytics (aggregasi)
-└── crm (data baru)
+├── analytics (aggregasi, AR confirmation, ICU incentive, forecast)
+└── crm (customer 360 & pipeline)
         ↓
-FastAPI (Business Logic, Auth RBAC, KPI)
+FastAPI (Business Logic, Auth RBAC, Finance AR Engine, AI Chat PADI & MCP)
         ↓
-Next.js Dashboard (Real-time via polling + WebSocket)
+Next.js Web Dashboard + Expo React Native Mobile App (Real-time via polling + WebSocket)
         ↓
 Redis (Cache, Queue, Pub/Sub)
 ```
@@ -24,13 +24,13 @@ Redis (Cache, Queue, Pub/Sub)
 ### Prasyarat
 - Docker & Docker Compose
 - Python 3.12+ (opsional untuk dev lokal)
-- Node.js 20+ (opsional untuk dev lokal)
+- Node.js 20+ (opsional untuk dev lokal & mobile Expo)
 
 ### Setup Pertama Kali
 
 ```bash
 # 1. Clone/masuk ke folder
-cd /home/kotaromiyabi/CPA_apps
+cd /root/CPA_analytics
 
 # 2. Jalankan setup otomatis
 bash setup.sh
@@ -40,7 +40,7 @@ Script akan:
 1. Membuat `.env` dari template
 2. Menjalankan PostgreSQL analytics + Redis
 3. Menjalankan Alembic migration (buat schema)
-4. Membuat admin user (admin/admin123)
+4. Membuat admin user (`admin` / `admin123`)
 5. Menjalankan semua service
 
 ### Manual: Restore Database Existing
@@ -67,64 +67,78 @@ pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload
 
-# Celery (terminal baru)
+# Celery Worker & Beat (terminal baru)
 celery -A app.workers.celery_app worker --loglevel=info
-
-# Celery Beat (terminal baru)
 celery -A app.workers.celery_app beat --loglevel=info
 
-# Frontend (terminal baru)
+# Frontend Web (terminal baru)
 cd frontend
 npm run dev
+
+# Mobile App Expo (terminal baru)
+cd mobile
+npx expo start
 ```
 
 ## 📡 URL Akses & Layanan
 
 | Service / Modul | URL / Port | Keterangan |
 |---|---|---|
-| Frontend Web App | https://warehouse.pengajaran.com (Port 3001) | Dashboard Analitik, GA, Fleet, IT, HRM, CRM |
+| Frontend Web App | https://warehouse.pengajaran.com (Port 3001) | Dashboard Analitik, Finance AR, Inventori, GA, Fleet, IT, HRM, CRM |
 | 3D Warehouse Twin | https://warehouse.pengajaran.com/3d/ (Port 5173) | Visualisasi 3D Interaktif Denah & Rak Gudang |
-| FastAPI REST API | https://warehouse.pengajaran.com/api/ (Port 8000) | Backend REST API & WebSocket Real-time |
+| FastAPI REST API | https://warehouse.pengajaran.com/api/ (Port 8000) | Backend REST API, Finance AR API & WebSocket Real-time |
 | API Docs (Swagger) | https://warehouse.pengajaran.com/api-docs | Dokumentasi interaktif OpenAPI / Swagger |
 | MCP SSE Endpoint | https://warehouse.pengajaran.com/mcp & `/api/mcp` | Model Context Protocol untuk Claude & ChatGPT |
 | Celery Flower | http://localhost:5555 | Web Dashboard Monitoring Antrean Task Celery |
 | PostgreSQL Existing | localhost:5432 (Internal Docker) | DB Core ERP Ultima 2024 (Read-Only) |
-| PostgreSQL Analytics | localhost:5432 (Internal Docker) | DB ODS, CRM, Logbook, Users, Forecast |
+| PostgreSQL Analytics | localhost:5432 (Internal Docker) | DB ODS, CRM, AR Management, Logbook, Users, Forecast |
 | Redis Pub/Sub | localhost:6379 (Internal Docker) | Cache & Broker Antrean Celery |
 | WAHA WhatsApp API | localhost:3008 (Internal Docker) | WhatsApp HTTP API Gateway Notifikasi |
 
 ## 📊 Modul Aplikasi (Aktual)
 
-### 1. Executive Dashboard (`/`)
-- KPI Ringkasan: Omzet (MTD/YTD), Inventory Value, Active Orders, Overdue AR.
-- Visualisasi analitik: Tren omzet multi-bulan, proporsi risiko piutang, dan status sinkronisasi real-time.
+### 1. Executive & C3 Main Dashboard (`/` & `/main-dashboard`)
+- KPI Ringkasan: Omzet (MTD/YTD), Inventory Value, Active Orders, Overdue AR, dan Rasio Kesehatan Kas.
+- Visualisasi interaktif berbasis C3.js & Recharts: Tren omzet multi-bulan, Quadrant Matrix, Donut & Stacked Bar proporsi risiko piutang, serta status sinkronisasi real-time.
 
 ### 2. Manajemen Inventori & Gudang (`/inventory` & `/warehouses`)
-- Saldo stok fisik real-time per SKU: On-Hand, Available, Reserved, Damaged, Quarantine.
-- Multi-Warehouse comparison Sultanbatara (Makassar, Kendari, Palu, dll).
-- Pelacakan Mutasi Internal Transfer (Receipt IT In & IT Out), batch IBC tank, dan logistik pengiriman.
+- Saldo stok fisik real-time per SKU: On-Hand, Available, Reserved, Damaged, Quarantine, dan Batch Aging (`/inventory/aging`).
+- Multi-Warehouse comparison Sultanbatara (Makassar, Kendari, Palu, Gorontalo, Manado, dll).
+- Pelacakan Mutasi Internal Transfer (Receipt IT In & IT Out) dengan paginasi terstruktur, pelacakan batch IBC tank, dan logistik pengiriman.
 - Analisis stok: Fast-moving, slow-moving, dead-stock, serta deteksi overstock/low-stock.
 
-### 3. Penjualan & Sales Order (`/sales` & `/sales/orders`)
+### 3. Distribusi & Logistik Pengiriman (`/distributions` & `/distributions/financial-flow`)
+- Pelacakan Delivery Order (DO) fisik, multi-filter lanjutan, aksi batch, dan dokumen pengiriman pelanggan.
+- Pelacakan pergerakan stok antarcabang (Internal Order & Internal Transfer).
+- Financial Flow Distribusi: Rekonsiliasi alur pengiriman terhadap tagihan dan biaya ekspedisi.
+
+### 4. Penjualan & Sales Order (`/sales` & `/sales/orders`)
 - Pipeline siklus order: SO → DO → Faktur Tagihan → Pelunasan.
 - Performa sales: Analisis tren per cabang, salesperson, kategori produk, dan pelanggan.
 - Pre-Delivery Credit Control: Pengecekan otomatis batas kredit pelanggan sebelum barang dirilis gudang.
 
-### 4. Distribusi & Logistik Pengiriman (`/distributions`)
-- Pelacakan Delivery Order (DO) fisik dan dokumen pengiriman pelanggan.
-- Pelacakan pergerakan stok antarcabang (Internal Order & Internal Transfer).
-- Logistik ekspedisi: data armada, identitas sopir, nomor polisi, dan SLA ketepatan waktu pengiriman.
-
 ### 5. CRM & Customer 360 (`/crm`)
-- Profil komprehensif pelanggan 360° (plafon kredit, termin TOP, PIC, cabang).
+- Profil komprehensif pelanggan 360° (plafon kredit, termin TOP, PIC, cabang, serta tab Kesehatan Kredit).
 - Sales Pipeline & Interactive Kanban (Prospect → Qualified → Proposal → Negotiation → Closed Won/Lost).
 - Pencatatan aktivitas kunjungan sales dan tiket penanganan keluhan pelanggan (Complaint SLA).
 
-### 6. Keuangan, Financial Flow & Credit Health (`/finance`, `/distributions/financial-flow`, `/reports`)
-- Financial Flow: Monitoring arus kas terpadu dari PO, SO, DO, Faktur, hingga pelunasan Bank/Kas.
-- Budget Request & Variance: Pengajuan anggaran operasional cabang dan komparasi budget vs realisasi riil.
-- Transaction Journey: Audit trail visual dokumen akuntansi dari hulu ke hilir.
-- Credit Health & AR Aging Matrix: Analisis penuaan piutang dalam 5 bucket (Lancar, 1–30d, 31–60d, 61–90d, >90d).
+### 6. Finance & Akuntansi — AR Executive Summary (`/finance` & `/finance/ar-summary`)
+Modul komprehensif pengendalian piutang usaha (*Accounts Receivable*) dan kinerja penagihan perusahaan:
+- **Executive Dashboard Finance (`/finance`)**: Ringkasan eksekutif indikator keuangan, pengiriman, dan alert penagihan prioritas.
+- **AR EXECUTIVE SUMMARY (`/finance/ar-summary`)**: Gambaran posisi piutang perusahaan secara keseluruhan (**Total OS vs OS Overdue**), aging bucket matrix, dan navigasi terpadu ke **9 Sub-Menu AR**:
+  1. **TOP 20 AR (`/finance/ar-summary/top-20`)**: Daftar 20 piutang customer terbesar (*Total Current AR* & *Total OS*) yang dikategorikan otomatis ke dalam **Top Performance** atau **Critical** berdasarkan tingkat overduenya.
+  2. **COLLECTION ALERT (`/finance/ar-summary/collection-alert`)**: Daftar invoice yang memerlukan tindakan penagihan segera, dikelompokkan ke dalam *Upcoming Overdue (7 Hari Kedepan)*, *Due Today*, *OD 1–30 Hari*, *OD 31–60 Hari*, *OD 61–90 Hari*, dan *OD >90 Hari*.
+  3. **WEEKLY COLLECTION ACHIEVEMENT (`/finance/ar-summary/weekly-collection`)**: Pengukuran realisasi pembayaran secara mingguan (*Target vs Actual Collection* per minggu, persentase pencapaian, serta rincian postingan pembayaran yang masuk setiap hari).
+  4. **AM PERFORMANCE (`/finance/ar-summary/am-performance`)**: Peringkat kontribusi DSR / Marketing (*Account Manager*) terhadap penerimaan pembayaran (*ranking collection* dan *ranking achievement* terhadap target).
+  5. **GOODS IN TRANSIT TRACKING (`/finance/ar-summary/goods-in-transit`)**: Monitoring barang yang sudah keluar dari gudang atau telah dikirim ke customer (DO terbit/terkirim), tetapi belum diterbitkan invoice penagihannya (*Unbilled Delivery Orders*).
+  6. **CREDIT LIMIT UTILIZATION (`/finance/ar-summary/credit-utilization`)**: Pengukuran penggunaan fasilitas kredit pelanggan dengan aturan otomatis:
+     - Utilisasi kredit $\ge 80\%$: **Warning**
+     - Utilisasi kredit $\ge 100\%$: **Over Limit**
+     - Overdue $> 60$ hari: **Credit Review**
+     - Overdue $> 90$ hari: Rekomendasi **Credit Hold** sesuai kebijakan
+  7. **CUSTOMER PERFORMANCE (`/finance/ar-summary/customer-performance`)**: Evaluasi *range payment customer* berdasarkan *Average Payment Days* ($\le 0$ hari overdue: **Excellent**, $1\text{–}30$ hari: **Good**, $31\text{–}60$ hari: **High Risk**, $>60$ hari: **Critical**) beserta daftar program insentif customer.
+  8. **COLLECTION PROJECTION (`/finance/ar-summary/collection-projection`)**: Target & proyeksi penagihan *weekly* dan *monthly* berdasarkan konfirmasi pembayaran customer (*committed date & amount*) serta umur overdue.
+  9. **ICU — Incentive Customer Unit (`/finance/ar-summary/icu`)**: Manajemen pengajuan insentif customer (diskon pelunasan dipercepat, rabat volume, insentif pembayaran tepat waktu) yang membutuhkan *approval* dan tindak lanjut manajemen.
 
 ### 7. AI Demand Forecasting & Machine Learning (`/forecast`)
 - Proyeksi kebutuhan permintaan unit multi-horizon (7, 30, dan 90 hari ke depan) untuk Top 30 SKU aktif.
@@ -139,7 +153,7 @@ npm run dev
 - Dual-storage dengan backup & export data armada ke format JSON & spreadsheet.
 
 ### 9. General Affairs (GA) Digital Logbook (`/ga` & `/ga/entry`)
-- 6 Sub-modul operasional fasilitas cabang: Genset, Kebersihan (5S), Air Minum Galon, Pengiriman GA, PDAM (m³), Listrik (kWh).
+- 6 Sub-modul operasional fasilitas cabang: Genset, Kebersihan (5S), Air Minum Galon, Pengiriman GA, PDAM ($\text{m}^3$), Listrik (kWh).
 - KPI otomatis: Deteksi dini kerusakan fasilitas (*damage alerts*), skor rating kebersihan 5S, dan estimasi biaya utilitas.
 - Offline-First Architecture: Penyimpanan lokal di peramban (LocalStorage) yang andal saat jaringan offline, dilengkapi fitur Backup & Restore JSON.
 
@@ -153,21 +167,25 @@ npm run dev
 - Rekap absensi dan monitoring kehadiran kerja harian staf gudang dan kantor.
 - Manajemen pengajuan dan saldo kuota cuti karyawan (Leaves Management) dengan alur persetujuan.
 
-### 12. Asisten AI Interaktif & Model Context Protocol (MCP) (`/api/mcp`, `/mcp`, Floating AI Chat)
-- Floating AI Assistant di pojok layar aplikasi: Tanya-jawab posisi stok real-time, status pengiriman, dan tren omzet dengan bahasa alami.
-- Server Model Context Protocol (FastMCP) berbasis streaming Server-Sent Events (SSE).
-- OAuth Discovery & RFC-compliant Authorization Server untuk integrasi ke Claude Desktop, ChatGPT, atau Cursor.
+### 12. Asisten AI Interaktif PADI, Auto-Report Engine & Model Context Protocol (MCP)
+- **Floating AI Assistant PADI**: Tanya-jawab posisi stok real-time, piutang overdue, status pengiriman DO, dan tren omzet dengan bahasa alami, dilengkapi grafik C3 interaktif di dalam chat (`C3ChatChart`) dan unggah dokumen analisis.
+- **Auto-Report & Presentation Generator**: Pembuatan laporan PDF/Excel profesional (`report_engine.py`) serta presentasi analisis DO interaktif (`do_presentation_generator.py`).
+- **Server Model Context Protocol (FastMCP)** berbasis streaming Server-Sent Events (SSE) dengan OAuth Discovery untuk integrasi ke Claude Desktop, ChatGPT, atau Cursor.
 
 ### 13. 3D Digital Twin Warehouse & Schema Graph (`/database/warehouse-visualization` & `/database/schema`)
 - Visualisasi spasial 3D denah gudang dan rak penyimpanan pallet bertingkat secara interaktif (Three.js / WebGL / Vite).
 - Interactive Database Schema Visualizer: Canvas graf relasi Foreign Key antartabel database ERP core dan database analitik.
+
+### 14. Aplikasi Mobile Lintas Platform (`mobile/` & `shared/`)
+- Aplikasi mobile berbasis **Expo React Native** (Android & iOS) untuk pemantauan eksekutif, stok inventori, distribusi DO, penjualan, dan metrik keuangan secara *on-the-go*.
+- Berbagi definisi tipe TypeScript dan konstanta terpusat melalui modul `shared/`.
 
 ## 🔑 Auth & RBAC (Role-Based Access Control)
 
 | Role | Cakupan Hak Akses | Akses Finansial | Pembatasan RLS & Kebijakan |
 |---|---|---|---|
 | `admin` / `superadmin` | Seluruh Modul (Nasional) | Full Financial Access | Akses penuh tanpa batas ke seluruh modul, konfigurasi, dan user. |
-| `finance` / `credit_control` | Keuangan, AR, CRM, Laporan | Full Financial Access | Akses tagihan faktur, pelunasan, AR aging, budget request, dan financial flow. |
+| `finance` / `credit_control` | Keuangan, AR Summary (9 Sub-Menu), CRM, Laporan | Full Financial Access | Akses penuh Executive Dashboard Finance, AR Executive Summary beserta 9 sub-menu AR, konfirmasi proyeksi penagihan, dan approval ICU. |
 | `sales` | Sales, Orders, CRM 360 | Data Customer Pribadi | Hanya melihat data relasi sales dan pelanggan miliknya. Salesperson lain diisolasi. |
 | `warehouse` / `warehouse_staff` | Inventory, Warehouse, Mutasi | Zero Financial (Masked —) | Akses inventori gudang Sultanbatara (29 gudang). Menu Sales, CRM, dan Keuangan diblokir. |
 | `ga` | General Affairs (`/ga`) | Non-Financial GA Utilities | Akses eksklusif logbook fasilitas GA (genset, kebersihan, PDAM, listrik, air). Modul lain ditutup. |
@@ -184,57 +202,81 @@ CPA_analytics/
 ├── setup.sh
 ├── backend/
 │   ├── app/
-│   │   ├── main.py             # FastAPI entry point & routers
-│   │   ├── config.py           # Settings & env vars
-│   │   ├── database.py         # Dual DB engine (existing read-only + analytics)
-│   │   ├── mcp_server.py       # Model Context Protocol (FastMCP / SSE)
-│   │   ├── models/             # SQLAlchemy ORM models
-│   │   │   ├── existing/       # Read-only models ERP Ultima
-│   │   │   └── analytics/      # Read-write models (ODS, CRM, Alerts, Users)
-│   │   ├── routers/            # API endpoints
-│   │   │   ├── auth.py         # JWT + RBAC authorization
-│   │   │   ├── inventory.py    # Stok & aging
-│   │   │   ├── warehouses.py   # Gudang & mutasi IT
-│   │   │   ├── sales.py        # Sales orders & invoices
-│   │   │   ├── distributions.py# DO & ekspedisi
-│   │   │   ├── customers.py    # Customer 360 & pipeline
-│   │   │   ├── crm.py          # Opportunities & activities
-│   │   │   ├── forecast.py     # AI Demand forecasting endpoints
-│   │   │   ├── alerts.py       # Real-time alerts
-│   │   │   └── analytics.py    # Metrik & KPIs
-│   │   └── workers/            # Celery background tasks
-│   │       ├── celery_app.py   # Celery worker configuration & beat schedule
+│   │   ├── main.py                  # FastAPI entry point & routers
+│   │   ├── config.py                # Settings & env vars
+│   │   ├── database.py              # Dual DB engine (existing read-only + analytics)
+│   │   ├── mcp_server.py            # Model Context Protocol (FastMCP / SSE)
+│   │   ├── mcp/                     # MCP auth, permissions, queries, db_knowledge & tools
+│   │   ├── models/                  # SQLAlchemy ORM models
+│   │   │   ├── existing/            # Read-only models ERP Ultima
+│   │   │   └── analytics/           # Read-write models (ODS, CRM, AR Confirmation, ICU, Users)
+│   │   ├── routers/                 # API endpoints
+│   │   │   ├── auth.py              # JWT + RBAC authorization
+│   │   │   ├── finance.py           # Finance Executive Dashboard, AR Summary & 9 AR Sub-Menus
+│   │   │   ├── inventory.py         # Stok & batch aging
+│   │   │   ├── warehouses.py        # Gudang & mutasi IT
+│   │   │   ├── sales.py             # Sales orders & invoices
+│   │   │   ├── distributions.py     # DO & ekspedisi
+│   │   │   ├── customers.py         # Customer 360 & pipeline
+│   │   │   ├── crm.py               # Opportunities & activities
+│   │   │   ├── forecast.py          # AI Demand forecasting endpoints
+│   │   │   ├── hrm.py               # SDM, kehadiran & cuti
+│   │   │   ├── ai_chat.py           # Dual-Agent AI Assistant PADI
+│   │   │   ├── documents.py         # Upload dokumen, export laporan & presentasi DO
+│   │   │   ├── alerts.py            # Real-time alerts
+│   │   │   └── analytics.py         # Metrik & KPIs
+│   │   ├── services/                # Layanan LLM, cache, report PDF/XLSX & DO presentation
+│   │   └── workers/                 # Celery background tasks
+│   │       ├── celery_app.py        # Celery worker configuration & beat schedule
 │   │       ├── sync_inventory.py
 │   │       ├── sync_sales.py
 │   │       ├── sync_customers.py
 │   │       ├── sync_distributions.py
 │   │       ├── compute_analytics.py
 │   │       └── check_alerts.py
-│   └── alembic/                # Database migrations
+│   └── alembic/                     # Database migrations
 ├── frontend/
-│   ├── app/                    # Next.js App Router
-│   │   ├── page.tsx            # Executive Dashboard
-│   │   ├── inventory/          # Monitoring stok fisik
-│   │   ├── warehouses/         # Multi-warehouse Sultanbatara
-│   │   ├── sales/              # Monitoring sales & SO
-│   │   ├── distributions/      # Logistik & financial flow
-│   │   ├── crm/                # Customer 360 & pipeline
-│   │   ├── finance/            # Keuangan terpadu & budget request
-│   │   ├── forecast/           # AI Demand forecasting
-│   │   ├── assets/fleet/       # Fleet & vehicle logbook
-│   │   ├── ga/                 # General Affairs logbook & entry
-│   │   ├── it/                 # IT asset & helpdesk hub
-│   │   ├── hrm/                # SDM, absensi & cuti
-│   │   ├── database/           # 3D warehouse & schema graph
-│   │   └── docs/               # In-app Dokumentasi Sistem & Teknis
-│   ├── components/             # React components
-│   │   ├── layout/             # Sidebar, Topbar, AppShell
-│   │   ├── ai/                 # AIChatBox (Floating AI assistant)
-│   │   ├── ga/                 # GaLogbookApp & forms
-│   │   ├── assets/             # FleetLogbookApp
-│   │   └── docs/               # DocsPage & MermaidViewer
-│   └── lib/api.ts              # Axios HTTP client
-└── docs/                       # Dokumentasi arsitektur, MCP & Obsidian Vault
+│   ├── app/                         # Next.js App Router
+│   │   ├── page.tsx                 # Executive Dashboard
+│   │   ├── main-dashboard/          # C3 Interactive Main Dashboard
+│   │   ├── inventory/               # Monitoring stok fisik & batch aging
+│   │   ├── warehouses/              # Multi-warehouse Sultanbatara
+│   │   ├── sales/                   # Monitoring sales & SO
+│   │   ├── distributions/           # Logistik DO & financial flow
+│   │   ├── crm/                     # Customer 360 & pipeline
+│   │   ├── finance/                 # Finance Executive Dashboard & AR Executive Summary
+│   │   │   ├── page.tsx             # Executive Dashboard Finance
+│   │   │   └── ar-summary/          # AR Executive Summary + 9 Sub-Menu routes
+│   │   │       ├── page.tsx
+│   │   │       ├── top-20/
+│   │   │       ├── collection-alert/
+│   │   │       ├── weekly-collection/
+│   │   │       ├── am-performance/
+│   │   │       ├── goods-in-transit/
+│   │   │       ├── credit-utilization/
+│   │   │       ├── customer-performance/
+│   │   │       ├── collection-projection/
+│   │   │       └── icu/
+│   │   ├── forecast/                # AI Demand forecasting
+│   │   ├── assets/fleet/            # Fleet & vehicle logbook
+│   │   ├── ga/                      # General Affairs logbook & entry
+│   │   ├── it/                      # IT asset & helpdesk hub
+│   │   ├── hrm/                     # SDM, absensi & cuti
+│   │   ├── database/                # 3D warehouse & schema graph
+│   │   └── docs/                    # In-app Dokumentasi Sistem & Teknis
+│   ├── components/                  # React components
+│   │   ├── layout/                  # Sidebar, Topbar, AppShell
+│   │   ├── finance/                 # Komponen ExecutiveDashboard, ArExecutiveSummary & 9 halaman AR
+│   │   ├── charts/c3/               # Komponen grafik C3.js
+│   │   ├── ai/                      # AIChatBox, ChatMarkdown & C3ChatChart
+│   │   ├── ga/                      # GaLogbookApp & forms
+│   │   ├── assets/                  # FleetLogbookApp
+│   │   └── docs/                    # DocsPage & MermaidViewer
+│   ├── lib/                         # API clients (api.ts, finance-api.ts, aiChat.ts)
+│   └── types/                       # Definisi tipe TypeScript (finance.ts, dll)
+├── mobile/                          # Aplikasi Mobile Expo React Native (Android & iOS)
+├── shared/                          # Tipe data & konstanta bersama (Web & Mobile)
+└── docs/                            # Dokumentasi arsitektur, MCP & Obsidian Vault
 ```
 
 ## ⚙️ Sync Strategy
@@ -251,7 +293,7 @@ CPA_analytics/
 
 ## 🔒 Keamanan
 
-Database existing **hanya dibaca** — koneksi menggunakan `default_transaction_read_only=on`. Tidak ada operasi INSERT/UPDATE/DELETE ke database lama.
+Database existing **hanya dibaca** — koneksi menggunakan `default_transaction_read_only=on`. Tidak ada operasi `INSERT`/`UPDATE`/`DELETE` ke database lama.
 
 ```sql
 -- Yang di-grant ke aplikasi ini:
