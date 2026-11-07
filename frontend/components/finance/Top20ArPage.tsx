@@ -217,6 +217,49 @@ export default function Top20ArPage() {
         isRefreshing={isRefreshing}
       />
 
+      {/* Filter Scope */}
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+        {[
+          { id: "ACTIVE", label: "Siklus Piutang Aktif (H2 2026)" },
+          { id: "YTD_2026", label: "Tahun Berjalan (YTD 2026)" },
+          { id: "AR_LEDGER", label: "Buku Besar AR (acc_ar_faktur)" },
+          { id: "ALL", label: "Seluruh Histori Piutang" },
+        ].map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setScope(s.id)}
+            style={{
+              padding: "0.4rem 0.85rem",
+              borderRadius: "8px",
+              border: scope === s.id ? "1px solid var(--color-primary)" : "1px solid var(--bg-border)",
+              background: scope === s.id ? "var(--color-primary)" : "var(--bg-surface)",
+              color: scope === s.id ? "#ffffff" : "var(--text-secondary)",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {resData?.data_note && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.65rem 1rem",
+            borderRadius: "8px",
+            background: "rgba(14, 165, 233, 0.08)",
+            border: "1px solid rgba(14, 165, 233, 0.25)",
+            fontSize: "0.75rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {resData.data_note}
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div
         style={{

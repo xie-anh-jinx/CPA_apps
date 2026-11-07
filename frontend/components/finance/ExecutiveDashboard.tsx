@@ -43,18 +43,17 @@ import { formatRupiah, formatRupiahShort, formatNumber, formatPercent } from "@/
 export default function ExecutiveDashboard() {
   const [kpi, setKpi] = useState<ExecutiveDashboardKPI | null>(null);
   const [charts, setCharts] = useState<ExecutiveChartsData | null>(null);
+  const [dataNote, setDataNote] = useState<string>("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
       setIsRefreshing(true);
-      const [kpiData, chartsData] = await Promise.all([
-        apiFinance.getExecutiveKPI(),
-        apiFinance.getExecutiveCharts(),
-      ]);
-      setKpi(kpiData);
-      setCharts(chartsData);
+      const res = await apiFinance.getExecutiveDashboard();
+      setKpi(res.kpi);
+      setCharts(res.charts);
+      setDataNote(res.data_note || "");
     } catch (err) {
       console.error("Gagal memuat data executive dashboard:", err);
     } finally {
@@ -79,10 +78,26 @@ export default function ExecutiveDashboard() {
     <div className="main-content" style={{ minHeight: "100vh", padding: "1.5rem" }}>
       <FinanceHeader
         title="Executive Finance Dashboard"
-        subtitle="Monitoring Biaya Operasional, Selisih Estimasi vs Realisasi, & Performa Logistik"
+        subtitle="Monitoring Realisasi Biaya Pengiriman (public.do_tbl), Pengajuan Kas (public.acc_kas), & SLA Logistik"
         onRefresh={fetchData}
         isRefreshing={isRefreshing}
       />
+
+      {dataNote && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.7rem 1rem",
+            borderRadius: "8px",
+            background: "rgba(14, 165, 233, 0.08)",
+            border: "1px solid rgba(14, 165, 233, 0.25)",
+            fontSize: "0.76rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          <strong>Sumber Data Produksi:</strong> {dataNote}
+        </div>
+      )}
 
       {/* Alert Banner for Pending Verifications */}
       {kpi && kpi.pending_verification > 0 && (
@@ -118,15 +133,15 @@ export default function ExecutiveDashboard() {
             </span>
             <div>
               <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                {kpi.pending_verification} Transaksi Memerlukan Verifikasi Segera
+                {kpi.pending_verification} Dokumen DO / Kas Memerlukan Tindak Lanjut Faktur
               </div>
               <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                Terdapat pengiriman dengan deviasi biaya &gt; 5%, berkas FRDO belum lengkap, atau nota invoice tertunda.
+                Terdapat Delivery Order berstatus Shipped/Received yang belum diterbitkan Invoice (Goods In Transit) atau pengajuan kas berstatus Pending.
               </div>
             </div>
           </div>
           <Link
-            href="/finance/ar-summary/collection-alert"
+            href="/finance/ar-summary/goods-in-transit"
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -141,7 +156,7 @@ export default function ExecutiveDashboard() {
               boxShadow: "0 2px 6px rgba(255, 94, 94, 0.3)",
             }}
           >
-            <span>Tinjau Collection Alert</span>
+            <span>Tinjau Goods in Transit</span>
             <ArrowRight size={13} />
           </Link>
         </div>
@@ -160,8 +175,7 @@ export default function ExecutiveDashboard() {
         <FinanceKpiCard
           label="Total Delivery Order"
           value={isLoading ? "..." : formatNumber(kpi?.total_delivery_order)}
-          subValue="Surat jalan terlaksana"
-          change={6.8}
+          subValue="DO dengan biaya kirim > Rp 0"
           icon={<PackageCheck size={18} />}
           color="primary"
         />
@@ -170,62 +184,52 @@ export default function ExecutiveDashboard() {
         <FinanceKpiCard
           label="Total Shipping Cost"
           value={isLoading ? "..." : formatRupiahShort(kpi?.total_shipping_cost)}
-          subValue="Realisasi ongkos kirim"
-          change={4.2}
-          invertChangeColor={true}
+          subValue="Total realisasi ongkos kirim (do_tbl)"
           icon={<Truck size={18} />}
           color="cyan"
         />
 
         {/* 3. Total Transport Cost */}
         <FinanceKpiCard
-          label="Total Transport Cost"
+          label="Biaya Ekspedisi Pihak Ke-3"
           value={isLoading ? "..." : formatRupiahShort(kpi?.total_transport_cost)}
-          subValue="Biaya angkutan armada"
-          change={3.9}
-          invertChangeColor={true}
+          subValue="Pengiriman via vendor transporter"
           icon={<CircleDollarSign size={18} />}
           color="purple"
         />
 
         {/* 4. Total Budget Request */}
         <FinanceKpiCard
-          label="Total Budget Request"
+          label="Total Voucher Kas (acc_kas)"
           value={isLoading ? "..." : formatRupiahShort(kpi?.total_budget_request)}
-          subValue="Pengajuan dana supply chain"
-          change={5.1}
+          subValue="Akumulasi transaksi kas tercatat"
           icon={<FileSpreadsheet size={18} />}
           color="warning"
         />
 
         {/* 5. Total Actual Cost */}
         <FinanceKpiCard
-          label="Total Actual Cost"
+          label="Total Actual Freight"
           value={isLoading ? "..." : formatRupiahShort(kpi?.total_actual_cost)}
-          subValue="Pengeluaran riil terbayar"
-          change={4.5}
-          invertChangeColor={true}
+          subValue="Realisasi biaya kirim DO"
           icon={<CircleDollarSign size={18} />}
           color="danger"
         />
 
-        {/* 6. Total Variance */}
+        {/* 6. Porsi Armada Internal */}
         <FinanceKpiCard
-          label="Total Variance"
-          value={isLoading ? "..." : `+${formatRupiahShort(kpi?.total_variance)}`}
-          subValue={`Deviasi +${kpi?.total_variance_pct || 0}%`}
-          change={kpi?.total_variance_pct}
-          changeLabel="deviasi anggaran"
-          invertChangeColor={true}
+          label="Biaya Armada Internal"
+          value={isLoading ? "..." : formatRupiahShort(kpi?.total_variance)}
+          subValue={`Porsi internal ${kpi?.total_variance_pct || 0}% dari total ongkir`}
           icon={<Scale size={18} />}
           color="danger"
         />
 
         {/* 7. Pending Verification */}
         <FinanceKpiCard
-          label="Pending Verification"
-          value={isLoading ? "..." : `${kpi?.pending_verification || 0} DO`}
-          subValue="Variance > 5% / No FRDO"
+          label="DO Belum Terbit Invoice"
+          value={isLoading ? "..." : `${kpi?.pending_verification || 0} Dok`}
+          subValue="DO Unbilled (GIT) + Kas Pending"
           icon={<AlertTriangle size={18} />}
           color="warning"
         />
@@ -235,14 +239,13 @@ export default function ExecutiveDashboard() {
           label="Average Lead Time"
           value={isLoading ? "..." : `${kpi?.average_lead_time_days || 0} Hari`}
           subValue="Target SLA: 3.0 Hari"
-          change={-0.3}
           icon={<Clock size={18} />}
           color="success"
         />
 
         {/* 9. Top Customer */}
         <FinanceKpiCard
-          label="Top Customer"
+          label="Top Customer (Freight)"
           value={isLoading ? "..." : (kpi?.top_customer?.name || "-").replace("PT ", "").slice(0, 16) + (kpi?.top_customer?.name && kpi.top_customer.name.length > 16 ? "..." : "")}
           subValue={`${formatRupiahShort(kpi?.top_customer?.total_cost)} (${kpi?.top_customer?.do_count || 0} DO)`}
           icon={<Users size={18} />}
@@ -251,16 +254,16 @@ export default function ExecutiveDashboard() {
 
         {/* 10. Top Sales */}
         <FinanceKpiCard
-          label="Top Sales"
+          label="Top Sales (Freight)"
           value={isLoading ? "..." : kpi?.top_sales?.name || "-"}
-          subValue={`${formatRupiahShort(kpi?.top_sales?.total_cost)} (Var +${kpi?.top_sales?.variance_pct || 0}%)`}
+          subValue={`${formatRupiahShort(kpi?.top_sales?.total_cost)} (${kpi?.top_sales?.do_count || 0} DO)`}
           icon={<Award size={18} />}
           color="success"
         />
 
         {/* 11. Top Vendor */}
         <FinanceKpiCard
-          label="Top Vendor"
+          label="Top Vendor Transporter"
           value={isLoading ? "..." : (kpi?.top_vendor?.name || "-").replace("PT ", "")}
           subValue={`${kpi?.top_vendor?.shipment_count || 0} Kiriman (OTD: ${kpi?.top_vendor?.on_time_rate || 0}%)`}
           icon={<Building2 size={18} />}
@@ -444,10 +447,10 @@ export default function ExecutiveDashboard() {
               </p>
             </div>
             <Link
-              href="/finance/shipping"
+              href="/finance/ar-summary/goods-in-transit"
               style={{ fontSize: "0.75rem", color: "var(--color-primary)", textDecoration: "none" }}
             >
-              Lihat Detail &rarr;
+              Lihat GIT &rarr;
             </Link>
           </div>
 
@@ -510,10 +513,10 @@ export default function ExecutiveDashboard() {
               </p>
             </div>
             <Link
-              href="/finance/sales-vs-supply"
+              href="/finance/ar-summary/am-performance"
               style={{ fontSize: "0.75rem", color: "var(--color-primary)", textDecoration: "none" }}
             >
-              Sales vs SC &rarr;
+              AM Performance &rarr;
             </Link>
           </div>
 

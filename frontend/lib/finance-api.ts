@@ -32,7 +32,21 @@ export const apiFinance = {
     return res.data;
   },
 
-  // 1. Executive Dashboard KPIs
+  // 1. Executive Dashboard (Single Source of Truth — 1 request for KPI + Charts + Note)
+  getExecutiveDashboard: async (): Promise<{
+    kpi: ExecutiveDashboardKPI;
+    charts: ExecutiveChartsData;
+    data_note?: string;
+  }> => {
+    const res = await api.get<{
+      kpi: ExecutiveDashboardKPI;
+      charts: ExecutiveChartsData;
+      data_note?: string;
+    }>("/api/finance/executive");
+    return res.data;
+  },
+
+  // 1a. Executive Dashboard KPIs
   getExecutiveKPI: async (): Promise<ExecutiveDashboardKPI> => {
     const res = await api.get<{ kpi: ExecutiveDashboardKPI; charts: ExecutiveChartsData }>(
       "/api/finance/executive"

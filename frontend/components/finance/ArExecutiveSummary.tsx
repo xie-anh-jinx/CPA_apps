@@ -162,6 +162,7 @@ export default function ArExecutiveSummary() {
           {[
             { id: "ACTIVE", label: "Siklus Piutang Aktif (H2 2026)" },
             { id: "YTD_2026", label: "Tahun Berjalan (YTD 2026)" },
+            { id: "AR_LEDGER", label: "Buku Besar AR (acc_ar_faktur)" },
             { id: "ALL", label: "Seluruh Histori Piutang" },
           ].map((s) => (
             <button
@@ -205,6 +206,22 @@ export default function ArExecutiveSummary() {
           </div>
         )}
       </div>
+
+      {data?.data_note && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.65rem 1rem",
+            borderRadius: "8px",
+            background: "rgba(14, 165, 233, 0.08)",
+            border: "1px solid rgba(14, 165, 233, 0.25)",
+            fontSize: "0.75rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {data.data_note}
+        </div>
+      )}
 
       {/* KPI Utama: Total OS x OS Overdue */}
       <div

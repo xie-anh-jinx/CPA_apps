@@ -54,7 +54,7 @@ const AR_SUBMENU_TABS = [
   { href: "/finance/ar-summary/credit-utilization", label: "CREDIT UTILIZATION", desc: "Warning >=80%, Over >=100%", icon: <Gauge size={14} /> },
   { href: "/finance/ar-summary/customer-performance", label: "CUSTOMER PERFORMANCE", desc: "Payment Days & Daftar Insentif", icon: <UserCheck size={14} /> },
   { href: "/finance/ar-summary/collection-projection", label: "COLLECTION PROJECTION", desc: "Target Weekly & Monthly", icon: <CalendarClock size={14} /> },
-  { href: "/finance/ar-summary/icu", label: "ICU (INCENTIVE)", desc: "Approval Insentif Customer", icon: <Gift size={14} />, badge: 9 },
+  { href: "/finance/ar-summary/icu", label: "ICU (INCENTIVE)", desc: "Approval Insentif Customer", icon: <Gift size={14} /> },
 ];
 
 export default function FinanceHeader({
@@ -413,20 +413,6 @@ export default function FinanceHeader({
                   {sub.icon}
                 </span>
                 <span>{sub.label}</span>
-                {sub.badge && (
-                  <span
-                    style={{
-                      padding: "1px 5px",
-                      borderRadius: "8px",
-                      fontSize: "0.62rem",
-                      fontWeight: 700,
-                      background: isSubActive ? "#ffffff" : "#EF4444",
-                      color: isSubActive ? "#059669" : "#ffffff",
-                    }}
-                  >
-                    {sub.badge}
-                  </span>
-                )}
               </Link>
             );
           })}

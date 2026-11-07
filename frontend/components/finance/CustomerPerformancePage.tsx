@@ -151,9 +151,7 @@ export default function CustomerPerformancePage() {
               }}
             >
               {row.original.incentive_eligible
-                ? `✅ Eligible Insentif (${row.original.incentive_rate_pct}% — Est. ${formatRupiahShort(
-                    row.original.estimated_incentive_rp
-                  )})`
+                ? "✅ Eligible Daftar Insentif Customer"
                 : "⛔ Tidak Masuk Daftar Insentif"}
             </div>
             <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: 2 }}>
@@ -174,6 +172,22 @@ export default function CustomerPerformancePage() {
         onRefresh={fetchData}
         isRefreshing={isRefreshing}
       />
+
+      {resData?.data_note && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.65rem 1rem",
+            borderRadius: "8px",
+            background: "rgba(14, 165, 233, 0.08)",
+            border: "1px solid rgba(14, 165, 233, 0.25)",
+            fontSize: "0.75rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {resData.data_note}
+        </div>
+      )}
 
       {/*KPI Cards */}
       <div

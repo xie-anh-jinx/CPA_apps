@@ -21,7 +21,7 @@ export interface ExecutiveDashboardKPI {
     name: string;
     total_cost: number;
     do_count: number;
-    variance_pct: number;
+    variance_pct: number | null;
   };
   top_vendor: {
     name: string;
@@ -134,6 +134,7 @@ export interface ArExecutiveSummaryData {
     max_days_overdue: number;
     open_invoices: number;
   }>;
+  data_note?: string;
 }
 
 export interface Top20ArItem {
@@ -171,6 +172,7 @@ export interface Top20ArResponse {
     watchlist_count: number;
   };
   items: Top20ArItem[];
+  data_note?: string;
 }
 
 export interface CollectionAlertItem {
@@ -203,6 +205,7 @@ export interface CollectionAlertResponse {
   total_alerts: number;
   total_alert_amount: number;
   items: CollectionAlertItem[];
+  data_note?: string;
 }
 
 export interface WeeklyCollectionSeriesItem {
@@ -358,6 +361,8 @@ export interface CreditUtilizationResponse {
     total_customers_evaluated: number;
     total_credit_limit: number;
     total_os: number;
+    total_os_with_limit?: number;
+    unconfigured_limit_customers?: number;
     overall_utilization_pct: number;
     over_limit_count: number;
     warning_80_count: number;
@@ -366,6 +371,7 @@ export interface CreditUtilizationResponse {
     normal_count: number;
   };
   items: CreditUtilizationItem[];
+  data_note?: string;
 }
 
 export interface CustomerPerformanceItem {
@@ -384,7 +390,7 @@ export interface CustomerPerformanceItem {
   performance_tier: "EXCELLENT" | "GOOD" | "HIGH_RISK" | "CRITICAL";
   performance_label: string;
   incentive_eligible: boolean;
-  incentive_rate_pct: number;
+  incentive_rate_pct: number | null;
   estimated_incentive_rp: number;
   incentive_program: string;
 }
@@ -400,6 +406,7 @@ export interface CustomerPerformanceResponse {
     total_estimated_incentive_pool: number;
   };
   items: CustomerPerformanceItem[];
+  data_note?: string;
 }
 
 export interface CollectionProjectionItem {
@@ -449,6 +456,7 @@ export interface CollectionProjectionResponse {
     invoice_count: number;
   }>;
   items: CollectionProjectionItem[];
+  data_note?: string;
 }
 
 export interface IcuSubmissionItem {
@@ -497,5 +505,6 @@ export interface IcuResponse {
     rejected_count: number;
   };
   items: IcuSubmissionItem[];
+  data_gap?: string | null;
 }
 

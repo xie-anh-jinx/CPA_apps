@@ -75,11 +75,11 @@ export default function CreditUtilizationPage() {
         header: "Plafon Kredit (Limit)",
         cell: ({ row }) => (
           <div>
-            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>
-              {formatRupiah(row.original.credit_limit)}
+            <div style={{ fontWeight: 700, color: row.original.is_Contract_limit ? "var(--text-primary)" : "var(--text-muted)" }}>
+              {row.original.is_Contract_limit ? formatRupiah(row.original.credit_limit) : "Rp 0 (Belum Diset)"}
             </div>
             <div style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
-              {row.original.is_Contract_limit ? "Plafon Kontrak Master" : "Plafon Evaluasi Historis"}
+              {row.original.is_Contract_limit ? "Plafon Kontrak Master Customer" : "batas_kredit = 0 di public.customer"}
             </div>
           </div>
         ),
@@ -185,6 +185,49 @@ export default function CreditUtilizationPage() {
         onRefresh={fetchData}
         isRefreshing={isRefreshing}
       />
+
+      {/* Filter Scope */}
+      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+        {[
+          { id: "ACTIVE", label: "Siklus Piutang Aktif (H2 2026)" },
+          { id: "YTD_2026", label: "Tahun Berjalan (YTD 2026)" },
+          { id: "AR_LEDGER", label: "Buku Besar AR (acc_ar_faktur)" },
+          { id: "ALL", label: "Seluruh Histori Piutang" },
+        ].map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setScope(s.id)}
+            style={{
+              padding: "0.4rem 0.85rem",
+              borderRadius: "8px",
+              border: scope === s.id ? "1px solid var(--color-primary)" : "1px solid var(--bg-border)",
+              background: scope === s.id ? "var(--color-primary)" : "var(--bg-surface)",
+              color: scope === s.id ? "#ffffff" : "var(--text-secondary)",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {resData?.data_note && (
+        <div
+          style={{
+            marginBottom: "1rem",
+            padding: "0.65rem 1rem",
+            borderRadius: "8px",
+            background: "rgba(14, 165, 233, 0.08)",
+            border: "1px solid rgba(14, 165, 233, 0.25)",
+            fontSize: "0.75rem",
+            color: "var(--text-secondary)",
+          }}
+        >
+          {resData.data_note}
+        </div>
+      )}
 
       {/* Policy Banner */}
       <div

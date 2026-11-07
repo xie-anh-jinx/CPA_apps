@@ -291,6 +291,23 @@ export default function IcuIncentivePage() {
         isRefreshing={isRefreshing}
       />
 
+      {resData?.data_gap && (
+        <div
+          style={{
+            marginBottom: "1.25rem",
+            padding: "0.85rem 1.15rem",
+            borderRadius: "10px",
+            background: "rgba(245, 158, 11, 0.1)",
+            border: "1px solid rgba(245, 158, 11, 0.35)",
+            fontSize: "0.8rem",
+            color: "var(--text-primary)",
+            lineHeight: 1.45,
+          }}
+        >
+          <strong style={{ color: "#F59E0B" }}>Status Tabel Produksi (Data Gap Notice):</strong> {resData.data_gap}
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div
         style={{

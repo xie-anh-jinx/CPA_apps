@@ -1,13 +1,11 @@
 """
-Router — Finance & Logistics Cost Intelligence
-Enterprise ERP-level financial monitoring, transaction journey, cost variance,
-shipping cost, budget request, sales vs supply, vendor performance, and verification queue.
-Directly queries live enterprise PostgreSQL tables (cpa_existing).
+Router — Finance & Akuntansi (Cost Intelligence & Accounts Receivable)
+Single Source of Truth & 100% Real Data dari database produksi (cpa_existing)
+serta tabel operasional pendamping (cpa_analytics).
 """
-import math
 from datetime import date, datetime, timedelta
 from typing import Optional, List, Any, Dict
-from fastapi import APIRouter, Depends, Query, HTTPException, Body
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -21,6 +19,7 @@ logger = structlog.get_logger()
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
+
 
 async def get_optional_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
@@ -47,6 +46,148 @@ async def get_optional_user(
         raise
     except Exception:
         return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SINGLE SOURCE OF TRUTH — SHARED SQL BUILDERS (AR & GOODS IN TRANSIT)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _get_ar_cutoff_date(scope: str = "ACTIVE") -> str:
+    """Filter horizon waktu piutang: ACTIVE (H2 2026), YTD_2026, ALL, atau AR_LEDGER."""
+    s = (scope or "ACTIVE").upper()
+    if s in ("ALL", "AR_LEDGER"):
+        return "2014-01-01"
+    if s == "YTD_2026":
+        return "2026-01-01"
+    return "2026-07-01"
+
+
+def _get_ar_scope_note(scope: str = "ACTIVE") -> str:
+    """Catatan transparansi sumber data AR pada database cpa_existing."""
+    s = (scope or "ACTIVE").upper()
+    if s == "AR_LEDGER":
+        return (
+            "Sumber Data: Buku Besar Piutang (public.acc_ar_faktur, sinkronisasi s/d 07 Feb 2024 — "
+            "1.397 faktur belum lunas dengan saldo riil Rp 140,07 Miliar)."
+        )
+    return (
+        "Sumber Data: Faktur Penjualan Operasional (public.penjualan LEFT JOIN public.acc_ar_faktur). "
+        "Catatan: tabel akuntansi (acc_ar_faktur & pembayaran_piutang) di database cpa_existing tercatat s/d Februari 2024; "
+        "gunakan filter 'Buku Besar AR (acc_ar_faktur)' untuk melihat 1.397 faktur belum lunas pada buku besar akuntansi."
+    )
+
+
+def _git_unbilled_where(alias: str = "d") -> str:
+    """Single Source of Truth kriteria DO Goods In Transit (belum diterbitkan invoice penjualan)."""
+    return (
+        f"{alias}.status IN ('S', 'R', 'D') "
+        f"AND NOT EXISTS (SELECT 1 FROM penjualando pd WHERE pd.no_do = {alias}.nomor) "
+        f"AND NOT EXISTS (SELECT 1 FROM penjualan p WHERE p.no_do = {alias}.nomor AND p.status <> 'C')"
+    )
+
+
+def _ar_open_invoices_cte(
+    scope: str = "ACTIVE",
+    kantor_filter: str = "",
+    extra_where: str = "",
+) -> str:
+    """
+    Single Source of Truth CTE `inv` untuk seluruh perhitungan Open Accounts Receivable (AR).
+    Menghasilkan kolom standar:
+      no_penjualan, no_faktur, tanggal, invoice_date, id_customer, nama_customer, telepon,
+      id_kantor, id_sales, nama_sales, batas_kredit, top_days, nominal_invoice, sudah_bayar,
+      os, outstanding, due_date, dod, days_overdue
+    """
+    s = (scope or "ACTIVE").upper()
+    if s == "AR_LEDGER":
+        return f"""
+            SELECT
+                COALESCE(NULLIF(a.no_invoice, ''), a.ar_number) AS no_penjualan,
+                COALESCE(NULLIF(p.faktur, ''), NULLIF(a.no_invoice, ''), a.ar_number) AS no_faktur,
+                COALESCE(a.invoice_date, a.ar_date, p.tanggal) AS tanggal,
+                COALESCE(a.invoice_date, a.ar_date, p.tanggal) AS invoice_date,
+                COALESCE(a.customer_code, p.id_customer, 'UNKNOWN') AS id_customer,
+                COALESCE(c.customer, p.kepada, a.customer_code, 'Pelanggan Umum') AS nama_customer,
+                COALESCE(c.telepon, '-') AS telepon,
+                COALESCE(c.id_kantor, 'HO') AS id_kantor,
+                COALESCE(NULLIF(a.id_salesman, ''), NULLIF(p.id_salesman, ''), NULLIF(c.id_sales, ''), 'UNASSIGNED') AS id_sales,
+                COALESCE(peg.nama, NULLIF(a.id_salesman, ''), NULLIF(p.id_salesman, ''), 'Account Manager') AS nama_sales,
+                COALESCE(c.batas_kredit, 0) AS batas_kredit,
+                COALESCE(NULLIF(a.top, 0), p.top, c.top, 30) AS top_days,
+                COALESCE(NULLIF(a.total, 0), a.amount, p.grandtotal, 0) AS nominal_invoice,
+                COALESCE(a.bayar, 0) AS sudah_bayar,
+                (COALESCE(NULLIF(a.total, 0), a.amount, p.grandtotal, 0) - COALESCE(a.bayar, 0)) AS os,
+                (COALESCE(NULLIF(a.total, 0), a.amount, p.grandtotal, 0) - COALESCE(a.bayar, 0)) AS outstanding,
+                COALESCE(
+                    a.due_date,
+                    p.tgl_jatuh_tempo,
+                    COALESCE(a.tgl_terimainvoice, a.invoice_date, a.ar_date) + (COALESCE(NULLIF(a.top, 0), p.top, c.top, 30) * interval '1 day')
+                )::date AS due_date,
+                (CURRENT_DATE - COALESCE(
+                    a.due_date,
+                    p.tgl_jatuh_tempo,
+                    COALESCE(a.tgl_terimainvoice, a.invoice_date, a.ar_date) + (COALESCE(NULLIF(a.top, 0), p.top, c.top, 30) * interval '1 day')
+                )::date) AS dod,
+                (CURRENT_DATE - COALESCE(
+                    a.due_date,
+                    p.tgl_jatuh_tempo,
+                    COALESCE(a.tgl_terimainvoice, a.invoice_date, a.ar_date) + (COALESCE(NULLIF(a.top, 0), p.top, c.top, 30) * interval '1 day')
+                )::date) AS days_overdue
+            FROM acc_ar_faktur a
+            LEFT JOIN penjualan p ON p.no_penjualan = a.no_invoice
+            LEFT JOIN customer c ON c.id_kontak = COALESCE(a.customer_code, p.id_customer)
+            LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(NULLIF(a.id_salesman, ''), NULLIF(p.id_salesman, ''), c.id_sales)
+            WHERE (COALESCE(NULLIF(a.total, 0), a.amount, p.grandtotal, 0) - COALESCE(a.bayar, 0)) > 100
+              AND COALESCE(a.invoice_date, a.ar_date) >= CAST(:cutoff AS date)
+              {kantor_filter}
+              {extra_where}
+        """
+    return f"""
+        SELECT
+            p.no_penjualan,
+            COALESCE(NULLIF(p.faktur, ''), p.no_penjualan) AS no_faktur,
+            p.tanggal,
+            p.tanggal AS invoice_date,
+            p.id_customer,
+            COALESCE(c.customer, p.kepada, 'Pelanggan Umum') AS nama_customer,
+            COALESCE(c.telepon, '-') AS telepon,
+            COALESCE(c.id_kantor, 'HO') AS id_kantor,
+            COALESCE(NULLIF(p.id_salesman, ''), NULLIF(a.id_salesman, ''), NULLIF(c.id_sales, ''), 'UNASSIGNED') AS id_sales,
+            COALESCE(peg.nama, NULLIF(p.id_salesman, ''), NULLIF(a.id_salesman, ''), 'Account Manager') AS nama_sales,
+            COALESCE(c.batas_kredit, 0) AS batas_kredit,
+            COALESCE(p.top, c.top, 30) AS top_days,
+            p.grandtotal AS nominal_invoice,
+            COALESCE(a.bayar, p.total_bayar, 0) AS sudah_bayar,
+            (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS os,
+            (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS outstanding,
+            COALESCE(
+                p.tgl_jatuh_tempo,
+                a.due_date,
+                p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
+                p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
+            )::date AS due_date,
+            (CURRENT_DATE - COALESCE(
+                p.tgl_jatuh_tempo,
+                a.due_date,
+                p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
+                p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
+            )::date) AS dod,
+            (CURRENT_DATE - COALESCE(
+                p.tgl_jatuh_tempo,
+                a.due_date,
+                p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
+                p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
+            )::date) AS days_overdue
+        FROM penjualan p
+        LEFT JOIN customer c ON c.id_kontak = p.id_customer
+        LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
+        LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(NULLIF(p.id_salesman, ''), NULLIF(a.id_salesman, ''), c.id_sales)
+        WHERE p.status IN ('P', 'A')
+          AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
+          AND p.tanggal >= CAST(:cutoff AS date)
+          {kantor_filter}
+          {extra_where}
+    """
 
 
 # ─── 0. Metadata (Cabang & Periode Real) ─────────────────────────────────────
@@ -94,11 +235,12 @@ async def get_finance_metadata(
             })
 
         periods = [
-            {"id": "CURRENT_MONTH", "label": "Bulan Ini (Okt 2026)"},
-            {"id": "PREV_MONTH", "label": "Bulan Lalu (Sep 2026)"},
+            {"id": "CURRENT_MONTH", "label": "Bulan Berjalan"},
+            {"id": "PREV_MONTH", "label": "Bulan Sebelumnya"},
             {"id": "Q4_2026", "label": "Kuartal 4 2026 (Okt - Des)"},
             {"id": "Q3_2026", "label": "Kuartal 3 2026 (Jul - Sep)"},
             {"id": "YTD_2026", "label": "Tahun Berjalan (YTD 2026)"},
+            {"id": "AR_LEDGER", "label": "Buku Besar AR (acc_ar_faktur)"},
             {"id": "ALL", "label": "Semua Periode Transaksi"},
         ]
 
@@ -118,169 +260,201 @@ async def get_executive_finance_dashboard(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    Ringkasan Executive Finance & Logistics dari live database:
-    - Total DO, Shipping Cost, Lead Time
-    - Total Budget Request dari acc_kas
-    - Top Customer, Sales, Vendor
-    - Trend bulanan 12 bulan terakhir
+    Ringkasan Executive Finance & Logistics 100% Real Data dari cpa_existing:
+    - Total DO, Shipping Cost, Transport Cost (Ekspedisi vs Internal), Lead Time riil dari public.do_tbl
+    - Total Pengajuan Kas/Budget dari public.acc_kas
+    - Top Customer, Sales, Vendor berdasarkan realisasi biaya pengiriman (do_tbl.shippingcosts)
+    - Trend bulanan 12 bulan terakhir tanpa faktor pengali sintetis
     """
     try:
-        # Aggregat DO & Shipping Cost
+        # 1. Aggregat DO & Shipping Cost riil dari public.do_tbl
         do_agg = db.execute(text("""
             SELECT 
-                COUNT(*) as total_do,
-                COALESCE(SUM(shippingcosts), 0) as total_shipping_cost,
-                COALESCE(AVG(CASE WHEN leadtime > 0 THEN leadtime ELSE NULL END), 2.5) as avg_leadtime,
-                COUNT(DISTINCT transporter) FILTER (WHERE transporter IS NOT NULL AND transporter != '') as active_transporters
+                COUNT(*) AS total_do,
+                COALESCE(SUM(shippingcosts), 0) AS total_shipping_cost,
+                COALESCE(SUM(CASE 
+                    WHEN istransporter = true OR NULLIF(TRIM(transporter), '') IS NOT NULL 
+                    THEN shippingcosts ELSE 0 
+                END), 0) AS total_transport_cost,
+                ROUND(AVG(CASE 
+                    WHEN leadtime > 0 THEN leadtime 
+                    WHEN received_date IS NOT NULL AND COALESCE(tgl_keluar, tanggal) IS NOT NULL 
+                         AND (received_date - COALESCE(tgl_keluar, tanggal)) >= 0
+                    THEN (received_date - COALESCE(tgl_keluar, tanggal))
+                    ELSE NULL 
+                END)::numeric, 1) AS avg_leadtime,
+                COUNT(DISTINCT NULLIF(TRIM(transporter), '')) AS active_transporters
             FROM do_tbl
             WHERE shippingcosts > 0
         """)).fetchone()
 
-        total_do = int(do_agg.total_do) if do_agg else 0
-        total_shipping_cost = float(do_agg.total_shipping_cost) if do_agg else 0.0
-        avg_leadtime = round(float(do_agg.avg_leadtime), 1) if do_agg and do_agg.avg_leadtime else 2.5
+        total_do = int(do_agg.total_do or 0) if do_agg else 0
+        total_shipping_cost = float(do_agg.total_shipping_cost or 0.0) if do_agg else 0.0
+        total_transport_cost = float(do_agg.total_transport_cost or 0.0) if do_agg else 0.0
+        avg_leadtime = float(do_agg.avg_leadtime or 0.0) if do_agg and do_agg.avg_leadtime is not None else 0.0
 
-        # Aggregat Budget Request dari acc_kas
+        # 2. Aggregat Pengajuan Kas / Budget Request riil dari public.acc_kas
         kas_agg = db.execute(text("""
             SELECT 
-                COALESCE(SUM(total), 0) as total_budget,
-                COALESCE(SUM(CASE WHEN status = 'D' THEN total ELSE 0 END), 0) as approved_budget,
-                COALESCE(COUNT(CASE WHEN status = 'P' THEN 1 ELSE NULL END), 0) as pending_kas_count
+                COALESCE(SUM(total), 0) AS total_budget,
+                COALESCE(SUM(CASE WHEN status = 'D' THEN total ELSE 0 END), 0) AS approved_budget,
+                COUNT(*) FILTER (WHERE status = 'P') AS pending_kas_count
             FROM acc_kas
         """)).fetchone()
 
-        total_budget_request = float(kas_agg.total_budget) if kas_agg else 0.0
-        pending_kas_count = int(kas_agg.pending_kas_count) if kas_agg else 0
+        total_budget_request = float(kas_agg.total_budget or 0.0) if kas_agg else 0.0
+        pending_kas_count = int(kas_agg.pending_kas_count or 0) if kas_agg else 0
 
-        # Pending DO verification: DO delivered/received tapi belum ada invoice
-        pending_do_res = db.execute(text("""
+        # 3. Pending DO verification: DO unbilled (Single Source of Truth _git_unbilled_where)
+        pending_do_res = db.execute(text(f"""
             SELECT COUNT(*) 
             FROM do_tbl d
-            LEFT JOIN penjualando pd ON d.nomor = pd.no_do
-            WHERE d.shippingcosts > 0 
-              AND d.status IN ('R', 'S', 'I') 
-              AND pd.no_penjualan IS NULL
+            WHERE {_git_unbilled_where('d')}
         """)).scalar()
         pending_do_count = int(pending_do_res or 0)
-        total_pending_verification = pending_do_count + min(pending_kas_count, 50)
+        total_pending_verification = pending_do_count + pending_kas_count
 
-        # Variance calculation
-        # Baseline estimasi: estimasi awal sekitar 96% dari biaya riil
-        estimasi_sales_total = round(total_shipping_cost * 0.96, 2)
-        total_variance = round(total_shipping_cost - estimasi_sales_total, 2)
-        total_variance_pct = round((total_variance / (estimasi_sales_total or 1)) * 100, 2)
-
-        # Top Customer
+        # 4. Top Customer berdasarkan realisasi ongkos kirim di do_tbl
         top_cust_row = db.execute(text("""
             SELECT 
-                COALESCE(c.customer, d.kepada, 'Pelanggan Umum') as name,
-                SUM(d.shippingcosts) as total_cost,
-                COUNT(*) as do_count
+                COALESCE(c.customer, NULLIF(TRIM(d.kepada), ''), 'Pelanggan Umum') AS name,
+                SUM(d.shippingcosts) AS total_cost,
+                COUNT(*) AS do_count
             FROM do_tbl d
             LEFT JOIN customer c ON d.id_customer = c.id_kontak
             WHERE d.shippingcosts > 0
-            GROUP BY COALESCE(c.customer, d.kepada, 'Pelanggan Umum')
+            GROUP BY 1
             ORDER BY total_cost DESC
             LIMIT 1
         """)).fetchone()
 
         top_customer = {
-            "name": top_cust_row.name if top_cust_row else "PT CPA Customer Utama",
-            "total_cost": float(top_cust_row.total_cost) if top_cust_row else 0.0,
-            "do_count": int(top_cust_row.do_count) if top_cust_row else 0,
+            "name": top_cust_row.name if top_cust_row else "-",
+            "total_cost": float(top_cust_row.total_cost or 0.0) if top_cust_row else 0.0,
+            "do_count": int(top_cust_row.do_count or 0) if top_cust_row else 0,
         }
 
-        # Top Sales
+        # 5. Top Sales berdasarkan realisasi ongkos kirim di do_tbl
         top_sales_row = db.execute(text("""
             SELECT 
-                COALESCE(peg.nama, d.id_salesman, 'Sales CPA') as name,
-                SUM(d.shippingcosts) as total_cost,
-                COUNT(*) as do_count
+                COALESCE(peg.nama, d.id_salesman) AS name,
+                SUM(d.shippingcosts) AS total_cost,
+                COUNT(*) AS do_count
             FROM do_tbl d
             LEFT JOIN pegawai peg ON d.id_salesman = peg.id_pegawai
-            WHERE d.shippingcosts > 0 AND d.id_salesman IS NOT NULL AND d.id_salesman != ''
-            GROUP BY COALESCE(peg.nama, d.id_salesman, 'Sales CPA')
+            WHERE d.shippingcosts > 0 AND NULLIF(TRIM(d.id_salesman), '') IS NOT NULL
+            GROUP BY 1
             ORDER BY total_cost DESC
             LIMIT 1
         """)).fetchone()
 
         top_sales = {
-            "name": top_sales_row.name if top_sales_row else "Sales Executive",
-            "total_cost": float(top_sales_row.total_cost) if top_sales_row else 0.0,
-            "do_count": int(top_sales_row.do_count) if top_sales_row else 0,
-            "variance_pct": 3.8,
+            "name": top_sales_row.name if top_sales_row else "-",
+            "total_cost": float(top_sales_row.total_cost or 0.0) if top_sales_row else 0.0,
+            "do_count": int(top_sales_row.do_count or 0) if top_sales_row else 0,
+            "variance_pct": None,
         }
 
-        # Top Vendor Transporter
+        # 6. Top Vendor Transporter beserta On-Time Rate riil (leadtime <= 3 hari SLA)
         top_vendor_row = db.execute(text("""
             SELECT 
-                transporter as name,
-                COUNT(*) as shipment_count,
-                SUM(shippingcosts) as total_cost,
-                ROUND(AVG(CASE WHEN leadtime > 0 THEN leadtime ELSE 2 END), 1) as avg_lt
+                TRIM(transporter) AS name,
+                COUNT(*) AS shipment_count,
+                SUM(shippingcosts) AS total_cost,
+                ROUND(AVG(CASE WHEN leadtime > 0 THEN leadtime ELSE NULL END)::numeric, 1) AS avg_lt,
+                ROUND(
+                    COUNT(*) FILTER (WHERE COALESCE(leadtime, 0) <= 3)::numeric
+                    / NULLIF(COUNT(*), 0) * 100,
+                    1
+                ) AS on_time_rate
             FROM do_tbl
-            WHERE transporter IS NOT NULL AND transporter != '' AND shippingcosts > 0
-            GROUP BY transporter
+            WHERE NULLIF(TRIM(transporter), '') IS NOT NULL AND shippingcosts > 0
+            GROUP BY TRIM(transporter)
             ORDER BY shipment_count DESC
             LIMIT 1
         """)).fetchone()
 
         top_vendor = {
-            "name": top_vendor_row.name if top_vendor_row else "Internal Logistics",
-            "shipment_count": int(top_vendor_row.shipment_count) if top_vendor_row else 0,
-            "total_cost": float(top_vendor_row.total_cost) if top_vendor_row else 0.0,
-            "on_time_rate": 96.5,
+            "name": top_vendor_row.name if top_vendor_row else "-",
+            "shipment_count": int(top_vendor_row.shipment_count or 0) if top_vendor_row else 0,
+            "total_cost": float(top_vendor_row.total_cost or 0.0) if top_vendor_row else 0.0,
+            "on_time_rate": float(top_vendor_row.on_time_rate or 0.0) if top_vendor_row else 0.0,
         }
 
-        # Monthly Trends (12 bulan terakhir dengan data)
+        # 7. Monthly Trends (12 bulan terakhir dari do_tbl dan acc_kas tanpa pengali sintetis)
         trend_rows = db.execute(text("""
+            WITH do_m AS (
+                SELECT 
+                    DATE_TRUNC('month', tanggal)::date AS m_date,
+                    TO_CHAR(DATE_TRUNC('month', tanggal), 'Mon YYYY') AS period,
+                    COALESCE(SUM(shippingcosts), 0) AS actual_cost,
+                    COALESCE(SUM(CASE 
+                        WHEN istransporter = true OR NULLIF(TRIM(transporter), '') IS NOT NULL 
+                        THEN shippingcosts ELSE 0 
+                    END), 0) AS transporter_cost,
+                    COUNT(*) AS shipment_count
+                FROM do_tbl
+                WHERE shippingcosts > 0 AND tanggal IS NOT NULL
+                GROUP BY 1, 2
+                ORDER BY m_date DESC
+                LIMIT 12
+            ),
+            kas_m AS (
+                SELECT 
+                    DATE_TRUNC('month', tanggal)::date AS m_date,
+                    COALESCE(SUM(total), 0) AS kas_total
+                FROM acc_kas
+                WHERE tanggal IS NOT NULL
+                GROUP BY 1
+            )
             SELECT 
-                TO_CHAR(DATE_TRUNC('month', tanggal), 'Mon YYYY') as period,
-                DATE_TRUNC('month', tanggal) as m_date,
-                SUM(shippingcosts) as actual_cost,
-                COUNT(*) as shipment_count
-            FROM do_tbl
-            WHERE shippingcosts > 0 AND tanggal IS NOT NULL
-            GROUP BY DATE_TRUNC('month', tanggal)
-            ORDER BY m_date DESC
-            LIMIT 12
+                d.m_date,
+                d.period,
+                d.actual_cost,
+                d.transporter_cost,
+                d.shipment_count,
+                COALESCE(k.kas_total, 0) AS budget_request
+            FROM do_m d
+            LEFT JOIN kas_m k ON k.m_date = d.m_date
+            ORDER BY d.m_date ASC
         """)).fetchall()
 
-        # Urutkan kronologis
-        chronological_trends = sorted(trend_rows, key=lambda x: x.m_date)
         shipping_cost_trend = []
         variance_trend = []
 
-        for row in chronological_trends:
-            actual = float(row.actual_cost)
-            # estimasi realistis berdasarkan rasio historis
-            est = round(actual * 0.955, 2)
-            br = round(actual * 0.98, 2)
-            var_nom = round(actual - est, 2)
-            var_pct = round((var_nom / (est or 1)) * 100, 2)
+        for row in trend_rows:
+            actual = float(row.actual_cost or 0.0)
+            trans_cost = float(row.transporter_cost or 0.0)
+            br = float(row.budget_request or 0.0)
+            internal_cost = round(actual - trans_cost, 2)
+            internal_pct = round((internal_cost / actual) * 100, 2) if actual > 0 else 0.0
 
             shipping_cost_trend.append({
                 "period": row.period,
                 "budget_request": br,
                 "actual_cost": actual,
-                "estimasi_sales": est,
+                "estimasi_sales": trans_cost,
             })
             variance_trend.append({
                 "period": row.period,
-                "variance_nominal": var_nom,
-                "variance_pct": var_pct,
+                "variance_nominal": internal_cost,
+                "variance_pct": internal_pct,
             })
 
-        # Top 5 Customers
+        # 8. Top 5 Customers (Realisasi Shipping Cost & Jumlah DO)
         top_customers_rows = db.execute(text("""
             SELECT 
-                COALESCE(c.customer, d.kepada, 'Pelanggan Umum') as name,
-                SUM(d.shippingcosts) as shipping_cost,
-                COUNT(*) as shipments
+                COALESCE(c.customer, NULLIF(TRIM(d.kepada), ''), 'Pelanggan Umum') AS name,
+                SUM(d.shippingcosts) AS shipping_cost,
+                SUM(CASE 
+                    WHEN d.istransporter = false AND NULLIF(TRIM(d.transporter), '') IS NULL 
+                    THEN d.shippingcosts ELSE 0 
+                END) AS internal_shipping_cost,
+                COUNT(*) AS shipments
             FROM do_tbl d
             LEFT JOIN customer c ON d.id_customer = c.id_kontak
             WHERE d.shippingcosts > 0
-            GROUP BY COALESCE(c.customer, d.kepada, 'Pelanggan Umum')
+            GROUP BY 1
             ORDER BY shipping_cost DESC
             LIMIT 5
         """)).fetchall()
@@ -288,23 +462,27 @@ async def get_executive_finance_dashboard(
         top_customers = [
             {
                 "name": r.name,
-                "shipping_cost": float(r.shipping_cost),
-                "variance": round(float(r.shipping_cost) * 0.042, 2),
-                "shipments": int(r.shipments),
+                "shipping_cost": float(r.shipping_cost or 0.0),
+                "variance": float(r.internal_shipping_cost or 0.0),
+                "shipments": int(r.shipments or 0),
             }
             for r in top_customers_rows
         ]
 
-        # Top 5 Sales Reps
+        # 9. Top 5 Sales Reps (Realisasi Shipping Cost Ekspedisi vs Total)
         top_sales_rows = db.execute(text("""
             SELECT 
-                COALESCE(peg.nama, d.id_salesman, 'Sales') as name,
-                SUM(d.shippingcosts) as realisasi,
-                COUNT(*) as shipments
+                COALESCE(peg.nama, d.id_salesman) AS name,
+                SUM(d.shippingcosts) AS realisasi,
+                SUM(CASE 
+                    WHEN d.istransporter = true OR NULLIF(TRIM(d.transporter), '') IS NOT NULL 
+                    THEN d.shippingcosts ELSE 0 
+                END) AS transporter_cost,
+                COUNT(*) AS shipments
             FROM do_tbl d
             LEFT JOIN pegawai peg ON d.id_salesman = peg.id_pegawai
-            WHERE d.shippingcosts > 0 AND d.id_salesman IS NOT NULL AND d.id_salesman != ''
-            GROUP BY COALESCE(peg.nama, d.id_salesman, 'Sales')
+            WHERE d.shippingcosts > 0 AND NULLIF(TRIM(d.id_salesman), '') IS NOT NULL
+            GROUP BY 1
             ORDER BY realisasi DESC
             LIMIT 5
         """)).fetchall()
@@ -312,23 +490,31 @@ async def get_executive_finance_dashboard(
         top_sales_list = [
             {
                 "name": r.name,
-                "estimasi": round(float(r.realisasi) * 0.96, 2),
-                "realisasi": float(r.realisasi),
-                "variance_pct": 4.1,
+                "estimasi": float(r.transporter_cost or 0.0),
+                "realisasi": float(r.realisasi or 0.0),
+                "variance_pct": round(
+                    ((float(r.realisasi or 0.0) - float(r.transporter_cost or 0.0)) / float(r.realisasi or 1.0)) * 100,
+                    1,
+                ),
             }
             for r in top_sales_rows
         ]
 
-        # Top 5 Vendors
+        # 10. Top 5 Vendors (100% Real On-Time Rate & Lead Time)
         top_vendors_rows = db.execute(text("""
             SELECT 
-                transporter as name,
-                COUNT(*) as shipment_count,
-                SUM(shippingcosts) as total_cost,
-                ROUND(AVG(CASE WHEN leadtime > 0 THEN leadtime ELSE 2 END), 1) as avg_lt
+                TRIM(transporter) AS name,
+                COUNT(*) AS shipment_count,
+                SUM(shippingcosts) AS total_cost,
+                COALESCE(ROUND(AVG(CASE WHEN leadtime > 0 THEN leadtime ELSE NULL END)::numeric, 1), 0.0) AS avg_lt,
+                ROUND(
+                    COUNT(*) FILTER (WHERE COALESCE(leadtime, 0) <= 3)::numeric
+                    / NULLIF(COUNT(*), 0) * 100,
+                    1
+                ) AS on_time_rate
             FROM do_tbl
-            WHERE transporter IS NOT NULL AND transporter != '' AND shippingcosts > 0
-            GROUP BY transporter
+            WHERE NULLIF(TRIM(transporter), '') IS NOT NULL AND shippingcosts > 0
+            GROUP BY TRIM(transporter)
             ORDER BY shipment_count DESC
             LIMIT 5
         """)).fetchall()
@@ -336,37 +522,42 @@ async def get_executive_finance_dashboard(
         top_vendors = [
             {
                 "name": r.name,
-                "shipment_count": int(r.shipment_count),
-                "total_cost": float(r.total_cost),
-                "avg_lead_time": float(r.avg_lt),
-                "on_time_rate": 96.0 - (idx * 0.8),
+                "shipment_count": int(r.shipment_count or 0),
+                "total_cost": float(r.total_cost or 0.0),
+                "avg_lead_time": float(r.avg_lt or 0.0),
+                "on_time_rate": float(r.on_time_rate or 0.0),
             }
-            for idx, r in enumerate(top_vendors_rows)
+            for r in top_vendors_rows
         ]
+
+        internal_fleet_cost = round(total_shipping_cost - total_transport_cost, 2)
+        internal_fleet_pct = round((internal_fleet_cost / total_shipping_cost) * 100, 2) if total_shipping_cost > 0 else 0.0
 
         kpi_data = {
             "total_delivery_order": total_do,
             "total_shipping_cost": total_shipping_cost,
-            "total_transport_cost": round(total_shipping_cost * 0.92, 2),
+            "total_transport_cost": total_transport_cost,
             "total_budget_request": total_budget_request,
             "total_actual_cost": total_shipping_cost,
-            "total_variance": total_variance,
-            "total_variance_pct": total_variance_pct,
+            "total_variance": internal_fleet_cost,
+            "total_variance_pct": internal_fleet_pct,
             "pending_verification": total_pending_verification,
+            "pending_do_unbilled": pending_do_count,
+            "pending_kas_verification": pending_kas_count,
             "average_lead_time_days": avg_leadtime,
             "top_customer": top_customer,
             "top_sales": top_sales,
             "top_vendor": top_vendor,
         }
 
-        # Shipment per Month (On-Time vs Delayed)
+        # 11. Shipment per Month (On-Time <= 3 hari vs Delayed > 3 hari, tanpa max(1, ...))
         shipment_month_rows = db.execute(text("""
             SELECT 
-                TO_CHAR(DATE_TRUNC('month', tanggal), 'Mon YY') as month,
-                DATE_TRUNC('month', tanggal) as m_date,
-                COUNT(*) as total_shipment,
-                COUNT(CASE WHEN leadtime <= 3 OR status IN ('R', 'I') THEN 1 ELSE NULL END) as on_time,
-                COUNT(CASE WHEN leadtime > 3 THEN 1 ELSE NULL END) as delayed
+                TO_CHAR(DATE_TRUNC('month', tanggal), 'Mon YY') AS month,
+                DATE_TRUNC('month', tanggal) AS m_date,
+                COUNT(*) AS total_shipment,
+                COUNT(*) FILTER (WHERE COALESCE(leadtime, 0) <= 3) AS on_time,
+                COUNT(*) FILTER (WHERE COALESCE(leadtime, 0) > 3) AS delayed
             FROM do_tbl
             WHERE shippingcosts > 0 AND tanggal IS NOT NULL
             GROUP BY DATE_TRUNC('month', tanggal)
@@ -377,19 +568,19 @@ async def get_executive_finance_dashboard(
         shipment_per_month = [
             {
                 "month": r.month,
-                "total_shipment": int(r.total_shipment),
-                "on_time": int(r.on_time),
-                "delayed": max(1, int(r.delayed)),
+                "total_shipment": int(r.total_shipment or 0),
+                "on_time": int(r.on_time or 0),
+                "delayed": int(r.delayed or 0),
             }
             for r in reversed(shipment_month_rows)
         ]
 
-        # Average Lead Time vs SLA Target
+        # 12. Average Lead Time vs SLA Target (3.0 hari)
         lead_time_rows = db.execute(text("""
             SELECT 
-                TO_CHAR(DATE_TRUNC('month', tanggal), 'Mon YY') as period,
-                DATE_TRUNC('month', tanggal) as m_date,
-                ROUND(AVG(CASE WHEN leadtime > 0 THEN leadtime ELSE 2.5 END), 1) as avg_lt
+                TO_CHAR(DATE_TRUNC('month', tanggal), 'Mon YY') AS period,
+                DATE_TRUNC('month', tanggal) AS m_date,
+                COALESCE(ROUND(AVG(CASE WHEN leadtime > 0 THEN leadtime ELSE NULL END)::numeric, 1), 0.0) AS avg_lt
             FROM do_tbl
             WHERE shippingcosts > 0 AND tanggal IS NOT NULL
             GROUP BY DATE_TRUNC('month', tanggal)
@@ -400,7 +591,7 @@ async def get_executive_finance_dashboard(
         average_lead_time = [
             {
                 "period": r.period,
-                "lead_time_days": float(r.avg_lt),
+                "lead_time_days": float(r.avg_lt or 0.0),
                 "target_sla_days": 3.0,
             }
             for r in reversed(lead_time_rows)
@@ -419,6 +610,11 @@ async def get_executive_finance_dashboard(
         return {
             "kpi": kpi_data,
             "charts": charts_data,
+            "data_note": (
+                "100% Real Data dari public.do_tbl (49.990 DO s/d Nov 2026) dan public.acc_kas (22.635 voucher kas s/d Feb 2024). "
+                "Kolom estimasi ongkir sales tidak tersedia di skema SO/DO cpa_existing, sehingga selisih menampilkan porsi "
+                "Biaya Pengiriman Ekspedisi Pihak Ketiga vs Armada Internal."
+            ),
         }
 
     except Exception as e:
@@ -432,132 +628,37 @@ async def get_executive_finance_dashboard(
 
 _AR_TABLES_INITIALIZED = False
 
+
 def _ensure_ar_analytics_tables(db_analytics: Session, db_existing: Session):
-    """Pastikan tabel ARCollectionConfirmation & ARCustomerIncentive tersedia dan terisi seed awal dari invoice riil."""
+    """
+    Pastikan tabel operasional ARCollectionConfirmation & ARCustomerIncentive tersedia di cpa_analytics.
+    Sesuai prinsip Real Data First: TIDAK ADA seeding data sintetis/dummy.
+    """
     global _AR_TABLES_INITIALIZED
     if _AR_TABLES_INITIALIZED:
         return
     try:
         ARCollectionConfirmation.__table__.create(bind=analytics_engine, checkfirst=True)
         ARCustomerIncentive.__table__.create(bind=analytics_engine, checkfirst=True)
-
-        existing_icu_cnt = db_analytics.query(ARCustomerIncentive).count()
-        if existing_icu_cnt == 0:
-            sample_rows = db_existing.execute(text("""
-                SELECT 
-                    p.no_penjualan,
-                    p.tanggal,
-                    p.id_customer,
-                    COALESCE(c.customer, p.kepada, 'Pelanggan CPA') as nama_customer,
-                    COALESCE(p.id_salesman, c.id_sales, 'CPA-001') as id_salesman,
-                    COALESCE(peg.nama, p.id_salesman, 'Account Manager') as nama_sales,
-                    d.id_barang,
-                    COALESCE(b.nama_barang, d.id_barang) as nama_barang,
-                    COALESCE(d.qty, 10) as qty,
-                    COALESCE(d.harga, 5000000) as harga_invoice,
-                    COALESCE(c.nama_bank, 'Bank Mandiri') as nama_bank,
-                    COALESCE(c.no_rekening, '149-00-8829102-3') as no_rekening,
-                    COALESCE(c.pemegang_rekening, c.customer, 'Bendahara Customer') as pemegang_rekening
-                FROM penjualan p
-                JOIN penjualan_detail d ON d.no_penjualan = p.no_penjualan
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(p.id_salesman, c.id_sales)
-                LEFT JOIN barang b ON b.id_barang = d.id_barang
-                WHERE p.tanggal >= '2026-09-01' AND d.harga > 1000000 AND d.qty >= 5
-                ORDER BY p.grandtotal DESC, p.tanggal DESC
-                LIMIT 14
-            """)).fetchall()
-
-            statuses = [
-                ("PENDING_FINANCE", "Finance Manager", "Verifikasi bukti lunas & margin harga bawah (Bottom Price)", None),
-                ("PENDING_MANAGER", "Sales Manager", "Menunggu persetujuan Sales Manager Wilayah", None),
-                ("PENDING_DIREKSI", "Direksi / GM", "Pengajuan di atas Rp 25 Juta memerlukan sign-off Direksi", None),
-                ("APPROVED", "Finance AP/Kasir", "Siap dijadwalkan pencairan transfer bank minggu ini", "Finance Controller"),
-                ("PENDING_FINANCE", "Finance Manager", "Konfirmasi potongan PPh 23 / PPh Final atas klaim insentif", None),
-                ("APPROVED", "Finance AP/Kasir", "Telah disetujui, menunggu batch payment Jumat", "Sales & Finance Manager"),
-                ("PENDING_MANAGER", "Sales Manager", "Validasi kesesuaian kuantitas drum diterima pelanggan", None),
-                ("PAID", "Selesai (Paid)", "Dana insentif telah ditransfer ke rekening penerima", "Finance Controller"),
-                ("REJECTED", "Ditolak (Closed)", "Melebihi batas pengajuan 45 hari pasca pelunasan faktur", "Finance Manager"),
-            ]
-
-            for idx, r in enumerate(sample_rows):
-                st_code, approver_role, tindak, app_by = statuses[idx % len(statuses)]
-                qty_val = float(r.qty or 10)
-                harga_inv = float(r.harga_invoice or 8000000)
-                bottom_p = round(harga_inv * 0.91, 0)
-                tarif_icu = round((harga_inv - bottom_p) * 0.35, 0)
-                gross_icu = round(tarif_icu * qty_val, 0)
-                ongkir = round(gross_icu * 0.05, 0)
-                pph = round((gross_icu - ongkir) * 0.02, 0)
-                net_icu = max(500000.0, gross_icu - ongkir - pph)
-                inv_date = r.tanggal or date(2026, 10, 15)
-                pay_date = inv_date + timedelta(days=14 + (idx % 20))
-                umur = (pay_date - inv_date).days
-
-                item = ARCustomerIncentive(
-                    nomor_icu=f"{101 + idx:03d}/ICU/CPA/XI/2026",
-                    tanggal_pengajuan=date(2026, 11, max(1, 7 - (idx // 2))),
-                    id_customer=str(r.id_customer or "01000001"),
-                    nama_customer=str(r.nama_customer),
-                    no_invoice=str(r.no_penjualan),
-                    tanggal_invoice=inv_date,
-                    tanggal_payment=pay_date,
-                    umur_piutang_hari=umur,
-                    id_salesman=str(r.id_salesman),
-                    nama_salesman=str(r.nama_sales),
-                    id_barang=str(r.id_barang),
-                    nama_barang=str(r.nama_barang),
-                    qty=qty_val,
-                    bottom_price=bottom_p,
-                    harga_invoice=harga_inv,
-                    tarif_icu_per_unit=tarif_icu,
-                    ongkos_kirim=ongkir,
-                    potongan_pph=pph,
-                    total_insentif_net=net_icu,
-                    penerima_insentif=f"PIC Purchasing - {str(r.nama_customer)[:28]}",
-                    bank_penerima=str(r.nama_bank or "Bank Mandiri")[:45],
-                    nomor_rekening=str(r.no_rekening or f"14000{882100 + idx}"),
-                    nama_rekening=str(r.pemegang_rekening or r.nama_customer)[:90],
-                    status_approval=st_code,
-                    current_approver_role=approver_role,
-                    approved_by=app_by,
-                    approved_at=datetime.now() if app_by else None,
-                    catatan_pengajuan=f"Pengajuan program loyalitas & insentif pembelian {int(qty_val)} unit {str(r.nama_barang)[:30]}",
-                    catatan_approval="Dokumen faktur dan bukti bayar telah diverifikasi." if app_by else None,
-                    tindak_lanjut=tindak,
-                )
-                db_analytics.add(item)
-            db_analytics.commit()
-
         _AR_TABLES_INITIALIZED = True
     except Exception as e:
         db_analytics.rollback()
         logger.warning("finance.ar_tables.init_warn", error=str(e))
 
 
-def _get_ar_cutoff_date(scope: str = "ACTIVE") -> str:
-    """Filter horizon waktu piutang: ACTIVE (mulai H2 2026 untuk piutang operasional berjalan), YTD_2026, atau ALL."""
-    s = (scope or "ACTIVE").upper()
-    if s == "ALL":
-        return "2018-01-01"
-    if s == "YTD_2026":
-        return "2026-01-01"
-    return "2026-07-01"
-
-
 # ─── 10. AR EXECUTIVE SUMMARY ────────────────────────────────────────────────
 @router.get("/ar-summary")
 async def get_ar_executive_summary(
-    scope: str = Query("ACTIVE", description="ACTIVE (Jul-Nov 2026) | YTD_2026 | ALL"),
+    scope: str = Query("ACTIVE", description="ACTIVE (Jul-Nov 2026) | YTD_2026 | AR_LEDGER | ALL"),
     id_kantor: Optional[str] = None,
     db: Session = Depends(get_existing_db),
     db_analytics: Session = Depends(get_analytics_db),
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    AR Executive Summary:
+    AR Executive Summary (Single Source of Truth via _ar_open_invoices_cte):
     Gambaran posisi piutang perusahaan secara keseluruhan (Total OS x OS Overdue),
-    Aging Breakdown, Top 5 Overdue Customers, Branch Breakdown, dan ringkasan ke-9 sub-menu AR.
+    Aging Breakdown, Top 8 Overdue Customers, dan ringkasan ke-9 sub-menu AR.
     """
     try:
         _ensure_ar_analytics_tables(db_analytics, db)
@@ -568,36 +669,11 @@ async def get_ar_executive_summary(
             kantor_filter = "AND COALESCE(c.id_kantor, 'HO') = :id_kantor"
             params["id_kantor"] = id_kantor
 
+        inv_cte = _ar_open_invoices_cte(scope=scope, kantor_filter=kantor_filter)
+
         sql = f"""
             WITH inv AS (
-                SELECT 
-                    p.no_penjualan,
-                    p.tanggal,
-                    p.id_customer,
-                    COALESCE(c.customer, p.kepada, 'Pelanggan Umum') AS nama_customer,
-                    COALESCE(c.id_kantor, 'HO') AS id_kantor,
-                    COALESCE(p.id_salesman, c.id_sales, 'UNASSIGNED') AS id_sales,
-                    COALESCE(peg.nama, p.id_salesman, 'Sales CPA') AS nama_sales,
-                    COALESCE(c.batas_kredit, 0) AS batas_kredit,
-                    (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS os,
-                    COALESCE(
-                        p.tgl_jatuh_tempo,
-                        p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                        p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                    )::date AS due_date,
-                    (CURRENT_DATE - COALESCE(
-                        p.tgl_jatuh_tempo,
-                        p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                        p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                    )::date) AS dod
-                FROM penjualan p
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(p.id_salesman, c.id_sales)
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A')
-                  AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-                  AND p.tanggal >= CAST(:cutoff AS date)
-                  {kantor_filter}
+                {inv_cte}
             )
             SELECT 
                 COUNT(*) AS total_open_invoices,
@@ -692,36 +768,26 @@ async def get_ar_executive_summary(
         for b in aging_buckets:
             b["percentage"] = round((b["amount"] / total_os) * 100, 1) if total_os > 0 else 0.0
 
-        # Trend Total OS vs OS Overdue per bulan (6 bulan terakhir)
+        # Trend Total OS vs OS Overdue per bulan (8 bulan terakhir dari CTE yang sama)
         trend_sql = f"""
             WITH inv AS (
+                {inv_cte}
+            ),
+            monthly AS (
                 SELECT 
-                    DATE_TRUNC('month', p.tanggal)::date AS m_date,
-                    TO_CHAR(DATE_TRUNC('month', p.tanggal), 'Mon YYYY') AS period,
-                    (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS os,
-                    (CURRENT_DATE - COALESCE(
-                        p.tgl_jatuh_tempo,
-                        p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                        p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                    )::date) AS dod
-                FROM penjualan p
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A')
-                  AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-                  AND p.tanggal >= '2026-05-01'
-                  {kantor_filter}
+                    DATE_TRUNC('month', tanggal)::date AS m_date,
+                    TO_CHAR(DATE_TRUNC('month', tanggal), 'Mon YYYY') AS period,
+                    SUM(os) AS total_os,
+                    SUM(CASE WHEN dod <= 0 THEN os ELSE 0 END) AS current_os,
+                    SUM(CASE WHEN dod > 0 THEN os ELSE 0 END) AS overdue_os,
+                    COUNT(*) AS invoice_count
+                FROM inv
+                WHERE tanggal IS NOT NULL
+                GROUP BY 1, 2
+                ORDER BY m_date DESC
+                LIMIT 8
             )
-            SELECT 
-                m_date,
-                period,
-                SUM(os) AS total_os,
-                SUM(CASE WHEN dod <= 0 THEN os ELSE 0 END) AS current_os,
-                SUM(CASE WHEN dod > 0 THEN os ELSE 0 END) AS overdue_os,
-                COUNT(*) AS invoice_count
-            FROM inv
-            GROUP BY m_date, period
-            ORDER BY m_date ASC
+            SELECT * FROM monthly ORDER BY m_date ASC
         """
         trend_rows = db.execute(text(trend_sql), params).mappings().all()
         os_vs_overdue_trend = [
@@ -736,36 +802,21 @@ async def get_ar_executive_summary(
             for r in trend_rows
         ]
 
-        # Top 8 Customer Total OS x Overdue untuk matriks / bar chart
+        # Top 8 Customer Total OS x Overdue dari CTE yang sama
         top_cust_sql = f"""
             WITH inv AS (
-                SELECT 
-                    p.id_customer,
-                    COALESCE(c.customer, p.kepada, 'Pelanggan Umum') AS nama_customer,
-                    (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS os,
-                    (CURRENT_DATE - COALESCE(
-                        p.tgl_jatuh_tempo,
-                        p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                        p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                    )::date) AS dod
-                FROM penjualan p
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A')
-                  AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-                  AND p.tanggal >= CAST(:cutoff AS date)
-                  {kantor_filter}
+                {inv_cte}
             )
             SELECT 
                 id_customer,
-                nama_customer,
+                MAX(nama_customer) AS nama_customer,
                 SUM(os) AS total_os,
                 SUM(CASE WHEN dod <= 0 THEN os ELSE 0 END) AS current_os,
                 SUM(CASE WHEN dod > 0 THEN os ELSE 0 END) AS overdue_os,
                 MAX(CASE WHEN dod > 0 THEN dod ELSE 0 END) AS max_days_overdue,
                 COUNT(*) AS open_invoices
             FROM inv
-            GROUP BY id_customer, nama_customer
+            GROUP BY id_customer
             ORDER BY total_os DESC
             LIMIT 8
         """
@@ -784,23 +835,24 @@ async def get_ar_executive_summary(
             for r in top_cust_rows
         ]
 
-        # Goods in Transit quick count
-        git_row = db.execute(text("""
+        # Goods in Transit quick count menggunakan Single Source of Truth _git_unbilled_where
+        git_row = db.execute(text(f"""
             SELECT COUNT(*) AS git_count
             FROM do_tbl d
-            WHERE d.status IN ('S', 'R', 'D')
-              AND d.tanggal >= '2026-01-01'
-              AND NOT EXISTS (SELECT 1 FROM penjualando pd WHERE pd.no_do = d.nomor)
-              AND NOT EXISTS (SELECT 1 FROM penjualan p WHERE p.no_do = d.nomor AND p.status <> 'C')
+            WHERE {_git_unbilled_where('d')}
         """)).mappings().first()
         git_count = int(git_row["git_count"] or 0) if git_row else 0
 
-        # Pending ICU count
-        pending_icu_cnt = (
+        # Pending ICU count dari cpa_existing.public.icu + cpa_analytics.analytics.ar_customer_incentives
+        existing_icu_pending = int(db.execute(text("""
+            SELECT COUNT(*) FROM icu WHERE status NOT IN ('C', 'R', 'P')
+        """)).scalar() or 0)
+        analytics_icu_pending = (
             db_analytics.query(ARCustomerIncentive)
             .filter(ARCustomerIncentive.status_approval.in_(["PENDING_MANAGER", "PENDING_FINANCE", "PENDING_DIREKSI"]))
             .count()
         )
+        pending_icu_cnt = existing_icu_pending + analytics_icu_pending
 
         return {
             "kpi": {
@@ -825,6 +877,7 @@ async def get_ar_executive_summary(
             "aging_buckets": aging_buckets,
             "os_vs_overdue_trend": os_vs_overdue_trend,
             "top_os_vs_overdue": top_os_vs_overdue,
+            "data_note": _get_ar_scope_note(scope),
         }
     except Exception as e:
         logger.error("finance.ar_summary.error", error=str(e))
@@ -834,7 +887,7 @@ async def get_ar_executive_summary(
 # ─── 11. TOP 20 AR ───────────────────────────────────────────────────────────
 @router.get("/ar/top-20")
 async def get_top_20_ar(
-    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | ALL"),
+    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | AR_LEDGER | ALL"),
     category: Optional[str] = Query(None, description="ALL | TOP_PERFORMANCE | CRITICAL | WATCHLIST"),
     search: Optional[str] = None,
     limit: int = Query(20, ge=5, le=100),
@@ -842,7 +895,7 @@ async def get_top_20_ar(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    TOP 20 AR:
+    TOP 20 AR (Single Source of Truth via _ar_open_invoices_cte):
     Total piutang customer current & overdue dengan Total AR terbesar,
     dikategorikan ke dalam TOP_PERFORMANCE (lancar/overdue rendah) atau CRITICAL berdasarkan overduenya.
     """
@@ -851,33 +904,14 @@ async def get_top_20_ar(
         params: Dict[str, Any] = {"cutoff": cutoff}
         search_cond = ""
         if search:
-            search_cond = "AND (c.customer ILIKE :search OR p.id_customer ILIKE :search OR peg.nama ILIKE :search)"
+            search_cond = "AND (c.customer ILIKE :search OR COALESCE(p.id_customer, a.customer_code) ILIKE :search OR peg.nama ILIKE :search)"
             params["search"] = f"%{search.strip()}%"
+
+        inv_cte = _ar_open_invoices_cte(scope=scope, extra_where=search_cond)
 
         sql = f"""
             WITH inv AS (
-                SELECT 
-                    p.id_customer,
-                    COALESCE(c.customer, p.kepada, 'Pelanggan Umum') AS nama_customer,
-                    COALESCE(c.id_kantor, 'HO') AS id_kantor,
-                    COALESCE(p.id_salesman, c.id_sales, '-') AS id_sales,
-                    COALESCE(peg.nama, p.id_salesman, 'Account Manager') AS nama_sales,
-                    COALESCE(c.batas_kredit, 0) AS batas_kredit,
-                    COALESCE(c.top, p.top, 30) AS top_days,
-                    (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS os,
-                    (CURRENT_DATE - COALESCE(
-                        p.tgl_jatuh_tempo,
-                        p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                        p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                    )::date) AS dod
-                FROM penjualan p
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(p.id_salesman, c.id_sales)
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A')
-                  AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-                  AND p.tanggal >= CAST(:cutoff AS date)
-                  {search_cond}
+                {inv_cte}
             )
             SELECT 
                 id_customer,
@@ -904,14 +938,11 @@ async def get_top_20_ar(
         rows = db.execute(text(sql), params).mappings().all()
 
         items = []
-        top_perf_count = 0
-        critical_count = 0
-        watchlist_count = 0
         sum_total_ar = 0.0
         sum_current_ar = 0.0
         sum_overdue_ar = 0.0
 
-        for idx, r in enumerate(rows):
+        for r in rows:
             total_ar = float(r["total_ar"] or 0)
             current_ar = float(r["current_ar"] or 0)
             overdue_ar = float(r["overdue_ar"] or 0)
@@ -919,22 +950,18 @@ async def get_top_20_ar(
             od_ratio = round((overdue_ar / total_ar) * 100, 1) if total_ar > 0 else 0.0
             cur_ratio = round((current_ar / total_ar) * 100, 1) if total_ar > 0 else 0.0
 
-            # Kategorisasi Top Performance vs Critical berdasarkan overdue
             if max_od <= 15 and od_ratio <= 25.0:
                 cat_code = "TOP_PERFORMANCE"
                 cat_label = "Top Performance (Current Dominan)"
                 action = "Pertahankan fasilitas TOP & prioritaskan alokasi stok"
-                top_perf_count += 1
             elif max_od > 60 or od_ratio >= 60.0:
                 cat_code = "CRITICAL"
                 cat_label = "Critical Overdue (Perlu Eskalasi)"
                 action = "Tahan rilis DO baru & jadwalkan penagihan intensif bersama AM"
-                critical_count += 1
             else:
                 cat_code = "WATCHLIST"
                 cat_label = "Watchlist (Overdue Moderasi)"
                 action = "Follow-up pembayaran jatuh tempo sebelum rilis PO berikutnya"
-                watchlist_count += 1
 
             if category and category.upper() not in ("ALL", "") and cat_code != category.upper():
                 continue
@@ -982,6 +1009,7 @@ async def get_top_20_ar(
                 "watchlist_count": sum(1 for x in items if x["category"] == "WATCHLIST"),
             },
             "items": items,
+            "data_note": _get_ar_scope_note(scope),
         }
     except Exception as e:
         logger.error("finance.top20_ar.error", error=str(e))
@@ -992,14 +1020,14 @@ async def get_top_20_ar(
 @router.get("/ar/collection-alert")
 async def get_collection_alerts(
     bucket: str = Query("ALL", description="ALL | UPCOMING_7D | DUE_TODAY | OD_1_30 | OD_31_60 | OD_61_90 | OD_GT_90"),
-    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | ALL"),
+    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | AR_LEDGER | ALL"),
     search: Optional[str] = None,
     limit: int = Query(150, ge=10, le=500),
     db: Session = Depends(get_existing_db),
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    COLLECTION ALERT:
+    COLLECTION ALERT (Single Source of Truth via _ar_open_invoices_cte):
     Daftar invoice yang memerlukan tindakan segera:
     Upcoming overdue (7 hari ke depan), Due Today, OD 1-30, OD 31-60, OD 61-90, dan OD > 90 hari.
     """
@@ -1008,43 +1036,19 @@ async def get_collection_alerts(
         params: Dict[str, Any] = {"cutoff": cutoff, "limit": limit}
         search_cond = ""
         if search:
-            search_cond = "AND (c.customer ILIKE :search OR p.no_penjualan ILIKE :search OR COALESCE(p.faktur, '') ILIKE :search OR peg.nama ILIKE :search)"
+            search_cond = (
+                "AND (c.customer ILIKE :search "
+                "OR COALESCE(p.no_penjualan, a.no_invoice, a.ar_number) ILIKE :search "
+                "OR COALESCE(p.faktur, '') ILIKE :search "
+                "OR peg.nama ILIKE :search)"
+            )
             params["search"] = f"%{search.strip()}%"
+
+        inv_cte = _ar_open_invoices_cte(scope=scope, extra_where=search_cond)
 
         sql = f"""
             WITH inv AS (
-                SELECT 
-                    p.no_penjualan,
-                    COALESCE(NULLIF(p.faktur, ''), p.no_penjualan) AS no_faktur,
-                    p.tanggal AS invoice_date,
-                    p.id_customer,
-                    COALESCE(c.customer, p.kepada, 'Pelanggan Umum') AS nama_customer,
-                    COALESCE(c.telepon, '-') AS telepon,
-                    COALESCE(c.id_kantor, 'HO') AS id_kantor,
-                    COALESCE(p.id_salesman, c.id_sales, '-') AS id_sales,
-                    COALESCE(peg.nama, p.id_salesman, 'Account Manager') AS nama_sales,
-                    COALESCE(p.top, c.top, 30) AS top_days,
-                    p.grandtotal AS nominal_invoice,
-                    COALESCE(a.bayar, p.total_bayar, 0) AS sudah_bayar,
-                    (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS outstanding,
-                    COALESCE(
-                        p.tgl_jatuh_tempo,
-                        p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                        p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                    )::date AS due_date,
-                    (CURRENT_DATE - COALESCE(
-                        p.tgl_jatuh_tempo,
-                        p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                        p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                    )::date) AS days_overdue
-                FROM penjualan p
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(p.id_salesman, c.id_sales)
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A')
-                  AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-                  AND p.tanggal >= CAST(:cutoff AS date)
-                  {search_cond}
+                {inv_cte}
             )
             SELECT *
             FROM inv
@@ -1141,6 +1145,7 @@ async def get_collection_alerts(
             "total_alerts": sum(v["count"] for v in bucket_summary.values()),
             "total_alert_amount": sum(v["amount"] for v in bucket_summary.values()),
             "items": filtered_items,
+            "data_note": _get_ar_scope_note(scope),
         }
     except Exception as e:
         logger.error("finance.collection_alert.error", error=str(e))
@@ -1155,20 +1160,22 @@ async def get_weekly_collection_achievement(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    WEEKLY COLLECTION ACHIEVEMENT:
-    Mengukur realisasi pembayaran secara mingguan:
-    Target vs Actual Collection per minggu, postingan tiap hari (pembayaran yang masuk), dan persentase achievement.
+    WEEKLY COLLECTION ACHIEVEMENT (100% Real Data dari pembayaran_piutang & acc_ar_faktur):
+    - Actual Collection: SUM(pembayaran_piutang_detail.jumlah_bayar) per minggu
+    - Target Collection: SUM(acc_ar_faktur.total) yang jatuh tempo (due_date) pada minggu tersebut
+      (atau nilai tagihan jatuh tempo yang diselesaikan pada minggu tersebut bila due_date kosong)
+    - Daily Postings: daftar pembayaran harian riil dari pembayaran_piutang
     """
     try:
-        # Ambil 12 minggu terakhir yang memiliki transaksi di pembayaran_piutang
-        weekly_sql = f"""
-            WITH wk AS (
+        weekly_sql = """
+            WITH wk_pay AS (
                 SELECT 
                     DATE_TRUNC('week', h.tanggal)::date AS week_start,
                     (DATE_TRUNC('week', h.tanggal)::date + interval '6 days')::date AS week_end,
                     COUNT(DISTINCT h.no_pembayaran_piutang) AS voucher_count,
                     COUNT(DISTINCT h.id_customer) AS customer_count,
                     COALESCE(SUM(d.jumlah_bayar), 0) AS actual_collection,
+                    COALESCE(SUM(d.jumlah_tagihan), 0) AS billed_settled,
                     COALESCE(SUM(CASE WHEN EXTRACT(ISODOW FROM h.tanggal) = 1 THEN d.jumlah_bayar ELSE 0 END), 0) AS mon_amt,
                     COALESCE(SUM(CASE WHEN EXTRACT(ISODOW FROM h.tanggal) = 2 THEN d.jumlah_bayar ELSE 0 END), 0) AS tue_amt,
                     COALESCE(SUM(CASE WHEN EXTRACT(ISODOW FROM h.tanggal) = 3 THEN d.jumlah_bayar ELSE 0 END), 0) AS wed_amt,
@@ -1182,23 +1189,30 @@ async def get_weekly_collection_achievement(
                 HAVING COALESCE(SUM(d.jumlah_bayar), 0) > 0
                 ORDER BY week_start DESC
                 LIMIT :weeks
+            ),
+            wk_due AS (
+                SELECT 
+                    DATE_TRUNC('week', COALESCE(a.due_date, a.invoice_date + (COALESCE(NULLIF(a.top, 0), 30) * interval '1 day')))::date AS week_start,
+                    COALESCE(SUM(COALESCE(NULLIF(a.total, 0), a.amount, 0)), 0) AS due_target_amount,
+                    COUNT(*) AS due_invoice_count
+                FROM acc_ar_faktur a
+                WHERE COALESCE(a.due_date, a.invoice_date) IS NOT NULL
+                GROUP BY 1
             )
-            SELECT * FROM wk ORDER BY week_start ASC
+            SELECT 
+                p.*,
+                COALESCE(NULLIF(du.due_target_amount, 0), p.billed_settled) AS target_collection,
+                COALESCE(du.due_invoice_count, 0) AS due_invoice_count
+            FROM wk_pay p
+            LEFT JOIN wk_due du ON du.week_start = p.week_start
+            ORDER BY p.week_start ASC
         """
         wk_rows = db.execute(text(weekly_sql), {"weeks": weeks}).mappings().all()
-
-        # Hitung rata-rata aktual sebagai baseline target mingguan yang realistis (berbasis AR jatuh tempo mingguan)
-        avg_actual = (
-            sum(float(r["actual_collection"] or 0) for r in wk_rows) / len(wk_rows)
-            if wk_rows else 10_000_000_000.0
-        )
 
         weekly_items = []
         for idx, r in enumerate(wk_rows):
             act = float(r["actual_collection"] or 0)
-            # Target mingguan dihitung dari baseline rencana penagihan mingguan dengan sedikit variasi musiman
-            seasonal_factor = 0.92 + ((idx % 4) * 0.05)
-            target = round(max(act * 0.88, avg_actual * seasonal_factor), 0)
+            target = float(r["target_collection"] or 0)
             ach_pct = round((act / target) * 100, 1) if target > 0 else 0.0
             ws_str = str(r["week_start"])
             we_str = str(r["week_end"])
@@ -1209,10 +1223,11 @@ async def get_weekly_collection_achievement(
                 "week_end": we_str,
                 "target_collection": target,
                 "actual_collection": act,
-                "variance": act - target,
+                "variance": round(act - target, 2),
                 "achievement_pct": ach_pct,
                 "voucher_count": int(r["voucher_count"] or 0),
                 "customer_count": int(r["customer_count"] or 0),
+                "due_invoice_count": int(r["due_invoice_count"] or 0),
                 "daily_breakdown": {
                     "Senin": float(r["mon_amt"] or 0),
                     "Selasa": float(r["tue_amt"] or 0),
@@ -1224,7 +1239,7 @@ async def get_weekly_collection_achievement(
                 "status": "ACHIEVED" if ach_pct >= 100 else ("ON_TRACK" if ach_pct >= 85 else "BELOW_TARGET"),
             })
 
-        # Postingan pembayaran harian terbaru (daftar voucher pembayaran masuk per hari)
+        # Postingan pembayaran harian terbaru dari pembayaran_piutang
         daily_sql = """
             SELECT 
                 h.tanggal AS payment_date,
@@ -1285,6 +1300,10 @@ async def get_weekly_collection_achievement(
             },
             "weekly_series": weekly_items,
             "daily_postings": daily_postings,
+            "data_note": (
+                "100% Real Data dari public.pembayaran_piutang (21.748 voucher s/d 12 Feb 2024) dan "
+                "target tagihan jatuh tempo mingguan riil dari public.acc_ar_faktur (due_date)."
+            ),
         }
     except Exception as e:
         logger.error("finance.weekly_collection.error", error=str(e))
@@ -1299,22 +1318,41 @@ async def get_am_collection_performance(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    AM PERFORMANCE:
+    AM PERFORMANCE (100% Real Data dari pembayaran_piutang, acc_ar_faktur, dan penjualan):
     Peringkat kontribusi DSR / Marketing / Account Manager terhadap penerimaan pembayaran:
-    Ranking collection berdasarkan Account Manager & ranking achievement terhadap target penagihan.
+    - Target Collection: total tagihan faktur AR riil pada portofolio AM (acc_ar_faktur.total / jumlah_tagihan)
+    - Actual Collection: total pembayaran riil yang diterima (pembayaran_piutang_detail.jumlah_bayar)
+    - Active OS & Overdue OS: dihitung dari Single Source of Truth _ar_open_invoices_cte('ACTIVE')
     """
     try:
-        sql = """
-            WITH coll AS (
+        inv_active_cte = _ar_open_invoices_cte(scope="ACTIVE")
+
+        sql = f"""
+            WITH ar_ledger_am AS (
                 SELECT 
-                    COALESCE(NULLIF(a.id_salesman, ''), NULLIF(c.id_sales, ''), 'CPA-TEAM') AS id_sales,
+                    COALESCE(NULLIF(TRIM(a.id_salesman), ''), NULLIF(TRIM(c.id_sales), ''), 'UNASSIGNED') AS id_sales,
+                    COUNT(*) AS ledger_invoices,
+                    COALESCE(SUM(COALESCE(NULLIF(a.total, 0), a.amount, 0)), 0) AS ledger_invoiced_total,
+                    COALESCE(SUM(COALESCE(a.bayar, 0)), 0) AS ledger_paid_total
+                FROM acc_ar_faktur a
+                LEFT JOIN customer c ON c.id_kontak = a.customer_code
+                WHERE COALESCE(a.invoice_date, a.ar_date) >= '2023-01-01'
+                GROUP BY 1
+            ),
+            coll AS (
+                SELECT 
+                    COALESCE(NULLIF(TRIM(a.id_salesman), ''), NULLIF(TRIM(c.id_sales), ''), 'UNASSIGNED') AS id_sales,
                     COUNT(DISTINCT h.no_pembayaran_piutang) AS total_receipts,
                     COUNT(DISTINCT h.id_customer) AS paid_customers,
                     COALESCE(SUM(d.jumlah_bayar), 0) AS actual_collection,
                     COALESCE(SUM(d.jumlah_tagihan), 0) AS billed_tagihan,
                     ROUND(AVG(
-                        GREATEST(0, (h.tanggal - COALESCE(a.invoice_date, h.tanggal)))
-                    ), 1) AS avg_collection_days
+                        CASE 
+                            WHEN a.invoice_date IS NOT NULL AND h.tanggal >= a.invoice_date 
+                            THEN (h.tanggal - a.invoice_date)
+                            ELSE NULL
+                        END
+                    )::numeric, 1) AS avg_collection_days
                 FROM pembayaran_piutang_detail d
                 JOIN pembayaran_piutang h ON h.no_pembayaran_piutang = d.nomor
                 LEFT JOIN acc_ar_faktur a ON a.ar_number = d.no_penjualan
@@ -1322,80 +1360,75 @@ async def get_am_collection_performance(
                 WHERE h.tanggal >= '2023-01-01'
                 GROUP BY 1
             ),
+            inv AS (
+                {inv_active_cte}
+            ),
             active_ar AS (
                 SELECT 
-                    COALESCE(NULLIF(p.id_salesman, ''), NULLIF(c.id_sales, ''), 'CPA-TEAM') AS id_sales,
+                    id_sales,
                     COUNT(*) AS open_invoices,
-                    COALESCE(SUM(p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)), 0) AS active_os,
-                    COALESCE(SUM(CASE 
-                        WHEN (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tanggal + interval '30 days')::date) > 0 
-                        THEN (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) 
-                        ELSE 0 
-                    END), 0) AS overdue_os
-                FROM penjualan p
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A')
-                  AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-                  AND p.tanggal >= '2026-07-01'
+                    COALESCE(SUM(os), 0) AS active_os,
+                    COALESCE(SUM(CASE WHEN dod > 0 THEN os ELSE 0 END), 0) AS overdue_os
+                FROM inv
                 GROUP BY 1
             )
             SELECT 
-                COALESCE(c.id_sales, ar.id_sales) AS id_sales,
-                COALESCE(peg.nama, c.id_sales, ar.id_sales, 'Tim Penjualan Korporat') AS nama_am,
+                COALESCE(c.id_sales, l.id_sales, ar.id_sales) AS id_sales,
+                COALESCE(peg.nama, COALESCE(c.id_sales, l.id_sales, ar.id_sales)) AS nama_am,
                 COALESCE(peg.id_kantor_new, 'HO') AS cabang,
                 COALESCE(c.total_receipts, 0) AS total_receipts,
                 COALESCE(c.paid_customers, 0) AS paid_customers,
-                COALESCE(c.actual_collection, 0) AS actual_collection,
-                COALESCE(c.billed_tagihan, 0) AS billed_tagihan,
-                COALESCE(c.avg_collection_days, 32.0) AS avg_collection_days,
+                COALESCE(NULLIF(c.actual_collection, 0), l.ledger_paid_total, 0) AS actual_collection,
+                COALESCE(NULLIF(l.ledger_invoiced_total, 0), c.billed_tagihan, 0) AS target_collection,
+                COALESCE(c.avg_collection_days, 0.0) AS avg_collection_days,
                 COALESCE(ar.open_invoices, 0) AS open_invoices,
                 COALESCE(ar.active_os, 0) AS active_os,
                 COALESCE(ar.overdue_os, 0) AS overdue_os
             FROM coll c
-            FULL OUTER JOIN active_ar ar ON c.id_sales = ar.id_sales
-            LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(c.id_sales, ar.id_sales)
-            WHERE COALESCE(c.actual_collection, 0) > 0 OR COALESCE(ar.active_os, 0) > 0
-            ORDER BY COALESCE(c.actual_collection, 0) DESC
+            FULL OUTER JOIN ar_ledger_am l ON c.id_sales = l.id_sales
+            FULL OUTER JOIN active_ar ar ON COALESCE(c.id_sales, l.id_sales) = ar.id_sales
+            LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(c.id_sales, l.id_sales, ar.id_sales)
+            WHERE COALESCE(c.actual_collection, l.ledger_paid_total, 0) > 0 
+               OR COALESCE(ar.active_os, 0) > 0
+            ORDER BY COALESCE(NULLIF(c.actual_collection, 0), l.ledger_paid_total, 0) DESC
             LIMIT 35
         """
-        rows = db.execute(text(sql)).mappings().all()
+        rows = db.execute(text(sql), {"cutoff": _get_ar_cutoff_date("ACTIVE")}).mappings().all()
 
         total_company_collection = sum(float(r["actual_collection"] or 0) for r in rows) or 1.0
         items = []
 
-        for idx, r in enumerate(rows):
-            am_name = str(r["nama_am"] or r["id_sales"] or "Tim Sales").strip()
-            if not am_name or am_name == "CPA-TEAM":
-                am_name = "Key Account Corporate Team"
+        for r in rows:
+            raw_id = str(r["id_sales"] or "UNASSIGNED").strip()
+            am_name = str(r["nama_am"] or raw_id).strip()
+            if raw_id in ("UNASSIGNED", "CPA-TEAM", "-"):
+                am_name = "Unassigned / Direct Corporate Account"
 
-            if search and search.lower() not in am_name.lower() and search.lower() not in str(r["id_sales"]).lower():
+            if search and search.lower() not in am_name.lower() and search.lower() not in raw_id.lower():
                 continue
 
             actual = float(r["actual_collection"] or 0)
-            billed = float(r["billed_tagihan"] or 0)
+            target = float(r["target_collection"] or 0)
             active_os = float(r["active_os"] or 0)
             overdue_os = float(r["overdue_os"] or 0)
 
-            # Target penagihan AM dihitung dari tagihan jatuh tempo yang menjadi tanggung jawabnya
-            target = round(max(billed * 0.96, actual * 0.92, active_os * 1.15, 500_000_000.0), 0)
-            ach_pct = round(min(145.0, (actual / target) * 100), 1) if target > 0 else 0.0
-            contrib_pct = round((actual / total_company_collection) * 100, 2)
+            ach_pct = round((actual / target) * 100, 1) if target > 0 else 0.0
+            contrib_pct = round((actual / total_company_collection) * 100, 2) if actual > 0 else 0.0
             od_ratio = round((overdue_os / active_os) * 100, 1) if active_os > 0 else 0.0
 
-            if ach_pct >= 100:
+            if ach_pct >= 95.0:
                 tier = "CHAMPION"
-                tier_label = "Top Achiever (>=100%)"
-            elif ach_pct >= 85:
+                tier_label = "Top Achiever (>=95%)"
+            elif ach_pct >= 80.0:
                 tier = "GOOD"
-                tier_label = "On Track (85-99%)"
+                tier_label = "On Track (80-94%)"
             else:
                 tier = "NEEDS_IMPROVEMENT"
-                tier_label = "Below Target (<85%)"
+                tier_label = "Below Target (<80%)"
 
             items.append({
                 "collection_rank": len(items) + 1,
-                "id_sales": r["id_sales"],
+                "id_sales": raw_id,
                 "nama_am": am_name,
                 "cabang": r["cabang"],
                 "target_collection": target,
@@ -1404,7 +1437,7 @@ async def get_am_collection_performance(
                 "contribution_pct": contrib_pct,
                 "total_receipts": int(r["total_receipts"] or 0),
                 "paid_customers": int(r["paid_customers"] or 0),
-                "avg_collection_days": float(r["avg_collection_days"] or 30.0),
+                "avg_collection_days": float(r["avg_collection_days"] or 0.0),
                 "open_invoices": int(r["open_invoices"] or 0),
                 "active_os": active_os,
                 "overdue_os": overdue_os,
@@ -1413,26 +1446,30 @@ async def get_am_collection_performance(
                 "performance_label": tier_label,
             })
 
-        # Hitung achievement_rank berdasarkan achievement_pct tertinggi
-        by_ach = sorted(items, key=lambda x: x["achievement_pct"], reverse=True)
+        by_ach = sorted(items, key=lambda x: (x["achievement_pct"], x["actual_collection"]), reverse=True)
         ach_rank_map = {x["id_sales"]: i + 1 for i, x in enumerate(by_ach)}
         for it in items:
             it["achievement_rank"] = ach_rank_map.get(it["id_sales"], it["collection_rank"])
 
+        tot_collected = sum(x["actual_collection"] for x in items)
+        tot_target = sum(x["target_collection"] for x in items)
+
         return {
             "summary": {
                 "total_am_count": len(items),
-                "total_collected": sum(x["actual_collection"] for x in items),
-                "total_target": sum(x["target_collection"] for x in items),
-                "avg_achievement_pct": round(
-                    sum(x["achievement_pct"] for x in items) / (len(items) or 1), 1
-                ),
+                "total_collected": tot_collected,
+                "total_target": tot_target,
+                "avg_achievement_pct": round((tot_collected / tot_target) * 100, 1) if tot_target > 0 else 0.0,
                 "top_collector_name": items[0]["nama_am"] if items else "-",
                 "top_collector_amount": items[0]["actual_collection"] if items else 0.0,
                 "top_achiever_name": by_ach[0]["nama_am"] if by_ach else "-",
                 "top_achiever_pct": by_ach[0]["achievement_pct"] if by_ach else 0.0,
             },
             "items": items,
+            "data_note": (
+                "100% Real Data: Target Collection adalah total nilai faktur AR riil per AM pada public.acc_ar_faktur, "
+                "sedangkan Actual Collection adalah realisasi pembayaran masuk pada public.pembayaran_piutang_detail."
+            ),
         }
     except Exception as e:
         logger.error("finance.am_performance.error", error=str(e))
@@ -1449,17 +1486,14 @@ async def get_goods_in_transit_tracking(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    GOODS IN TRANSIT TRACKING:
+    GOODS IN TRANSIT TRACKING (Single Source of Truth via _git_unbilled_where):
     Monitoring barang yang sudah keluar dari gudang atau dikirim ke customer (DO status S, R, D),
     tetapi belum diterbitkan invoice (belum ada di penjualando / penjualan).
+    Estimasi nilai dihitung 100% dari harga riil (so_detail -> penjualan_detail -> harga_jual_detil).
     """
     try:
         params: Dict[str, Any] = {"limit": limit}
-        conds = [
-            "d.status IN ('S', 'R', 'D')",
-            "NOT EXISTS (SELECT 1 FROM penjualando pd WHERE pd.no_do = d.nomor)",
-            "NOT EXISTS (SELECT 1 FROM penjualan p WHERE p.no_do = d.nomor AND p.status <> 'C')",
-        ]
+        conds = [_git_unbilled_where("d")]
         if status and status.upper() in ("S", "R", "D"):
             conds.append("d.status = :status")
             params["status"] = status.upper()
@@ -1470,6 +1504,15 @@ async def get_goods_in_transit_tracking(
         where_sql = " AND ".join(conds)
 
         sql = f"""
+            WITH avg_item_price AS (
+                SELECT id_barang, AVG(harga) AS avg_harga
+                FROM (
+                    SELECT id_barang, harga FROM so_detail WHERE harga > 0
+                    UNION ALL
+                    SELECT id_barang, harga FROM harga_jual_detil WHERE harga > 0
+                ) p_src
+                GROUP BY id_barang
+            )
             SELECT 
                 d.nomor AS no_do,
                 d.tanggal AS tgl_do,
@@ -1485,8 +1528,8 @@ async def get_goods_in_transit_tracking(
                 COALESCE(peg.nama, d.id_salesman, 'Account Manager') AS nama_sales,
                 COALESCE(d.no_pl, '-') AS no_pl,
                 COALESCE(pl.no_so, '-') AS no_so,
-                COALESCE(d.transporter, d.driver, 'Internal Logistics') AS ekspedisi,
-                COALESCE(d.lic_plate, '-') AS nopol,
+                COALESCE(NULLIF(TRIM(d.transporter), ''), NULLIF(TRIM(d.driver), ''), 'Internal Logistics') AS ekspedisi,
+                COALESCE(NULLIF(TRIM(d.lic_plate), ''), '-') AS nopol,
                 COALESCE(d.shippingcosts, 0) AS ongkir,
                 (CURRENT_DATE - COALESCE(d.tgl_keluar, d.tanggal)) AS days_unbilled,
                 COALESCE(item_agg.total_qty, 0) AS total_qty,
@@ -1505,12 +1548,14 @@ async def get_goods_in_transit_tracking(
                     STRING_AGG(COALESCE(b.nama_barang, dd.id_barang) || ' (' || COALESCE(dd.qty, 0)::int || ')', ', ') AS ringkasan_barang,
                     SUM(
                         dd.qty * COALESCE(
-                            (SELECT AVG(sd.harga) FROM so_detail sd WHERE sd.no_so = pl.no_so AND sd.id_barang = dd.id_barang),
-                            4500000
+                            (SELECT AVG(sd.harga) FROM so_detail sd WHERE sd.no_so = pl.no_so AND sd.id_barang = dd.id_barang AND sd.harga > 0),
+                            aip.avg_harga,
+                            0
                         )
                     ) AS estimasi_nilai
                 FROM do_detail dd
                 LEFT JOIN barang b ON b.id_barang = dd.id_barang
+                LEFT JOIN avg_item_price aip ON aip.id_barang = dd.id_barang
                 WHERE dd.no_do = d.nomor
             ) item_agg ON true
             WHERE {where_sql}
@@ -1586,6 +1631,10 @@ async def get_goods_in_transit_tracking(
                 "delayed_gt_7days_count": delayed_billing_cnt,
             },
             "items": items,
+            "data_note": (
+                "100% Real Data dari public.do_tbl & public.do_detail untuk DO berstatus S/R/D yang belum tercatat di "
+                "public.penjualando maupun public.penjualan. Nilai barang dihitung dari harga SO terkait (so_detail) atau rata-rata kontrak (harga_jual_detil)."
+            ),
         }
     except Exception as e:
         logger.error("finance.goods_in_transit.error", error=str(e))
@@ -1596,17 +1645,17 @@ async def get_goods_in_transit_tracking(
 @router.get("/ar/credit-utilization")
 async def get_credit_limit_utilization(
     policy_filter: str = Query("ALL", description="ALL | OVER_LIMIT | WARNING_80 | CREDIT_REVIEW_60 | CREDIT_HOLD_90 | NORMAL"),
-    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | ALL"),
+    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | AR_LEDGER | ALL"),
     search: Optional[str] = None,
     limit: int = Query(150, ge=10, le=500),
     db: Session = Depends(get_existing_db),
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    CREDIT LIMIT UTILIZATION:
-    Mengukur penggunaan fasilitas kredit sesuai kebijakan:
-    - Utilisasi kredit >= 80%: Warning
-    - Utilisasi kredit >= 100%: Over Limit
+    CREDIT LIMIT UTILIZATION (Single Source of Truth via _ar_open_invoices_cte & Real Master Plafon):
+    Mengukur penggunaan fasilitas kredit sesuai kebijakan menggunakan 100% plafon riil (`public.customer.batas_kredit`):
+    - Utilisasi kredit >= 80% (pada customer dengan batas_kredit > 0): Warning
+    - Utilisasi kredit >= 100% (pada customer dengan batas_kredit > 0): Over Limit
     - Overdue > 60 hari: Credit Review
     - Overdue > 90 hari: Pertimbangkan Credit Hold sesuai kebijakan
     """
@@ -1618,39 +1667,21 @@ async def get_credit_limit_utilization(
             search_cond = "AND (c.customer ILIKE :search OR c.id_kontak ILIKE :search OR peg.nama ILIKE :search)"
             params["search"] = f"%{search.strip()}%"
 
+        inv_cte = _ar_open_invoices_cte(scope=scope)
+
         sql = f"""
-            WITH ar_agg AS (
-                SELECT 
-                    p.id_customer,
-                    COUNT(*) AS open_invoices,
-                    SUM(p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS total_os,
-                    SUM(CASE 
-                        WHEN (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date) <= 0
-                        THEN (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0))
-                        ELSE 0
-                    END) AS current_os,
-                    SUM(CASE 
-                        WHEN (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date) > 0
-                        THEN (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0))
-                        ELSE 0
-                    END) AS overdue_os,
-                    MAX(CASE 
-                        WHEN (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date) > 0
-                        THEN (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date)
-                        ELSE 0
-                    END) AS max_days_overdue
-                FROM penjualan p
-                LEFT JOIN customer c ON c.id_kontak = p.id_customer
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A')
-                  AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-                  AND p.tanggal >= CAST(:cutoff AS date)
-                GROUP BY p.id_customer
+            WITH inv AS (
+                {inv_cte}
             ),
-            hist_peak AS (
-                SELECT id_customer, MAX(grandtotal) * 2.5 AS estimated_plafon
-                FROM penjualan
-                WHERE tanggal >= '2025-01-01'
+            ar_agg AS (
+                SELECT 
+                    id_customer,
+                    COUNT(*) AS open_invoices,
+                    SUM(os) AS total_os,
+                    SUM(CASE WHEN dod <= 0 THEN os ELSE 0 END) AS current_os,
+                    SUM(CASE WHEN dod > 0 THEN os ELSE 0 END) AS overdue_os,
+                    MAX(CASE WHEN dod > 0 THEN dod ELSE 0 END) AS max_days_overdue
+                FROM inv
                 GROUP BY id_customer
             )
             SELECT 
@@ -1661,7 +1692,6 @@ async def get_credit_limit_utilization(
                 COALESCE(c.id_sales, '-') AS id_sales,
                 COALESCE(peg.nama, c.id_sales, 'Account Manager') AS nama_sales,
                 COALESCE(c.batas_kredit, 0) AS raw_credit_limit,
-                COALESCE(NULLIF(c.batas_kredit, 0), ROUND(COALESCE(hp.estimated_plafon, 500000000), -6)) AS effective_credit_limit,
                 COALESCE(ar.open_invoices, 0) AS open_invoices,
                 COALESCE(ar.total_os, 0) AS total_os,
                 COALESCE(ar.current_os, 0) AS current_os,
@@ -1669,11 +1699,12 @@ async def get_credit_limit_utilization(
                 COALESCE(ar.max_days_overdue, 0) AS max_days_overdue
             FROM customer c
             LEFT JOIN ar_agg ar ON ar.id_customer = c.id_kontak
-            LEFT JOIN hist_peak hp ON hp.id_customer = c.id_kontak
             LEFT JOIN pegawai peg ON peg.id_pegawai = c.id_sales
             WHERE (COALESCE(ar.total_os, 0) > 0 OR COALESCE(c.batas_kredit, 0) > 0)
               {search_cond}
-            ORDER BY COALESCE(ar.total_os, 0) DESC
+            ORDER BY 
+                CASE WHEN COALESCE(c.batas_kredit, 0) > 0 AND COALESCE(ar.total_os, 0) > 0 THEN 0 ELSE 1 END ASC,
+                COALESCE(ar.total_os, 0) DESC
         """
         rows = db.execute(text(sql), params).mappings().all()
 
@@ -1687,28 +1718,33 @@ async def get_credit_limit_utilization(
         items = []
         total_limit_all = 0.0
         total_os_all = 0.0
+        total_os_with_limit = 0.0
+        unconfigured_limit_customers = 0
 
         for r in rows:
             os_amt = float(r["total_os"] or 0)
             cur_amt = float(r["current_os"] or 0)
             od_amt = float(r["overdue_os"] or 0)
             raw_limit = float(r["raw_credit_limit"] or 0)
-            eff_limit = float(r["effective_credit_limit"] or 500_000_000)
             max_od = int(r["max_days_overdue"] or 0)
+            has_limit = raw_limit > 0
 
-            util_pct = round((os_amt / eff_limit) * 100, 1) if eff_limit > 0 else 0.0
-            remaining_limit = eff_limit - os_amt
+            if has_limit:
+                util_pct = round((os_amt / raw_limit) * 100, 1)
+                remaining_limit = raw_limit - os_amt
+                total_limit_all += raw_limit
+                total_os_with_limit += os_amt
+            else:
+                util_pct = 0.0
+                remaining_limit = 0.0
+                if os_amt > 0:
+                    unconfigured_limit_customers += 1
 
-            total_limit_all += eff_limit
             total_os_all += os_amt
 
-            # Flags sesuai kebijakan persis pada prompt user:
-            # - Utilisasi >= 100%: Over Limit
-            # - Utilisasi >= 80%: Warning
-            # - Overdue > 60 hari: Credit Review
-            # - Overdue > 90 hari: Pertimbangkan Credit Hold sesuai kebijakan
-            is_over_limit = util_pct >= 100.0
-            is_warning_80 = 80.0 <= util_pct < 100.0
+            # Evaluasi kebijakan kredit 100% dari data riil:
+            is_over_limit = has_limit and util_pct >= 100.0
+            is_warning_80 = has_limit and (80.0 <= util_pct < 100.0)
             is_review_60 = 60 < max_od <= 90
             is_hold_90 = max_od > 90
 
@@ -1723,10 +1759,9 @@ async def get_credit_limit_utilization(
             if not (is_over_limit or is_warning_80 or is_review_60 or is_hold_90):
                 counts["NORMAL"] += 1
 
-            # Primary policy status & rekomendasi
             if is_hold_90:
                 p_status = "CREDIT_HOLD_90"
-                p_label = "Credit Hold (OD > 90 Hari)"
+                p_label = f"Credit Hold (OD {max_od} Hari)"
                 policy_note = f"Overdue {max_od} hari (> 90 hari): Pertimbangkan Credit Hold penuh sesuai kebijakan kredit."
             elif is_over_limit:
                 p_status = "OVER_LIMIT"
@@ -1742,8 +1777,12 @@ async def get_credit_limit_utilization(
                 policy_note = f"Utilisasi kredit >= 80% ({util_pct}%): Warning mendekati batas plafon. Pantau order baru."
             else:
                 p_status = "NORMAL"
-                p_label = "Sehat / Dalam Plafon"
-                policy_note = "Penggunaan kredit dalam batas aman dan tidak ada overdue > 60 hari."
+                if has_limit:
+                    p_label = "Sehat / Dalam Plafon"
+                    policy_note = "Penggunaan kredit dalam batas plafon master customer dan tidak ada overdue > 60 hari."
+                else:
+                    p_label = "Plafon Belum Diset (OD <= 60 Hr)"
+                    policy_note = "batas_kredit = Rp 0 pada master customer (public.customer); lengkapi plafon kredit kontrak bila pelanggan diberikan fasilitas TOP."
 
             pf = (policy_filter or "ALL").upper()
             if pf != "ALL":
@@ -1767,8 +1806,8 @@ async def get_credit_limit_utilization(
                     "nama_sales": r["nama_sales"],
                     "top_days": int(r["top_days"] or 30),
                     "raw_credit_limit": raw_limit,
-                    "credit_limit": eff_limit,
-                    "is_Contract_limit": raw_limit > 0,
+                    "credit_limit": raw_limit,
+                    "is_Contract_limit": has_limit,
                     "total_os": os_amt,
                     "current_os": cur_amt,
                     "overdue_os": od_amt,
@@ -1786,7 +1825,9 @@ async def get_credit_limit_utilization(
                 "total_customers_evaluated": len(rows),
                 "total_credit_limit": total_limit_all,
                 "total_os": total_os_all,
-                "overall_utilization_pct": round((total_os_all / (total_limit_all or 1)) * 100, 1),
+                "total_os_with_limit": total_os_with_limit,
+                "unconfigured_limit_customers": unconfigured_limit_customers,
+                "overall_utilization_pct": round((total_os_with_limit / total_limit_all) * 100, 1) if total_limit_all > 0 else 0.0,
                 "over_limit_count": counts["OVER_LIMIT"],
                 "warning_80_count": counts["WARNING_80"],
                 "credit_review_60_count": counts["CREDIT_REVIEW_60"],
@@ -1794,6 +1835,11 @@ async def get_credit_limit_utilization(
                 "normal_count": counts["NORMAL"],
             },
             "items": items,
+            "data_note": (
+                f"100% Real Master Plafon dari public.customer.batas_kredit (551 customer aktif memiliki batas_kredit > 0; "
+                f"{unconfigured_limit_customers} customer dengan piutang berjalan memiliki batas_kredit = 0 di master data). "
+                + _get_ar_scope_note(scope)
+            ),
         }
     except Exception as e:
         logger.error("finance.credit_utilization.error", error=str(e))
@@ -1811,19 +1857,21 @@ async def get_customer_payment_performance(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    CUSTOMER PERFORMANCE:
-    Range payment customer berdasarkan Average Payment Days / Overdue Days:
+    CUSTOMER PERFORMANCE (100% Real Data dari pembayaran_piutang, acc_ar_faktur, penjualan, dan icu):
+    Range payment customer berdasarkan Average Payment Days & Overdue Days riil:
     - <= 0 days overdue : EXCELLENT (Prioritas Utama Daftar Insentif Customer)
     - 1 - 30 days overdue : GOOD (Eligible Insentif Reguler)
     - 31 - 60 days overdue : HIGH_RISK (Insentif Ditangguhkan)
     - > 60 days overdue : CRITICAL (Tidak Berhak Insentif / Evaluasi TOP)
     """
     try:
-        params: Dict[str, Any] = {}
+        params: Dict[str, Any] = {"cutoff": _get_ar_cutoff_date("ACTIVE")}
         search_cond = ""
         if search:
             search_cond = "AND (c.customer ILIKE :search OR c.id_kontak ILIKE :search OR peg.nama ILIKE :search)"
             params["search"] = f"%{search.strip()}%"
+
+        inv_active_cte = _ar_open_invoices_cte(scope="ACTIVE")
 
         sql = f"""
             WITH paid_hist AS (
@@ -1831,38 +1879,53 @@ async def get_customer_payment_performance(
                     h.id_customer,
                     COUNT(DISTINCT h.no_pembayaran_piutang) AS paid_vouchers,
                     COUNT(*) AS paid_invoices,
-                    SUM(d.jumlah_bayar) AS total_paid_amount,
-                    ROUND(AVG(h.tanggal - COALESCE(a.invoice_date, p.tanggal, h.tanggal - 30)), 1) AS avg_payment_days,
+                    COALESCE(SUM(d.jumlah_bayar), 0) AS total_paid_amount,
                     ROUND(AVG(
-                        h.tanggal - COALESCE(
-                            a.due_date,
-                            p.tgl_jatuh_tempo,
-                            COALESCE(a.invoice_date, p.tanggal) + (COALESCE(a.top, p.top, 30) * interval '1 day')
-                        )::date
-                    ), 1) AS avg_overdue_days
+                        CASE 
+                            WHEN COALESCE(a.invoice_date, p.tanggal) IS NOT NULL 
+                            THEN (h.tanggal - COALESCE(a.invoice_date, p.tanggal))
+                            ELSE NULL
+                        END
+                    )::numeric, 1) AS avg_payment_days,
+                    ROUND(AVG(
+                        CASE 
+                            WHEN COALESCE(a.due_date, p.tgl_jatuh_tempo, COALESCE(a.invoice_date, p.tanggal) + (COALESCE(NULLIF(a.top, 0), p.top, 30) * interval '1 day')) IS NOT NULL
+                            THEN (h.tanggal - COALESCE(
+                                a.due_date,
+                                p.tgl_jatuh_tempo,
+                                COALESCE(a.invoice_date, p.tanggal) + (COALESCE(NULLIF(a.top, 0), p.top, 30) * interval '1 day')
+                            )::date)
+                            ELSE NULL
+                        END
+                    )::numeric, 1) AS avg_overdue_days
                 FROM pembayaran_piutang_detail d
                 JOIN pembayaran_piutang h ON h.no_pembayaran_piutang = d.nomor
                 LEFT JOIN acc_ar_faktur a ON a.ar_number = d.no_penjualan
-                LEFT JOIN penjualan p ON p.no_penjualan = a.no_invoice
+                LEFT JOIN penjualan p ON p.no_penjualan = COALESCE(a.no_invoice, d.no_invoice)
                 WHERE h.tanggal >= '2022-01-01'
                 GROUP BY h.id_customer
             ),
+            inv AS (
+                {inv_active_cte}
+            ),
             recent_sales AS (
                 SELECT 
-                    p.id_customer,
+                    id_customer,
                     COUNT(*) AS total_invoices_recent,
-                    SUM(p.grandtotal) AS total_omset_recent,
-                    SUM(p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS active_os,
-                    ROUND(AVG(
-                        CURRENT_DATE - COALESCE(
-                            p.tgl_jatuh_tempo,
-                            p.tanggal + (COALESCE(p.top, 30) * interval '1 day')
-                        )::date
-                    ), 1) AS open_avg_overdue_days
-                FROM penjualan p
-                LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-                WHERE p.status IN ('P', 'A') AND p.tanggal >= '2026-07-01'
-                GROUP BY p.id_customer
+                    COALESCE(SUM(nominal_invoice), 0) AS total_omset_recent,
+                    COALESCE(SUM(os), 0) AS active_os,
+                    ROUND(AVG(dod)::numeric, 1) AS open_avg_overdue_days
+                FROM inv
+                GROUP BY id_customer
+            ),
+            real_icu AS (
+                SELECT 
+                    i.id_customer,
+                    COUNT(DISTINCT i.id) AS icu_count,
+                    COALESCE(SUM(idtl.total_insentif), 0) AS real_icu_total
+                FROM icu i
+                LEFT JOIN icu_detail idtl ON idtl.id = i.id
+                GROUP BY i.id_customer
             )
             SELECT 
                 c.id_kontak AS id_customer,
@@ -1875,15 +1938,18 @@ async def get_customer_payment_performance(
                 COALESCE(ph.total_paid_amount, 0) AS total_paid_amount,
                 COALESCE(rs.total_omset_recent, 0) AS total_omset_recent,
                 COALESCE(rs.active_os, 0) AS active_os,
-                COALESCE(ph.avg_payment_days, COALESCE(c.top, 30) + COALESCE(rs.open_avg_overdue_days, 0)) AS avg_payment_days,
-                COALESCE(ph.avg_overdue_days, rs.open_avg_overdue_days, 0) AS avg_overdue_days
+                ph.avg_payment_days AS hist_avg_payment_days,
+                COALESCE(ph.avg_overdue_days, rs.open_avg_overdue_days, 0) AS avg_overdue_days,
+                COALESCE(ricu.icu_count, 0) AS real_icu_count,
+                COALESCE(ricu.real_icu_total, 0) AS real_icu_total
             FROM customer c
             LEFT JOIN paid_hist ph ON ph.id_customer = c.id_kontak
             LEFT JOIN recent_sales rs ON rs.id_customer = c.id_kontak
+            LEFT JOIN real_icu ricu ON ricu.id_customer = c.id_kontak
             LEFT JOIN pegawai peg ON peg.id_pegawai = c.id_sales
             WHERE (COALESCE(ph.paid_invoices, 0) > 0 OR COALESCE(rs.total_omset_recent, 0) > 0)
               {search_cond}
-            ORDER BY COALESCE(rs.total_omset_recent, 0) + COALESCE(ph.total_paid_amount, 0) DESC
+            ORDER BY COALESCE(ph.total_paid_amount, 0) + COALESCE(rs.total_omset_recent, 0) DESC
             LIMIT 400
         """
         rows = db.execute(text(sql), params).mappings().all()
@@ -1895,45 +1961,41 @@ async def get_customer_payment_performance(
             "CRITICAL": 0,
         }
         items = []
-        total_incentive_pool = 0.0
+        total_real_icu_pool = 0.0
         eligible_count = 0
 
         for r in rows:
             avg_od = round(float(r["avg_overdue_days"] or 0), 1)
             top_d = int(r["top_days"] or 30)
-            avg_pay = round(max(1.0, float(r["avg_payment_days"] or (top_d + avg_od))), 1)
-            omset = float(r["total_omset_recent"] or 0) or float(r["total_paid_amount"] or 0) * 0.25
+            hist_pay = r["hist_avg_payment_days"]
+            avg_pay = round(float(hist_pay), 1) if hist_pay is not None else round(max(0.0, top_d + avg_od), 1)
+            real_icu_rp = float(r["real_icu_total"] or 0.0)
 
             if avg_od <= 0:
                 t_code = "EXCELLENT"
                 t_label = "Excellent (<= 0 Hari Overdue)"
                 eligible = True
-                rebate_pct = 1.5
-                inc_program = "Platinum Rebate 1.5% + Prioritas ICU & Tambahan Kuota Kredit"
+                inc_program = "Prioritas Utama Daftar Insentif Customer (Bayar <= TOP)"
             elif avg_od <= 30:
                 t_code = "GOOD"
                 t_label = "Good (1 - 30 Hari Overdue)"
                 eligible = True
-                rebate_pct = 0.75
-                inc_program = "Gold Rebate 0.75% + Eligible Pengajuan ICU Reguler"
+                inc_program = "Eligible Pengajuan Insentif Customer (Overdue 1-30 Hari)"
             elif avg_od <= 60:
                 t_code = "HIGH_RISK"
                 t_label = "High Risk (31 - 60 Hari Overdue)"
                 eligible = False
-                rebate_pct = 0.0
-                inc_program = "Insentif Ditangguhkan sementara hingga rata-rata bayar <= 30 hari"
+                inc_program = "Insentif Ditangguhkan (Overdue 31-60 Hari)"
             else:
                 t_code = "CRITICAL"
                 t_label = "Critical (> 60 Hari Overdue)"
                 eligible = False
-                rebate_pct = 0.0
-                inc_program = "Tidak Berhak Insentif — Evaluasi Penurunan TOP ke CBD/COD"
+                inc_program = "Tidak Berhak Insentif — Evaluasi Fasilitas TOP"
 
             tier_counts[t_code] += 1
-            est_incentive = round(omset * (rebate_pct / 100.0), 0) if eligible else 0.0
             if eligible:
                 eligible_count += 1
-                total_incentive_pool += est_incentive
+                total_real_icu_pool += real_icu_rp
 
             if tier and tier.upper() not in ("ALL", "") and t_code != tier.upper():
                 continue
@@ -1957,8 +2019,8 @@ async def get_customer_payment_performance(
                     "performance_tier": t_code,
                     "performance_label": t_label,
                     "incentive_eligible": eligible,
-                    "incentive_rate_pct": rebate_pct,
-                    "estimated_incentive_rp": est_incentive,
+                    "incentive_rate_pct": None,
+                    "estimated_incentive_rp": real_icu_rp,
                     "incentive_program": inc_program,
                 })
 
@@ -1970,9 +2032,14 @@ async def get_customer_payment_performance(
                 "high_risk_count": tier_counts["HIGH_RISK"],
                 "critical_count": tier_counts["CRITICAL"],
                 "incentive_eligible_count": eligible_count,
-                "total_estimated_incentive_pool": total_incentive_pool,
+                "total_estimated_incentive_pool": total_real_icu_pool,
             },
             "items": items,
+            "data_note": (
+                "100% Real Data histori pelunasan faktur dari public.pembayaran_piutang_detail JOIN public.acc_ar_faktur. "
+                "Klasifikasi Daftar Insentif Customer didasarkan murni pada rata-rata hari keterlambatan riil (<=0, 1-30, 31-60, >60 hari) "
+                "tanpa estimasi persentase rabat fiktif."
+            ),
         }
     except Exception as e:
         logger.error("finance.customer_performance.error", error=str(e))
@@ -1992,7 +2059,7 @@ class ConfirmCollectionPayload(BaseModel):
 
 @router.get("/ar/collection-projection")
 async def get_collection_projection(
-    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | ALL"),
+    scope: str = Query("ACTIVE", description="ACTIVE | YTD_2026 | AR_LEDGER | ALL"),
     confirm_filter: str = Query("ALL", description="ALL | CONFIRMED | PROMISED | FOLLOW_UP | UNCONFIRMED"),
     search: Optional[str] = None,
     db: Session = Depends(get_existing_db),
@@ -2000,8 +2067,11 @@ async def get_collection_projection(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    COLLECTION PROJECTION:
-    Target collection weekly dan monthly berdasarkan konfirmasi customer (Promise to Pay) dan hari overdue.
+    COLLECTION PROJECTION (Single Source of Truth via _ar_open_invoices_cte & Real Confirmations):
+    Target collection weekly dan monthly berdasarkan:
+    1. Konfirmasi riil customer (Promise to Pay) yang disimpan di `analytics.ar_collection_confirmations`
+    2. Jadwal jatuh tempo faktur riil (`due_date`) dan hari overdue (`days_overdue`) untuk faktur `UNCONFIRMED`
+    Tanpa simulasi/heuristik status konfirmasi palsu atau pemotongan probabilitas arbitrer.
     """
     try:
         _ensure_ar_analytics_tables(db_analytics, db)
@@ -2009,44 +2079,26 @@ async def get_collection_projection(
         params: Dict[str, Any] = {"cutoff": cutoff}
         search_cond = ""
         if search:
-            search_cond = "AND (c.customer ILIKE :search OR p.no_penjualan ILIKE :search OR peg.nama ILIKE :search)"
+            search_cond = (
+                "AND (c.customer ILIKE :search "
+                "OR COALESCE(p.no_penjualan, a.no_invoice, a.ar_number) ILIKE :search "
+                "OR peg.nama ILIKE :search)"
+            )
             params["search"] = f"%{search.strip()}%"
 
-        # Ambil daftar konfirmasi customer yang tersimpan di analytics DB
         saved_confs = {
             c.no_penjualan: c
             for c in db_analytics.query(ARCollectionConfirmation).all()
         }
 
+        inv_cte = _ar_open_invoices_cte(scope=scope, extra_where=search_cond)
+
         sql = f"""
-            SELECT 
-                p.no_penjualan,
-                COALESCE(NULLIF(p.faktur, ''), p.no_penjualan) AS no_faktur,
-                p.tanggal AS invoice_date,
-                p.id_customer,
-                COALESCE(c.customer, p.kepada, 'Pelanggan Umum') AS nama_customer,
-                COALESCE(c.id_kantor, 'HO') AS id_kantor,
-                COALESCE(p.id_salesman, c.id_sales, '-') AS id_sales,
-                COALESCE(peg.nama, p.id_salesman, 'Account Manager') AS nama_sales,
-                (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS outstanding,
-                COALESCE(
-                    p.tgl_jatuh_tempo,
-                    p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                    p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                )::date AS due_date,
-                (CURRENT_DATE - COALESCE(
-                    p.tgl_jatuh_tempo,
-                    p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'),
-                    p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')
-                )::date) AS days_overdue
-            FROM penjualan p
-            LEFT JOIN customer c ON c.id_kontak = p.id_customer
-            LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(p.id_salesman, c.id_sales)
-            LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
-            WHERE p.status IN ('P', 'A')
-              AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
-              AND p.tanggal >= CAST(:cutoff AS date)
-              {search_cond}
+            WITH inv AS (
+                {inv_cte}
+            )
+            SELECT *
+            FROM inv
             ORDER BY outstanding DESC
             LIMIT 250
         """
@@ -2054,22 +2106,22 @@ async def get_collection_projection(
         today = date.today()
 
         weekly_buckets = [
-            {"week_key": "W1", "label": "Minggu 1 (1-7 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
-            {"week_key": "W2", "label": "Minggu 2 (8-14 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
-            {"week_key": "W3", "label": "Minggu 3 (15-21 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
-            {"week_key": "W4", "label": "Minggu 4 (22-30 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
+            {"week_key": "W1", "label": "Minggu 1 (Jatuh Tempo / <= 7 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
+            {"week_key": "W2", "label": "Minggu 2 (8 - 14 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
+            {"week_key": "W3", "label": "Minggu 3 (15 - 21 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
+            {"week_key": "W4", "label": "Minggu 4 (>= 22 Hari)", "confirmed": 0.0, "projected_overdue": 0.0, "total_target": 0.0, "invoice_count": 0},
         ]
         monthly_buckets = [
-            {"month_key": "M1", "label": "Bulan Berjalan (Nov 2026)", "confirmed": 0.0, "projected_unconfirmed": 0.0, "total_target": 0.0, "invoice_count": 0},
-            {"month_key": "M2", "label": "Bulan Depan (Des 2026)", "confirmed": 0.0, "projected_unconfirmed": 0.0, "total_target": 0.0, "invoice_count": 0},
-            {"month_key": "M3", "label": "Bulan +2 (Jan 2027)", "confirmed": 0.0, "projected_unconfirmed": 0.0, "total_target": 0.0, "invoice_count": 0},
+            {"month_key": "M1", "label": "Bulan Berjalan (<= 30 Hari)", "confirmed": 0.0, "projected_unconfirmed": 0.0, "total_target": 0.0, "invoice_count": 0},
+            {"month_key": "M2", "label": "Bulan +1 (31 - 60 Hari)", "confirmed": 0.0, "projected_unconfirmed": 0.0, "total_target": 0.0, "invoice_count": 0},
+            {"month_key": "M3", "label": "Bulan +2 (> 60 Hari)", "confirmed": 0.0, "projected_unconfirmed": 0.0, "total_target": 0.0, "invoice_count": 0},
         ]
 
         items = []
         total_confirmed_rp = 0.0
         total_projected_rp = 0.0
 
-        for idx, r in enumerate(rows):
+        for r in rows:
             no_inv = r["no_penjualan"]
             os_amt = float(r["outstanding"] or 0)
             dod = int(r["days_overdue"] or 0)
@@ -2077,55 +2129,35 @@ async def get_collection_projection(
 
             saved = saved_confs.get(no_inv)
             if saved:
-                c_status = saved.confirm_status
-                prom_date = saved.promised_date or max(today + timedelta(days=3), due_dt)
-                conf_amt = float(saved.confirmed_amount or os_amt)
-                notes = saved.notes or "Terkonfirmasi oleh tim AR Collection"
+                c_status = (saved.confirm_status or "CONFIRMED").upper()
+                prom_date = saved.promised_date or due_dt
+                conf_amt = float(saved.confirmed_amount) if saved.confirmed_amount is not None else os_amt
+                notes = saved.notes or f"Terkonfirmasi oleh {saved.pic_collection or 'Tim AR'}"
+                prob_pct = 100.0
+                proj_amt = conf_amt
             else:
-                # Heuristik deterministik berdasarkan hari overdue & jadwal jatuh tempo
-                if -7 <= dod <= 15:
-                    c_status = "CONFIRMED" if (idx % 3 != 2) else "PROMISED"
-                    prom_date = today + timedelta(days=(idx % 12) + 2)
-                    conf_amt = os_amt
-                    notes = "Customer konfirmasi jadwalkan pembayaran pada siklus transfer mingguan"
-                elif 15 < dod <= 45:
-                    c_status = "PROMISED" if (idx % 2 == 0) else "FOLLOW_UP"
-                    prom_date = today + timedelta(days=7 + (idx % 18))
-                    conf_amt = round(os_amt * (0.85 if c_status == "FOLLOW_UP" else 1.0), 0)
-                    notes = "Janji bayar bertahap pasca rekonsiliasi BAST & faktur pajak"
-                elif dod > 45:
-                    c_status = "FOLLOW_UP"
-                    prom_date = today + timedelta(days=14 + (idx % 25))
-                    conf_amt = round(os_amt * 0.65, 0)
-                    notes = "Dalam penagihan intensif Account Manager (overdue > 45 hari)"
+                c_status = "UNCONFIRMED"
+                prom_date = due_dt
+                conf_amt = 0.0
+                prob_pct = 100.0
+                proj_amt = os_amt
+                if dod > 0:
+                    notes = f"Belum ada konfirmasi janji bayar (Overdue {dod} hari dari jatuh tempo {due_dt})"
                 else:
-                    c_status = "UNCONFIRMED"
-                    prom_date = due_dt
-                    conf_amt = round(os_amt * 0.90, 0)
-                    notes = "Belum jatuh tempo — proyeksi sesuai tanggal TOP faktur"
+                    notes = f"Belum jatuh tempo — dijadwalkan sesuai TOP pada {due_dt}"
 
-            # Probabilitas realisasi berdasarkan konfirmasi & hari overdue
-            if c_status == "CONFIRMED":
-                prob_pct = 95.0
-            elif c_status == "PROMISED":
-                prob_pct = 80.0 if dod <= 30 else 65.0
-            elif c_status == "FOLLOW_UP":
-                prob_pct = 60.0 if dod <= 60 else 40.0
-            else:
-                prob_pct = 85.0 if dod <= 0 else 50.0
-
-            weighted_proj = round(os_amt * (prob_pct / 100.0), 0)
-            total_projected_rp += weighted_proj
+            total_projected_rp += proj_amt
             if c_status in ("CONFIRMED", "PROMISED"):
                 total_confirmed_rp += conf_amt
 
+            # Penempatan ke bucket mingguan & bulanan berdasarkan tanggal target bayar (promised_date / due_date)
             days_until_pay = (prom_date - today).days
             w_idx = min(3, max(0, days_until_pay // 7))
             weekly_buckets[w_idx]["invoice_count"] += 1
             if c_status in ("CONFIRMED", "PROMISED"):
                 weekly_buckets[w_idx]["confirmed"] += conf_amt
             else:
-                weekly_buckets[w_idx]["projected_overdue"] += weighted_proj
+                weekly_buckets[w_idx]["projected_overdue"] += proj_amt
             weekly_buckets[w_idx]["total_target"] = (
                 weekly_buckets[w_idx]["confirmed"] + weekly_buckets[w_idx]["projected_overdue"]
             )
@@ -2135,7 +2167,7 @@ async def get_collection_projection(
             if c_status in ("CONFIRMED", "PROMISED"):
                 monthly_buckets[m_idx]["confirmed"] += conf_amt
             else:
-                monthly_buckets[m_idx]["projected_unconfirmed"] += weighted_proj
+                monthly_buckets[m_idx]["projected_unconfirmed"] += proj_amt
             monthly_buckets[m_idx]["total_target"] = (
                 monthly_buckets[m_idx]["confirmed"] + monthly_buckets[m_idx]["projected_unconfirmed"]
             )
@@ -2159,7 +2191,7 @@ async def get_collection_projection(
                 "confirm_status": c_status,
                 "confirmed_amount": conf_amt,
                 "probability_pct": prob_pct,
-                "projected_collection": weighted_proj,
+                "projected_collection": proj_amt,
                 "target_week": weekly_buckets[w_idx]["week_key"],
                 "notes": notes,
             })
@@ -2175,7 +2207,12 @@ async def get_collection_projection(
             },
             "weekly_projection": weekly_buckets,
             "monthly_projection": monthly_buckets,
-            "items": items[:120],
+            "items": items[:150],
+            "data_note": (
+                "100% Real Data: Status CONFIRMED/PROMISED hanya berasal dari konfirmasi yang disimpan secara riil oleh tim AR "
+                "pada tabel analytics.ar_collection_confirmations. Faktur yang belum dikonfirmasi ditampilkan apa adanya sebagai UNCONFIRMED "
+                "sesuai nilai saldo piutang dan tanggal jatuh tempo riil."
+            ),
         }
     except Exception as e:
         logger.error("finance.collection_projection.error", error=str(e))
@@ -2228,7 +2265,7 @@ class CreateIcuPayload(BaseModel):
     id_customer: str
     nama_customer: str
     no_invoice: str
-    id_barang: Optional[str] = "550025043"
+    id_barang: Optional[str] = ""
     nama_barang: str
     qty: float
     bottom_price: float
@@ -2259,60 +2296,112 @@ async def get_customer_incentive_icu(
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
     """
-    ICU (Pengajuan Incentive Customer):
-    Monitoring pengajuan insentif customer yang masih membutuhkan approval berjenjang dan tindak lanjut pencairan.
+    ICU (Pengajuan Incentive Customer) — 100% Real Data:
+    Membaca langsung dari `public.icu` + `public.icu_detail` di `cpa_existing`
+    serta pengajuan operasional baru pada `analytics.ar_customer_incentives` di `cpa_analytics`.
+    Tanpa seeding data sintetis.
     """
     try:
         _ensure_ar_analytics_tables(db_analytics, db_existing)
+
+        # 1. Baca dari public.icu + public.icu_detail di cpa_existing
+        existing_rows = db_existing.execute(text("""
+            SELECT 
+                i.id,
+                i.nomor AS nomor_icu,
+                i.tanggal AS tanggal_pengajuan,
+                i.id_customer,
+                COALESCE(c.customer, i.id_customer) AS nama_customer,
+                COALESCE(d.id_invoice, '-') AS no_invoice,
+                p.tanggal AS tanggal_invoice,
+                d.tanggal_payment,
+                COALESCE(d.umur, 0) AS umur_piutang_hari,
+                COALESCE(i.create_by, c.id_sales, '-') AS id_salesman,
+                COALESCE(peg.nama, i.create_by, 'Account Manager') AS nama_salesman,
+                COALESCE(d.id_barang, '-') AS id_barang,
+                COALESCE(b.nama_barang, d.id_barang, '-') AS nama_barang,
+                COALESCE(d.qty, 0) AS qty,
+                COALESCE(d.bottom_price, 0) AS bottom_price,
+                COALESCE(d.harga_invoice, 0) AS harga_invoice,
+                COALESCE(d.icu, 0) AS tarif_icu_per_unit,
+                COALESCE(d.ongkos_kirim, 0) AS ongkos_kirim,
+                COALESCE(d.pph, 0) AS potongan_pph,
+                COALESCE(d.total_insentif, 0) AS total_insentif_net,
+                COALESCE(i.penerima, '-') AS penerima_insentif,
+                COALESCE(i.bank, '-') AS bank_penerima,
+                COALESCE(i.nomor_rekening, '-') AS nomor_rekening,
+                COALESCE(i.nama_rekening, '-') AS nama_rekening,
+                i.status AS raw_status,
+                d.remark AS catatan_pengajuan
+            FROM icu i
+            LEFT JOIN icu_detail d ON d.id = i.id
+            LEFT JOIN customer c ON c.id_kontak = i.id_customer
+            LEFT JOIN penjualan p ON p.no_penjualan = d.id_invoice
+            LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(i.create_by, c.id_sales)
+            LEFT JOIN barang b ON b.id_barang = d.id_barang
+            ORDER BY i.tanggal DESC, i.id DESC
+        """)).mappings().all()
+
+        combined_records: List[Dict[str, Any]] = []
+
+        for r in existing_rows:
+            raw_st = (r["raw_status"] or "D").strip().upper()
+            if raw_st == "A":
+                st = "APPROVED"
+                role = "Finance AP/Kasir"
+            elif raw_st == "P":
+                st = "PAID"
+                role = "Selesai (Paid)"
+            elif raw_st in ("R", "C"):
+                st = "REJECTED"
+                role = "Ditolak (Closed)"
+            else:
+                st = "PENDING_FINANCE"
+                role = "Finance Manager"
+
+            combined_records.append({
+                "id": int(r["id"]),
+                "nomor_icu": r["nomor_icu"],
+                "tanggal_pengajuan": str(r["tanggal_pengajuan"]) if r["tanggal_pengajuan"] else "-",
+                "id_customer": r["id_customer"],
+                "nama_customer": r["nama_customer"],
+                "no_invoice": r["no_invoice"],
+                "tanggal_invoice": str(r["tanggal_invoice"]) if r["tanggal_invoice"] else "-",
+                "tanggal_payment": str(r["tanggal_payment"]) if r["tanggal_payment"] else "-",
+                "umur_piutang_hari": int(r["umur_piutang_hari"] or 0),
+                "id_salesman": r["id_salesman"],
+                "nama_salesman": r["nama_salesman"],
+                "id_barang": r["id_barang"],
+                "nama_barang": r["nama_barang"],
+                "qty": float(r["qty"] or 0),
+                "bottom_price": float(r["bottom_price"] or 0),
+                "harga_invoice": float(r["harga_invoice"] or 0),
+                "tarif_icu_per_unit": float(r["tarif_icu_per_unit"] or 0),
+                "ongkos_kirim": float(r["ongkos_kirim"] or 0),
+                "potongan_pph": float(r["potongan_pph"] or 0),
+                "total_insentif_net": float(r["total_insentif_net"] or 0),
+                "penerima_insentif": r["penerima_insentif"],
+                "bank_penerima": r["bank_penerima"],
+                "nomor_rekening": r["nomor_rekening"],
+                "nama_rekening": r["nama_rekening"],
+                "status_approval": st,
+                "current_approver_role": role,
+                "approved_by": None,
+                "approved_at": None,
+                "catatan_pengajuan": r["catatan_pengajuan"],
+                "catatan_approval": None,
+                "tindak_lanjut": "Data ICU dari tabel ERP public.icu",
+            })
+
+        # 2. Baca pengajuan dari analytics.ar_customer_incentives
         all_icus = (
             db_analytics.query(ARCustomerIncentive)
             .order_by(ARCustomerIncentive.tanggal_pengajuan.desc(), ARCustomerIncentive.id.desc())
             .all()
         )
-
-        pending_cnt = 0
-        pending_amount = 0.0
-        approved_ready_cnt = 0
-        approved_ready_amount = 0.0
-        paid_cnt = 0
-        paid_amount = 0.0
-        rejected_cnt = 0
-
-        items = []
         for r in all_icus:
             st = (r.status_approval or "PENDING_FINANCE").upper()
-            net_amt = float(r.total_insentif_net or 0)
-
-            if st in ("PENDING_MANAGER", "PENDING_FINANCE", "PENDING_DIREKSI"):
-                pending_cnt += 1
-                pending_amount += net_amt
-            elif st == "APPROVED":
-                approved_ready_cnt += 1
-                approved_ready_amount += net_amt
-            elif st == "PAID":
-                paid_cnt += 1
-                paid_amount += net_amt
-            elif st == "REJECTED":
-                rejected_cnt += 1
-
-            if search:
-                q = search.lower().strip()
-                if (
-                    q not in (r.nomor_icu or "").lower()
-                    and q not in (r.nama_customer or "").lower()
-                    and q not in (r.no_invoice or "").lower()
-                    and q not in (r.nama_salesman or "").lower()
-                ):
-                    continue
-
-            st_filter = (status or "ALL").upper()
-            if st_filter == "NEED_ACTION":
-                if st not in ("PENDING_MANAGER", "PENDING_FINANCE", "PENDING_DIREKSI", "APPROVED"):
-                    continue
-            elif st_filter != "ALL" and st != st_filter:
-                continue
-
-            items.append({
+            combined_records.append({
                 "id": r.id,
                 "nomor_icu": r.nomor_icu,
                 "tanggal_pengajuan": str(r.tanggal_pengajuan) if r.tanggal_pengajuan else "-",
@@ -2332,7 +2421,7 @@ async def get_customer_incentive_icu(
                 "tarif_icu_per_unit": float(r.tarif_icu_per_unit or 0),
                 "ongkos_kirim": float(r.ongkos_kirim or 0),
                 "potongan_pph": float(r.potongan_pph or 0),
-                "total_insentif_net": net_amt,
+                "total_insentif_net": float(r.total_insentif_net or 0),
                 "penerima_insentif": r.penerima_insentif,
                 "bank_penerima": r.bank_penerima,
                 "nomor_rekening": r.nomor_rekening,
@@ -2346,9 +2435,61 @@ async def get_customer_incentive_icu(
                 "tindak_lanjut": r.tindak_lanjut,
             })
 
+        pending_cnt = 0
+        pending_amount = 0.0
+        approved_ready_cnt = 0
+        approved_ready_amount = 0.0
+        paid_cnt = 0
+        paid_amount = 0.0
+        rejected_cnt = 0
+
+        items = []
+        for rec in combined_records:
+            st = rec["status_approval"]
+            net_amt = float(rec["total_insentif_net"] or 0)
+
+            if st in ("PENDING_MANAGER", "PENDING_FINANCE", "PENDING_DIREKSI"):
+                pending_cnt += 1
+                pending_amount += net_amt
+            elif st == "APPROVED":
+                approved_ready_cnt += 1
+                approved_ready_amount += net_amt
+            elif st == "PAID":
+                paid_cnt += 1
+                paid_amount += net_amt
+            elif st == "REJECTED":
+                rejected_cnt += 1
+
+            if search:
+                q = search.lower().strip()
+                if (
+                    q not in (rec["nomor_icu"] or "").lower()
+                    and q not in (rec["nama_customer"] or "").lower()
+                    and q not in (rec["no_invoice"] or "").lower()
+                    and q not in (rec["nama_salesman"] or "").lower()
+                ):
+                    continue
+
+            st_filter = (status or "ALL").upper()
+            if st_filter == "NEED_ACTION":
+                if st not in ("PENDING_MANAGER", "PENDING_FINANCE", "PENDING_DIREKSI", "APPROVED"):
+                    continue
+            elif st_filter != "ALL" and st != st_filter:
+                continue
+
+            items.append(rec)
+
+        data_gap = None
+        if len(combined_records) == 0:
+            data_gap = (
+                "Tabel ERP public.icu, public.icu_detail, dan public.icu_persetujuan di database cpa_existing saat ini "
+                "memiliki 0 baris (belum ada pengajuan ICU yang diinput). Gunakan tombol '+ Buat Pengajuan ICU' di atas "
+                "untuk mencatat pengajuan insentif customer baru berdasarkan faktur riil."
+            )
+
         return {
             "summary": {
-                "total_submissions": len(all_icus),
+                "total_submissions": len(combined_records),
                 "pending_approval_count": pending_cnt,
                 "pending_approval_amount": pending_amount,
                 "approved_waiting_disbursement_count": approved_ready_cnt,
@@ -2358,6 +2499,7 @@ async def get_customer_incentive_icu(
                 "rejected_count": rejected_cnt,
             },
             "items": items,
+            "data_gap": data_gap,
         }
     except Exception as e:
         logger.error("finance.icu.error", error=str(e))
@@ -2371,14 +2513,46 @@ async def create_customer_incentive_icu(
     db_analytics: Session = Depends(get_analytics_db),
     current_user: Optional[Any] = Depends(get_optional_user),
 ):
-    """Buat pengajuan insentif customer (ICU) baru."""
+    """Buat pengajuan insentif customer (ICU) baru dengan menelusuri tanggal faktur & pelunasan riil di cpa_existing."""
     try:
         _ensure_ar_analytics_tables(db_analytics, db_existing)
         cnt = db_analytics.query(ARCustomerIncentive).count()
-        nomor = f"{101 + cnt:03d}/ICU/CPA/XI/2026"
+        nomor = f"{101 + cnt:03d}/ICU/CPA/{date.today().strftime('%m/%Y')}"
         gross = payload.qty * payload.tarif_icu_per_unit
         pph = round(max(0.0, (gross - payload.ongkos_kirim) * 0.02), 0)
         net = max(0.0, gross - payload.ongkos_kirim - pph)
+
+        # Cari data faktur & pembayaran riil dari cpa_existing
+        inv_row = db_existing.execute(text("""
+            SELECT 
+                COALESCE(p.tanggal, a.invoice_date, a.ar_date) AS tgl_inv,
+                COALESCE(p.id_salesman, a.id_salesman, c.id_sales, 'UNASSIGNED') AS id_sales,
+                COALESCE(peg.nama, p.id_salesman, a.id_salesman) AS nama_sales,
+                (
+                    SELECT MAX(h.tanggal)
+                    FROM pembayaran_piutang_detail pd
+                    JOIN pembayaran_piutang h ON h.no_pembayaran_piutang = pd.nomor
+                    WHERE pd.no_invoice = :no_inv OR pd.no_penjualan = a.ar_number OR pd.no_penjualan = :no_inv
+                ) AS tgl_pay
+            FROM penjualan p
+            FULL OUTER JOIN acc_ar_faktur a ON a.no_invoice = p.no_penjualan
+            LEFT JOIN customer c ON c.id_kontak = COALESCE(p.id_customer, a.customer_code)
+            LEFT JOIN pegawai peg ON peg.id_pegawai = COALESCE(p.id_salesman, a.id_salesman, c.id_sales)
+            WHERE p.no_penjualan = :no_inv OR a.no_invoice = :no_inv OR a.ar_number = :no_inv
+            LIMIT 1
+        """), {"no_inv": payload.no_invoice.strip()}).mappings().first()
+
+        tgl_inv = inv_row["tgl_inv"] if inv_row and inv_row["tgl_inv"] else None
+        tgl_pay = inv_row["tgl_pay"] if inv_row and inv_row["tgl_pay"] else None
+        id_sls = str(inv_row["id_sales"]) if inv_row and inv_row["id_sales"] else "UNASSIGNED"
+        nama_sls = str(inv_row["nama_sales"] or payload.nama_salesman or "Account Manager") if inv_row else (payload.nama_salesman or "Account Manager")
+
+        if tgl_inv and tgl_pay:
+            umur = max(0, (tgl_pay - tgl_inv).days)
+        elif tgl_inv:
+            umur = max(0, (date.today() - tgl_inv).days)
+        else:
+            umur = 0
 
         item = ARCustomerIncentive(
             nomor_icu=nomor,
@@ -2386,12 +2560,12 @@ async def create_customer_incentive_icu(
             id_customer=payload.id_customer,
             nama_customer=payload.nama_customer,
             no_invoice=payload.no_invoice,
-            tanggal_invoice=date.today() - timedelta(days=25),
-            tanggal_payment=date.today() - timedelta(days=2),
-            umur_piutang_hari=23,
-            id_salesman="CPA-SLS",
-            nama_salesman=payload.nama_salesman or "Account Manager",
-            id_barang=payload.id_barang or "550025043",
+            tanggal_invoice=tgl_inv,
+            tanggal_payment=tgl_pay,
+            umur_piutang_hari=umur,
+            id_salesman=id_sls,
+            nama_salesman=nama_sls,
+            id_barang=payload.id_barang or "-",
             nama_barang=payload.nama_barang,
             qty=payload.qty,
             bottom_price=payload.bottom_price,
@@ -2406,7 +2580,7 @@ async def create_customer_incentive_icu(
             nama_rekening=payload.nama_rekening,
             status_approval="PENDING_FINANCE",
             current_approver_role="Finance Manager",
-            catatan_pengajuan=payload.catatan_pengajuan or "Pengajuan baru dari dashboard Finance & Akuntansi",
+            catatan_pengajuan=payload.catatan_pengajuan or "Pengajuan ICU dari dashboard Finance & Akuntansi",
             tindak_lanjut="Verifikasi pelunasan faktur & margin harga bawah oleh Finance Manager",
         )
         db_analytics.add(item)
@@ -2470,4 +2644,3 @@ async def update_icu_approval(
     except Exception as e:
         db_analytics.rollback()
         raise HTTPException(status_code=500, detail=f"Gagal memproses approval ICU: {str(e)}")
-
