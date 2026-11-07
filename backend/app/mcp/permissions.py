@@ -11,24 +11,24 @@ MODULE_PERMISSIONS: Dict[str, Set[str]] = {
     # System / Auth info
     "AUTH": {
         "admin", "manager", "sales", "sales_rep",
-        "warehouse", "warehouse_staff", "finance_manager", "ar_staff", "credit_control", "viewer"
+        "warehouse", "warehouse_staff", "finance", "finance_manager", "ar_staff", "credit_control", "viewer"
     },
     # Inventory balances, stock counts
     "INVENTORY": {
         "admin", "manager", "sales", "sales_rep",
-        "warehouse", "warehouse_staff", "finance_manager", "ar_staff", "credit_control", "viewer"
+        "warehouse", "warehouse_staff", "finance", "finance_manager", "ar_staff", "credit_control", "viewer"
     },
     # Sales Orders, Invoices, Top products, Omzet
     "SALES": {
-        "admin", "manager", "sales", "sales_rep", "finance_manager", "ar_staff", "credit_control"
+        "admin", "manager", "sales", "sales_rep", "finance", "finance_manager", "ar_staff", "credit_control"
     },
     # Accounts Receivable, Piutang aging, Customer credit limits
     "FINANCE_AR": {
-        "admin", "manager", "finance_manager", "ar_staff", "credit_control"
+        "admin", "manager", "finance", "finance_manager", "ar_staff", "credit_control"
     },
     # CRM: Activities, Pipeline Opportunities, Customer Complaints
     "CRM": {
-        "admin", "manager", "sales", "sales_rep", "finance_manager"
+        "admin", "manager", "sales", "sales_rep", "finance", "finance_manager"
     },
     # AI Demand Forecasting: 7d, 30d, 90d projections, WAPE, Model rankings
     "FORECAST": {
@@ -40,13 +40,13 @@ MODULE_PERMISSIONS: Dict[str, Set[str]] = {
     },
     # Direct PostgreSQL Analytics Engine & Database Translation Layer
     "DB_ANALYTICS": {
-        "admin", "superadmin", "director", "executive", "manager", "finance_manager",
+        "admin", "superadmin", "director", "executive", "manager", "finance", "finance_manager", "ar_staff", "credit_control",
         "sales", "sales_rep", "warehouse", "warehouse_staff", "viewer"
     },
     # Distribution, Delivery Orders, Surat Jalan (DO), Logistics
     "DISTRIBUTION": {
         "admin", "superadmin", "director", "executive", "manager", "sales", "sales_rep",
-        "warehouse", "warehouse_staff", "finance_manager", "ar_staff", "credit_control", "viewer"
+        "warehouse", "warehouse_staff", "finance", "finance_manager", "ar_staff", "credit_control", "viewer"
     }
 }
 

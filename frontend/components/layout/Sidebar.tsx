@@ -392,29 +392,13 @@ const WAREHOUSE_NAV_GROUPS: SidebarGroup[] = [
 
 const FINANCE_NAV_GROUPS: SidebarGroup[] = [
   {
-    label: "Dashboard",
-    items: [
-      { id: "exec-dashboard", href: "/", icon: <Radar size={18} strokeWidth={1.5} />, label: "Executive Dashboard" },
-    ],
-  },
-  {
     label: "Intelligence & AI",
     items: [
       { id: "tanya-ai", href: "#tanya-cpa-ai", icon: <PadiAIIcon size={18} />, label: "Tanya CPA AI", isSpecialButton: true },
-      {
-        id: "main-dashboard-menu",
-        icon: <Gauge size={18} strokeWidth={1.5} />,
-        label: "Main Dashboard (C3)",
-        subItems: [
-          { href: "/main-dashboard", icon: <Gauge size={14} strokeWidth={1.5} />, label: "Main Dashboard (C3)" },
-          { href: "/intelligence/analytics", icon: <PieChart size={14} strokeWidth={1.5} />, label: "Analytics" },
-        ]
-      },
-      { id: "forecast", href: "/forecast", icon: <TrendingUp size={18} strokeWidth={1.5} />, label: "Demand Forecast" },
     ],
   },
   {
-    label: "Finance",
+    label: "Finance & Akuntansi",
     items: [
       {
         id: "finance-menu",
@@ -441,86 +425,6 @@ const FINANCE_NAV_GROUPS: SidebarGroup[] = [
           },
         ]
       },
-    ],
-  },
-  {
-    label: "Penjualan & Piutang",
-    items: [
-      {
-        id: "sales-menu",
-        icon: <CandlestickChart size={18} strokeWidth={1.5} />,
-        label: "Penjualan & Piutang",
-        subItems: [
-          { href: "/sales", icon: <CandlestickChart size={14} strokeWidth={1.5} />, label: "Sales & Invoicing" },
-          { href: "/sales/orders", icon: <ReceiptText size={14} strokeWidth={1.5} />, label: "Monitoring Rilis Kirim" },
-        ]
-      },
-    ],
-  },
-  {
-    label: "CRM",
-    items: [
-      { id: "crm", href: "/crm", icon: <HeartHandshake size={18} strokeWidth={1.5} />, label: "CRM & Customer 360" },
-    ],
-  },
-  {
-    label: "Supply Chain & Distribusi",
-    items: [
-      {
-        id: "distributions-menu",
-        icon: <Route size={18} strokeWidth={1.5} />,
-        label: "Distribusi",
-        subItems: [
-          { href: "/distributions", icon: <Route size={14} strokeWidth={1.5} />, label: "Distribusi" },
-          { href: "/distributions/financial-flow", icon: <Receipt size={14} strokeWidth={1.5} />, label: "Financial Flow" },
-        ]
-      },
-    ],
-  },
-  {
-    label: "Human Resource (HRM)",
-    items: [
-      {
-        id: "hrm-menu",
-        icon: <Users2 size={18} strokeWidth={1.5} />,
-        label: "Human Resource (HRM)",
-        subItems: [
-          { href: "/hrm", icon: <Users2 size={14} strokeWidth={1.5} />, label: "Employee Dashboard" },
-          { href: "/hrm/employees", icon: <Briefcase size={14} strokeWidth={1.5} />, label: "Data Karyawan & Org" },
-          { href: "/hrm/attendance", icon: <CalendarClock size={14} strokeWidth={1.5} />, label: "Absensi & Lembur" },
-          { href: "/hrm/leaves", icon: <CalendarOff size={14} strokeWidth={1.5} />, label: "Cuti & Izin" },
-        ]
-      },
-    ],
-  },
-  {
-    label: "Asset, IT & GA",
-    items: [
-      {
-        id: "fleet-menu",
-        icon: <Truck size={18} strokeWidth={1.5} />,
-        label: "Armada Kendaraan",
-        subItems: [
-          { href: "/assets/fleet", icon: <Truck size={14} strokeWidth={1.5} />, label: "Dashboard Armada" },
-          { href: "/assets/fleet/entry", icon: <FilePlus2 size={14} strokeWidth={1.5} />, label: "Isi Logbook Armada" },
-        ]
-      },
-      { id: "it", href: "/it", icon: <Cpu size={18} strokeWidth={1.5} />, label: "IT" },
-      {
-        id: "ga-menu",
-        icon: <Building2 size={18} strokeWidth={1.5} />,
-        label: "General Affairs (GA)",
-        subItems: [
-          { href: "/ga", icon: <Building2 size={14} strokeWidth={1.5} />, label: "Dashboard GA" },
-          { href: "/ga/entry", icon: <FilePlus2 size={14} strokeWidth={1.5} />, label: "Isi Logbook GA" },
-        ]
-      },
-    ],
-  },
-  {
-    label: "Laporan Finansial",
-    items: [
-      { id: "reports", href: "/reports", icon: <ScrollText size={18} strokeWidth={1.5} />, label: "Laporan Aging AR" },
     ],
   },
 ];
@@ -576,10 +480,12 @@ export default function Sidebar({
   const [currentUser, setCurrentUser] = useState<any>(propUser || null);
   const { theme } = useTheme();
 
-  // Accordion state: map of menu itemId -> boolean (GA & Fleet expanded by default)
+  // Accordion state: map of menu itemId -> boolean (GA, Fleet & Finance expanded by default)
   const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({
     "ga-menu": true,
     "fleet-menu": true,
+    "finance-menu": true,
+    "/finance/ar-summary": true,
   });
 
   useEffect(() => {

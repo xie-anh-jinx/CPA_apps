@@ -49,7 +49,7 @@ class MCPUser:
 
     @property
     def is_finance(self) -> bool:
-        return self.role in ("finance_manager", "ar_staff", "credit_control")
+        return self.role in ("finance", "finance_manager", "ar_staff", "credit_control")
 
     def to_dict(self) -> dict:
         return {

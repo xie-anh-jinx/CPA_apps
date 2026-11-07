@@ -20,6 +20,8 @@ export default function LoginPage() {
           router.push("/sales/orders");
         } else if (u.role === "warehouse_staff" || u.role === "warehouse") {
           router.push("/inventory");
+        } else if (["finance", "finance_manager", "ar_staff", "credit_control"].includes(u.role)) {
+          router.push("/finance");
         } else if (u.role === "ga") {
           router.push("/ga");
         } else if (u.role === "it") {
@@ -48,6 +50,8 @@ export default function LoginPage() {
         router.push("/sales/orders");
       } else if (res.data.user?.role === "warehouse_staff" || res.data.user?.role === "warehouse") {
         router.push("/inventory");
+      } else if (["finance", "finance_manager", "ar_staff", "credit_control"].includes(res.data.user?.role)) {
+        router.push("/finance");
       } else if (res.data.user?.role === "ga") {
         router.push("/ga");
       } else if (res.data.user?.role === "it") {

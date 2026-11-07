@@ -45,6 +45,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const isWarehouse = currentUser?.role === "warehouse" || currentUser?.role === "warehouse_staff";
   const isAsset = ["asset", "asset_staff", "ga", "it"].includes(currentUser?.role);
+  const isFinance = ["finance", "finance_manager", "ar_staff", "credit_control"].includes(currentUser?.role);
 
   // Check role restrictions for asset / GA / IT staff (allow only GA, Fleet, IT, Alerts, Docs - no extra modules)
   const isBlockedForAsset = isAsset && (
@@ -77,6 +78,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     pathname.startsWith("/database")
   );
 
+  // Check role restrictions for dedicated finance role (allow /finance*, /alerts, /docs, /database)
+  const isBlockedForFinance = isFinance && (
+    pathname === "/" ||
+    pathname.startsWith("/inventory") ||
+    pathname.startsWith("/distributions") ||
+    pathname.startsWith("/warehouses") ||
+    pathname.startsWith("/sales") ||
+    pathname.startsWith("/crm") ||
+    pathname.startsWith("/hrm") ||
+    pathname.startsWith("/assets") ||
+    pathname.startsWith("/ga") ||
+    pathname.startsWith("/it") ||
+    pathname.startsWith("/reports") ||
+    pathname.startsWith("/main-dashboard") ||
+    pathname.startsWith("/intelligence") ||
+    pathname.startsWith("/forecast")
+  );
+
   useEffect(() => {
     if (!currentUser) return;
 
@@ -94,8 +113,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       } else {
         router.replace("/inventory");
       }
+    } else if (isBlockedForFinance) {
+      router.replace("/finance");
     }
-  }, [isBlockedForAsset, isBlockedForWarehouse, pathname, router, currentUser]);
+  }, [isBlockedForAsset, isBlockedForWarehouse, isBlockedForFinance, pathname, router, currentUser]);
 
   if (isAuthPage) {
     return <>{children}</>;
@@ -155,6 +176,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div style={{ fontSize: "0.85rem" }}>
               Akun Anda hanya memiliki izin untuk mengakses Inventori & Gudang. Mengalihkan ke Monitoring Stok...
+            </div>
+          </div>
+        ) : isBlockedForFinance ? (
+          <div style={{ padding: "3rem 1.5rem", textAlign: "center", color: "var(--text-muted)" }}>
+            <div style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🔒</div>
+            <div style={{ fontWeight: 600, fontSize: "1rem", color: "var(--text-primary)", marginBottom: "0.25rem" }}>
+              Akses Dibatasi
+            </div>
+            <div style={{ fontSize: "0.85rem" }}>
+              Akun Anda memiliki hak akses khusus modul Finance & Akuntansi. Mengalihkan ke Finance Dashboard...
             </div>
           </div>
         ) : (
