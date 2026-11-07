@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Presentasi Delivery Order — PT CPA (3 November 2026 s.d. 4 November 2026)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/c3@0.7.20/c3.min.css">
+<script src="https://cdn.jsdelivr.net/npm/d3@5.16.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/c3@0.7.20/c3.min.js"></script>
+<style>
+  :root{--navy:#102638;--navy2:#183d57;--amber:#f5a000;--amber2:#ffc247;--ink:#172630;--muted:#687785;--line:#d9e2e7;--ok:#148354;--warn:#c87900;--bad:#c63d38;--blue:#21769f}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0a1620;color:var(--ink);font-family:Inter,"Segoe UI",Arial,sans-serif;overflow:hidden;height:100vh}
+  .deck{position:relative;width:100vw;height:100vh;overflow:hidden;background:#0a1620}
+  .slide{position:absolute;inset:0;padding:52px 68px;background:#fff;opacity:0;visibility:hidden;transition:opacity .4s ease,transform .4s ease;transform:translateX(30px);display:flex;flex-direction:column;overflow:auto}
+  .slide.active{opacity:1;visibility:visible;transform:none}
+  .slide::-webkit-scrollbar{width:8px}.slide::-webkit-scrollbar-thumb{background:#c9d4db;border-radius:8px}
+  .slideBar{position:absolute;top:0;left:0;right:0;height:7px;background:linear-gradient(90deg,var(--navy),var(--amber))}
+  .slideHead{display:flex;align-items:center;gap:14px;margin-bottom:22px;flex-wrap:wrap}
+  .brand{width:52px;height:52px;flex:0 0 52px;border-radius:14px;background:var(--amber);color:var(--navy);display:grid;place-items:center;font-weight:1000;font-size:18px;box-shadow:inset 0 -6px 0 rgba(0,0,0,.08)}
+  .slideHead h2{font-size:28px;letter-spacing:-.03em;line-height:1.05;color:var(--navy)}
+  .slideHead p{font-size:12px;color:var(--muted);margin-top:3px}
+  .slideHead .num{margin-left:auto;font-size:11px;color:var(--muted);background:#f1f5f7;padding:5px 11px;border-radius:99px;font-weight:800;letter-spacing:.05em}
+  .cover-slide{background:linear-gradient(125deg,#091c29,#183d57);color:#fff;justify-content:center;align-items:flex-start;padding:64px 80px;position:relative;overflow:hidden}
+  .cover-slide:after{content:"";position:absolute;width:600px;height:600px;border:100px solid rgba(255,255,255,.035);border-radius:50%;right:-200px;top:-320px}
+  .cover-slide .logo{width:84px;height:84px;border-radius:20px;background:var(--amber);color:var(--navy);display:grid;place-items:center;font-weight:1000;font-size:28px;box-shadow:inset 0 -8px 0 rgba(0,0,0,.09);margin-bottom:22px;position:relative;z-index:1}
+  .cover-slide h1{font-size:44px;letter-spacing:-.035em;line-height:1.02;margin-bottom:10px;position:relative;z-index:1}
+  .cover-slide .sub{font-size:16px;color:#cad8e0;margin-bottom:32px;position:relative;z-index:1}
+  .cover-slide .meta{display:grid;grid-template-columns:repeat(4,auto);gap:28px;margin-top:34px;font-size:11px;color:#d4e0e6;position:relative;z-index:1}
+  .cover-slide .meta b{display:block;font-size:9px;letter-spacing:.14em;color:var(--amber2);margin-bottom:4px}
+  .cover-slide .badge{display:inline-block;font-size:10px;letter-spacing:.14em;padding:6px 14px;border:1px solid rgba(245,160,0,.5);border-radius:99px;color:var(--amber2);margin-bottom:16px;position:relative;z-index:1}
+  .kpiGrid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+  .kpi{border:1px solid var(--line);border-radius:14px;padding:16px;background:linear-gradient(180deg,#f8fafb,#f1f5f7);position:relative;overflow:hidden}
+  .kpi:before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--blue)}
+  .kpi.ok:before{background:var(--ok)}.kpi.warn:before{background:var(--warn)}.kpi.bad:before{background:var(--bad)}.kpi.amber:before{background:var(--amber)}
+  .kpi small{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:900}
+  .kpi b{display:block;font-size:24px;color:var(--navy);margin-top:5px;letter-spacing:-.02em}
+  .kpi span{font-size:10.5px;color:var(--muted);margin-top:2px;display:block}
+  .chartGrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;flex:1}
+  .chartGrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .chartBox{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:#fff;display:flex;flex-direction:column;min-height:0}
+  .chartBox h4{font-size:13px;color:var(--navy);margin-bottom:2px}
+  .chartBox .cap{font-size:10px;color:var(--muted);margin-bottom:10px}
+  .chartBox .c3{flex:1}.chartBox .c3 svg{font-family:Inter,"Segoe UI",Arial,sans-serif!important}
+  table{width:100%;border-collapse:collapse;font-size:10.5px}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+  th{background:var(--navy);color:#fff;font-size:9px;text-transform:uppercase;letter-spacing:.05em;font-weight:800}
+  tbody tr:nth-child(even){background:#fafcfd}
+  td.num,th.num{text-align:right}
+  .pill{display:inline-block;font-size:9px;font-weight:900;padding:3px 9px;border-radius:99px}
+  .pill.ok{background:#dcf4e8;color:#087348}
+  .pill.warn{background:#fff0d5;color:#9e5a00}
+  .pill.bad{background:#ffe7e5;color:#a32e29}
+  .pill.info{background:#e2f2fa;color:#17668b}
+  .pill.gray{background:#e9eef1;color:#53626e}
+  .callout{border-left:4px solid var(--amber);background:#fff8ec;border-radius:0 10px 10px 0;padding:12px 15px;font-size:11.5px;color:#5a4408;margin-top:12px;line-height:1.5}
+  .callout b{color:#7a5b00}
+  .callout.dark{background:#102638;color:#fff;border-left-color:var(--amber2)}
+  .callout.dark b{color:var(--amber2)}
+  .insightGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px}
+  .insightBox{border:1px solid var(--line);border-radius:12px;padding:14px 16px;background:#fff}
+  .insightBox h4{font-size:12.5px;color:var(--navy);margin-bottom:8px;display:flex;align-items:center;gap:8px}
+  .insightBox ul{margin:0 0 0 16px;font-size:11px;line-height:1.6;color:#334654}
+  .insightBox ul li{margin-bottom:4px}
+  .nav{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(16,38,56,.92);backdrop-filter:blur(8px);color:#fff;border-radius:99px;padding:8px 12px;display:flex;align-items:center;gap:10px;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .nav button{background:#ffffff18;border:0;color:#fff;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:15px;font-weight:800;display:grid;place-items:center;transition:.15s}
+  .nav button:hover{background:var(--amber);color:var(--navy)}
+  .nav .counter{font-size:11px;font-weight:800;padding:0 8px;letter-spacing:.05em}
+  .nav .progress{width:130px;height:4px;background:#ffffff22;border-radius:99px;overflow:hidden}
+  .nav .progress div{height:100%;background:var(--amber);transition:width .3s}
+  @media print{@page{size:A4 landscape;margin:8mm}body{overflow:visible;background:#fff;height:auto}.deck{height:auto;overflow:visible}.slide{position:relative;opacity:1;visibility:visible;transform:none;page-break-after:always;height:auto;min-height:100vh;padding:30px 40px}.nav{display:none}}
+  @media(max-width:900px){.slide{padding:30px 24px}.slideHead h2{font-size:22px}.kpiGrid,.chartGrid,.chartGrid3,.insightGrid{grid-template-columns:1fr}.cover-slide{padding:40px 30px}.cover-slide h1{font-size:30px}.cover-slide .meta{grid-template-columns:1fr 1fr;gap:16px}}
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+  <!-- SLIDE 1 — COVER -->
+  <section class="slide cover-slide active">
+    <div class="badge">PERIODE 3 NOVEMBER 2026 – 4 NOVEMBER 2026</div>
+    <div class="logo">CPA</div>
+    <h1>Analisis Delivery Order<br>& Kinerja Pengiriman</h1>
+    <div class="sub">PT Cahaya Pengajaran Abadi · Divisi Supply Chain & Logistik</div>
+    <div class="meta">
+      <div><b>TOTAL DO</b>5 dokumen</div>
+      <div><b>VOLUME</b>1,9 Rb L</div>
+      <div><b>KEMASAN</b>11 unit</div>
+      <div><b>CUSTOMER</b>~5 unik</div>
+    </div>
+  </section>
+
+  <!-- SLIDE 2 — EXECUTIVE SUMMARY -->
+  <section class="slide">
+    <div class="slideBar"></div>
+    <div class="slideHead">
+      <div class="brand">01</div>
+      <div><h2>Executive Summary</h2><p>Ringkasan performa Delivery Order (5 DO)</p></div>
+      <div class="num">2 / 8</div>
+    </div>
+    <div class="kpiGrid">
+      <div class="kpi"><small>Total DO</small><b>5</b><span>dokumen dibuat</span></div>
+      <div class="kpi ok"><small>Invoice</small><b>1</b><span>20.0% dari total DO</span></div>
+      <div class="kpi warn"><small>Send (Kirim)</small><b>2</b><span>40.0% masih dalam proses</span></div>
+      <div class="kpi bad"><small>Return</small><b>2</b><span>40.0% pengembalian</span></div>
+      <div class="kpi"><small>Total Volume</small><b>1,9 Rb L</b><span>≈ 383 L/DO</span></div>
+      <div class="kpi"><small>Total Kemasan</small><b>11</b><span>unit kemasan</span></div>
+      <div class="kpi amber"><small>Cancel</small><b>0</b><span>0% dibatalkan</span></div>
+      <div class="kpi"><small>Received</small><b>0</b><span>0% terkonfirmasi</span></div>
+    </div>
+    <div class="callout">
+      <b>Kesimpulan utama:</b> Dari <b>5 DO</b> yang tercatat, <b>1 DO (20.0%) berhasil menjadi invoice</b> — proses penagihan berjalan aktif. Namun <b>2 DO (40.0%) masih berstatus 'Send'</b> yang membawa volume <b>627 L</b> dan belum dikonfirmasi receive. <b>Return rate 40.0% (2 DO)</b> dengan volume 245 L memerlukan evaluasi disiplin penerimaan fisik dan rekonsiliasi pengiriman.
+    </div>
+  </section>
+
+  <!-- SLIDE 3 — STATUS DO -->
+  <section class="slide">
+    <div class="slideBar"></div>
+    <div class="slideHead">
+      <div class="brand">02</div>
+      <div><h2>Distribusi Status Delivery Order</h2><p>Breakdown status dari 5 DO yang diterbitkan</p></div>
+      <div class="num">3 / 8</div>
+    </div>
+    <div class="chartGrid">
+      <div class="chartBox"><h4>Proporsi Status DO</h4><div class="cap">Distribusi persentase status dokumen</div><div id="chartStatus" class="c3"></div></div>
+      <div class="chartBox"><h4>Volume per Status</h4><div class="cap">Total liter berdasarkan status dokumen</div><div id="chartVolumeStatus" class="c3"></div></div>
+    </div>
+    <table style="margin-top:14px">
+      <thead><tr><th>Status</th><th class="num">Jumlah DO</th><th class="num">% DO</th><th class="num">Volume (L)</th><th class="num">% Volume</th><th class="num">Rata-rata/DO</th></tr></thead>
+      <tbody id="statusTable"></tbody>
+    </table>
+    <div class="callout">
+      <b>Insight:</b> Status <b>Invoice (20.0%)</b> mencerminkan kelancaran proses serah terima dan billing. Status <b>"Send" (40.0%)</b> membawa volume sebesar <b>627 L</b> yang berpotensi menjadi <b>risiko piutang tertunda</b> bila tidak segera difollow-up ke receive. <b>Return (40.0%)</b> membutuhkan investigasi bersama pihak operasional dan gudang pengirim.
+    </div>
+  </section>
+
+  <!-- SLIDE 4 — TREN BULANAN -->
+  <section class="slide">
+    <div class="slideBar"></div>
+    <div class="slideHead">
+      <div class="brand">03</div>
+      <div><h2>Tren Bulanan Delivery Order</h2><p>Aktivitas DO & Volume per bulan (3 November 2026 s.d. 4 November 2026)</p></div>
+      <div class="num">4 / 8</div>
+    </div>
+    <div class="chartBox" style="margin-bottom:14px">
+      <h4>Jumlah DO & Volume per Bulan</h4>
+      <div class="cap">Jumlah DO (bar biru) dan total volume liter (line oranye)</div>
+      <div id="chartMonthly" class="c3"></div>
+    </div>
+    <div class="chartGrid3">
+      <div class="chartBox"><h4>Rata-rata Volume/DO</h4><div class="cap">Liter / DO per bulan</div><div id="chartAvgVol" class="c3"></div></div>
+      <div class="chartBox"><h4>Distribusi Invoice</h4><div class="cap">% DO menjadi invoice per bulan</div><div id="chartInvRate" class="c3"></div></div>
+      <div class="chartBox"><h4>Distribusi Return</h4><div class="cap">% DO return per bulan</div><div id="chartRetRate" class="c3"></div></div>
+    </div>
+    <div class="callout">
+      <b>Insight Tren:</b> Pola distribusi menunjukkan variasi volume dan frekuensi pengiriman antar bulan. Konsistensi rasio invoice per bulan menjadi indikator utama efisiensi penagihan divisi logistik dan keuangan.
+    </div>
+  </section>
+
+  <!-- SLIDE 5 — GUDANG -->
+  <section class="slide">
+    <div class="slideBar"></div>
+    <div class="slideHead">
+      <div class="brand">04</div>
+      <div><h2>Analisis Gudang Asal</h2><p>Distribusi DO dan volume berdasarkan gudang asal pengiriman</p></div>
+      <div class="num">5 / 8</div>
+    </div>
+    <div class="chartGrid">
+      <div class="chartBox"><h4>Top Gudang — Jumlah DO</h4><div class="cap">Gudang dengan kontribusi DO terbanyak</div><div id="chartGudangDO" class="c3" style="height:360px"></div></div>
+      <div class="chartBox"><h4>Top Gudang — Volume</h4><div class="cap">Gudang dengan kontribusi volume terbesar (Liter)</div><div id="chartGudangVol" class="c3" style="height:360px"></div></div>
+    </div>
+    <div class="callout">
+      <b>Konsentrasi Logistik:</b> Gudang utama dan konsinyasi memegang peran krusial dalam penyaluran produk. Gudang <b>SAMPIT</b> menyumbangkan volume tertinggi, memerlukan pengawasan kapasitas dan kelancaran armada transportasi.
+    </div>
+  </section>
+
+  <!-- SLIDE 6 — TOP CUSTOMER -->
+  <section class="slide">
+    <div class="slideBar"></div>
+    <div class="slideHead">
+      <div class="brand">05</div>
+      <div><h2>Top Customer</h2><p>Customer dengan kontribusi volume dan frekuensi DO terbesar</p></div>
+      <div class="num">6 / 8</div>
+    </div>
+    <div class="chartGrid">
+      <div class="chartBox"><h4>Top Customer — Volume (Liter)</h4><div class="cap">Customer dengan volume pengiriman terbesar</div><div id="chartCustVol" class="c3" style="height:360px"></div></div>
+      <div class="chartBox"><h4>Top Customer — Jumlah DO</h4><div class="cap">Customer dengan frekuensi DO terbanyak</div><div id="chartCustDO" class="c3" style="height:360px"></div></div>
+    </div>
+    <table style="margin-top:14px">
+      <thead><tr><th>Customer</th><th class="num">Jumlah DO</th><th class="num">Volume (L)</th><th class="num">% Volume</th></tr></thead>
+      <tbody id="custTable"></tbody>
+    </table>
+  </section>
+
+  <!-- SLIDE 7 — LEAD TIME & RISIKO -->
+  <section class="slide">
+    <div class="slideBar"></div>
+    <div class="slideHead">
+      <div class="brand">06</div>
+      <div><h2>Lead Time & Risiko Operasional</h2><p>Durasi DO → Invoice, durasi Return vs Receive, dan mitigasi risiko operasional</p></div>
+      <div class="num">7 / 8</div>
+    </div>
+    <div class="chartGrid3">
+      <div class="chartBox"><h4>Distribusi Lead Time DO → Invoice</h4><div class="cap">Durasi hingga invoice terbit</div><div id="chartLeadInvoice" class="c3"></div></div>
+      <div class="chartBox"><h4>Distribusi Return vs Receive</h4><div class="cap">Selisih hari antara return & receive</div><div id="chartReturnDelta" class="c3"></div></div>
+      <div class="chartBox"><h4>Cancel Rate per Bulan</h4><div class="cap">% DO dibatalkan</div><div id="chartCancelRate" class="c3"></div></div>
+    </div>
+    <div class="insightGrid" style="margin-top:14px">
+      <div class="insightBox">
+        <h4>⏱️ Temuan Lead Time</h4>
+        <ul id="leadFindings">
+          <li><b>1 invoice</b> terbit di hari yang sama dengan penerbitan DO (SLA instan).</li>
+<li><b>0 invoice</b> membutuhkan waktu &gt; 7 hari setelah DO diterbitkan (perlu percepatan konfirmasi fisik).</li>
+<li><b>0 invoice</b> tercatat mendahului tanggal DO (lead time negatif) — disarankan audit sinkronisasi input ERP.</li>
+<li>Return-receive delta: <b>3 DO</b> diselesaikan di hari yang sama.</li>
+        </ul>
+      </div>
+      <div class="insightBox">
+        <h4>⚠️ Risiko Utama & Mitigasi</h4>
+        <ul>
+          <li><b>2 DO 'Send' belum ada receive date</b> → aktifkan automated notification H+3 pengiriman.</li>
+          <li><b>Return rate 40.0%</b> → audit penyebab retur barang per gudang konsinyasi vs customer retail.</li>
+          <li><b>Lead time invoice &gt; 7 hari</b> → tetapkan SLA penerbitan invoice maksimal 3 hari kerja setelah barang diterima.</li>
+          <li><b>Validasi DO vs Invoice terbalik</b> → cegah input tanggal mundur tanpa approval manajer logistik.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- SLIDE 8 — KESIMPULAN -->
+  <section class="slide">
+    <div class="slideBar"></div>
+    <div class="slideHead">
+      <div class="brand">07</div>
+      <div><h2>Kesimpulan & Rekomendasi</h2><p>Langkah tindak lanjut prioritas manajemen operasional</p></div>
+      <div class="num">8 / 8</div>
+    </div>
+    <div class="insightGrid" style="grid-template-columns:1fr 1fr 1fr">
+      <div class="insightBox">
+        <h4>🎯 Prioritas Tinggi</h4>
+        <ul>
+          <li><b>Follow-up 2 DO 'Send'</b> agar segera dikonfirmasi receive & siap invoicing.</li>
+          <li>Investigasi mendalam <b>2 DO Return (40.0%)</b> untuk mencegah recurring loss.</li>
+          <li>Sinkronisasi data <b>0 DO</b> yang mendahului invoice.</li>
+        </ul>
+      </div>
+      <div class="insightBox">
+        <h4>⚙️ Prioritas Menengah</h4>
+        <ul>
+          <li>Standarisasi SLA: DO → Receive &le; 2 hari dan DO → Invoice &le; 3 hari.</li>
+          <li>Dashboard alert harian untuk status 'Send' yang berumur &gt; 5 hari kerja.</li>
+          <li>Review kapasitas armada dan ritase di gudang konsinyasi dengan volume tinggi.</li>
+        </ul>
+      </div>
+      <div class="insightBox">
+        <h4>🔄 Perbaikan Proses</h4>
+        <ul>
+          <li>Integrasi POD (Proof of Delivery) digital via mobile app driver/ekspedisi.</li>
+          <li>Konsolidasi pesanan customer volume besar untuk penghematan biaya logistik.</li>
+          <li>Pelatihan berkala staf admin logistik untuk kedisiplinan input status real-time.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout dark" style="margin-top:18px">
+      <b>Target periode berikutnya:</b> Invoice rate &ge; 75% · Return rate &le; 8% · Cancel rate &le; 2% · Zero DO 'Send' &gt; 7 hari tanpa kejelasan status.
+    </div>
+    <div style="margin-top:auto;text-align:center;padding:20px 0 4px;font-size:11px;color:var(--muted)">
+      Dokumen ini disusun oleh Divisi Supply Chain & Logistik · PT Cahaya Pengajaran Abadi<br>
+      Sumber data: sample_laporan_do.csv · <b>Analisis penuh 5 baris</b>
+    </div>
+  </section>
+
+</div>
+
+<div class="nav">
+  <button id="prevBtn" title="Sebelumnya (←)">‹</button>
+  <div class="counter"><span id="curSlide">1</span> / <span id="totalSlide">8</span></div>
+  <div class="progress"><div id="progressBar" style="width:12.5%"></div></div>
+  <button id="nextBtn" title="Berikutnya (→)">›</button>
+  <button id="fullBtn" title="Fullscreen (F)" style="font-size:12px">⛶</button>
+  <button id="printBtn" title="Cetak" style="font-size:12px">⎙</button>
+</div>
+
+<script>
+/* ============================================================
+   DATA AKTUAL — Dihitung penuh dari 5 baris Excel
+   Sumber file: sample_laporan_do.csv
+   ============================================================ */
+
+const DATA = {"total": 5, "totalVolume": 1917, "totalKemasan": 11, "status": [{"raw": "Return", "label": "Return", "count": 2, "volume": 245, "color": "#c63d38", "pill": "bad"}, {"raw": "Send (Kirim)", "label": "Send (Kirim)", "count": 2, "volume": 627, "color": "#f5a000", "pill": "warn"}, {"raw": "Invoice", "label": "Invoice", "count": 1, "volume": 1045, "color": "#148354", "pill": "ok"}], "monthly": [{"period": "2026-11", "month": "November 2026", "count": 5, "volume": 1917, "invoice": 1, "send": 2, "ret": 2, "cancel": 0, "received": 0, "avg_vol": 383, "inv_rate": 20.0, "ret_rate": 40.0, "can_rate": 0.0}], "gudang": [{"name": "SAMPIT", "count": 1, "volume": 1045}, {"name": "PALU", "count": 2, "volume": 627}, {"name": "MAKASSAR", "count": 1, "volume": 209}, {"name": "KENDARI", "count": 1, "volume": 36}], "customer": [{"name": "KARUNIA ILAHI BERMITRA ABADI", "count": 1, "volume": 1045}, {"name": "BINTANI MEGAHINDAH,PT", "count": 1, "volume": 418}, {"name": "ARWANSA", "count": 1, "volume": 209}, {"name": "BUMI JASA UTAMA,PT", "count": 1, "volume": 209}, {"name": "PUTRA PERKASA ABADI,PT", "count": 1, "volume": 36}], "leadInvoice": [{"label": "< 0 hr (Mendahului)", "count": 0}, {"label": "0 hr (Same-Day)", "count": 1}, {"label": "1 hr", "count": 0}, {"label": "2 hr", "count": 0}, {"label": "3 hr", "count": 0}, {"label": "4-7 hr", "count": 0}, {"label": ">7 hr (Tertunda)", "count": 0}], "returnDelta": [{"label": "0 hari", "count": 3}, {"label": "1 hari", "count": 0}, {"label": "2 hari", "count": 0}, {"label": ">2 hari", "count": 0}], "cancelPerMonth": [{"month": "Nov", "rate": 0.0}]};
+
+/* RENDER TABEL STATUS */
+document.getElementById('statusTable').innerHTML = DATA.status.map(s=>`
+  <tr>
+    <td><span class="pill ${s.pill}">${s.label}</span></td>
+    <td class="num">${s.count.toLocaleString('id-ID')}</td>
+    <td class="num">${(DATA.total ? (s.count/DATA.total*100).toFixed(1) : 0)}%</td>
+    <td class="num">${s.volume.toLocaleString('id-ID')}</td>
+    <td class="num">${(DATA.totalVolume ? (s.volume/DATA.totalVolume*100).toFixed(1) : 0)}%</td>
+    <td class="num">${s.count?Math.round(s.volume/s.count).toLocaleString('id-ID'):0}</td>
+  </tr>`).join('');
+
+/* RENDER TOP CUSTOMER TABLE */
+const topCust = [...DATA.customer].sort((a,b)=>b.volume-a.volume).slice(0,10);
+document.getElementById('custTable').innerHTML = topCust.map(c=>`
+  <tr>
+    <td><b>${c.name}</b></td>
+    <td class="num">${c.count}</td>
+    <td class="num">${c.volume.toLocaleString('id-ID')}</td>
+    <td class="num">${(DATA.totalVolume ? (c.volume/DATA.totalVolume*100).toFixed(1) : 0)}%</td>
+  </tr>`).join('');
+
+/* C3 CHARTS */
+const C = { navy:'#102638', amber:'#f5a000', blue:'#21769f', ok:'#148354', warn:'#c87900', bad:'#c63d38', gray:'#687785' };
+
+// 1. Status Donut
+if(DATA.status && DATA.status.length > 0) {
+  c3.generate({
+    bindto:'#chartStatus',
+    data:{
+      columns: DATA.status.map(s=>[s.label, s.count]),
+      type:'donut',
+      colors: Object.fromEntries(DATA.status.map(s=>[s.label, s.color])),
+      order: null
+    },
+    donut:{ title: DATA.total.toLocaleString('id-ID') + ' DO', width:50, label:{ format:(v)=>v } },
+    legend:{ position:'right' },
+    padding:{ right:10 },
+    size:{ height:240 }
+  });
+
+  // 2. Volume per status
+  c3.generate({
+    bindto:'#chartVolumeStatus',
+    data:{
+      columns: DATA.status.map(s=>[s.label, s.volume]),
+      type:'bar',
+      colors: Object.fromEntries(DATA.status.map(s=>[s.label, s.color]))
+    },
+    bar:{ width:{ ratio:.55 } },
+    axis:{ y:{ tick:{ format:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'rb':v } }, x:{ type:'category' } },
+    legend:{ show:false },
+    size:{ height:240 }
+  });
+}
+
+// 3. Monthly trend
+if(DATA.monthly && DATA.monthly.length > 0) {
+  c3.generate({
+    bindto:'#chartMonthly',
+    data:{
+      x:'x',
+      columns:[
+        ['x', ...DATA.monthly.map(m=>m.month.split(' ')[0])],
+        ['Jumlah DO', ...DATA.monthly.map(m=>m.count)],
+        ['Volume (L)', ...DATA.monthly.map(m=>m.volume)]
+      ],
+      types:{ 'Jumlah DO':'bar', 'Volume (L)':'spline' },
+      colors:{ 'Jumlah DO':C.blue, 'Volume (L)':C.amber },
+      axes:{ 'Volume (L)':'y2' }
+    },
+    axis:{
+      x:{ type:'category' },
+      y:{ label:{ text:'Jumlah DO', position:'outer-middle' } },
+      y2:{ show:true, label:{ text:'Volume (L)', position:'outer-middle' }, tick:{ format:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'rb':v } }
+    },
+    bar:{ width:{ ratio:.5 } },
+    size:{ height:230 }
+  });
+
+  // 4. Avg volume per month
+  c3.generate({
+    bindto:'#chartAvgVol',
+    data:{
+      x:'x',
+      columns:[
+        ['x', ...DATA.monthly.map(m=>m.month.split(' ')[0])],
+        ['Rata-rata L/DO', ...DATA.monthly.map(m=>m.avg_vol || (m.count ? Math.round(m.volume/m.count) : 0))]
+      ],
+      type:'bar',
+      colors:{ 'Rata-rata L/DO':C.navy }
+    },
+    axis:{ x:{ type:'category' }, y:{ tick:{ format:v=>v>=1000?(v/1000).toFixed(1)+'rb':v } } },
+    legend:{ show:false },
+    size:{ height:180 }
+  });
+
+  // 5. Invoice rate per month
+  c3.generate({
+    bindto:'#chartInvRate',
+    data:{
+      x:'x',
+      columns:[
+        ['x', ...DATA.monthly.map(m=>m.month.split(' ')[0])],
+        ['Invoice Rate %', ...DATA.monthly.map(m=>+(m.inv_rate ?? (m.count ? (m.invoice/m.count*100).toFixed(1) : 0)))]
+      ],
+      type:'bar',
+      colors:{ 'Invoice Rate %':C.ok }
+    },
+    axis:{ x:{ type:'category' }, y:{ max:100, tick:{ format:v=>v+'%' } } },
+    legend:{ show:false },
+    size:{ height:180 }
+  });
+
+  // 6. Return rate per month
+  c3.generate({
+    bindto:'#chartRetRate',
+    data:{
+      x:'x',
+      columns:[
+        ['x', ...DATA.monthly.map(m=>m.month.split(' ')[0])],
+        ['Return Rate %', ...DATA.monthly.map(m=>+(m.ret_rate ?? (m.count ? (m.ret/m.count*100).toFixed(1) : 0)))]
+      ],
+      type:'bar',
+      colors:{ 'Return Rate %':C.bad }
+    },
+    axis:{ x:{ type:'category' }, y:{ tick:{ format:v=>v+'%' } } },
+    legend:{ show:false },
+    size:{ height:180 }
+  });
+}
+
+// 7. Gudang DO count
+if(DATA.gudang && DATA.gudang.length > 0) {
+  const topGudangDO = [...DATA.gudang].sort((a,b)=>b.count-a.count).slice(0,12);
+  c3.generate({
+    bindto:'#chartGudangDO',
+    data:{ columns:[['Jumlah DO', ...topGudangDO.map(g=>g.count)]], type:'bar', colors:{ 'Jumlah DO':C.blue } },
+    axis:{ rotated:true, x:{ type:'category', categories:topGudangDO.map(g=>g.name.length>22?g.name.slice(0,20)+'…':g.name) } },
+    bar:{ width:{ ratio:.6 } }, legend:{ show:false }, size:{ height:360 }
+  });
+
+  // 8. Gudang Volume
+  const topGudangVol = [...DATA.gudang].sort((a,b)=>b.volume-a.volume).slice(0,12);
+  c3.generate({
+    bindto:'#chartGudangVol',
+    data:{ columns:[['Volume (L)', ...topGudangVol.map(g=>g.volume)]], type:'bar', colors:{ 'Volume (L)':C.amber } },
+    axis:{ rotated:true, x:{ type:'category', categories:topGudangVol.map(g=>g.name.length>22?g.name.slice(0,20)+'…':g.name) }, y:{ tick:{ format:v=>v>=1000000?(v/1000000).toFixed(1)+'M':v>=1000?(v/1000).toFixed(0)+'rb':v } } },
+    bar:{ width:{ ratio:.6 } }, legend:{ show:false }, size:{ height:360 }
+  });
+}
+
+// 9. Customer volume
+if(DATA.customer && DATA.customer.length > 0) {
+  const topCustVol = [...DATA.customer].sort((a,b)=>b.volume-a.volume).slice(0,10);
+  c3.generate({
+    bindto:'#chartCustVol',
+    data:{ columns:[['Volume', ...topCustVol.map(c=>c.volume)]], type:'bar', colors:{ 'Volume':C.ok } },
+    axis:{ rotated:true, x:{ type:'category', categories:topCustVol.map(c=>c.name.length>20?c.name.slice(0,18)+'…':c.name) }, y:{ tick:{ format:v=>v>=1000?(v/1000).toFixed(0)+'rb':v } } },
+    bar:{ width:{ ratio:.6 } }, legend:{ show:false }, size:{ height:360 }
+  });
+
+  // 10. Customer DO count
+  const topCustDO = [...DATA.customer].sort((a,b)=>b.count-a.count).slice(0,10);
+  c3.generate({
+    bindto:'#chartCustDO',
+    data:{ columns:[['Jumlah DO', ...topCustDO.map(c=>c.count)]], type:'bar', colors:{ 'Jumlah DO':C.navy } },
+    axis:{ rotated:true, x:{ type:'category', categories:topCustDO.map(c=>c.name.length>20?c.name.slice(0,18)+'…':c.name) } },
+    bar:{ width:{ ratio:.6 } }, legend:{ show:false }, size:{ height:360 }
+  });
+}
+
+// 11. Lead invoice distribution
+if(DATA.leadInvoice && DATA.leadInvoice.length > 0) {
+  c3.generate({
+    bindto:'#chartLeadInvoice',
+    data:{ columns:[['Jumlah DO', ...DATA.leadInvoice.map(x=>x.count)]], type:'bar', colors:{ 'Jumlah DO':C.amber } },
+    axis:{ x:{ type:'category', categories:DATA.leadInvoice.map(x=>x.label) }, y:{ tick:{ format:v=>v } } },
+    bar:{ width:{ ratio:.6 } }, legend:{ show:false }, size:{ height:200 }
+  });
+}
+
+// 12. Return delta
+if(DATA.returnDelta && DATA.returnDelta.length > 0) {
+  c3.generate({
+    bindto:'#chartReturnDelta',
+    data:{ columns:[['Jumlah', ...DATA.returnDelta.map(x=>x.count)]], type:'bar', colors:{ 'Jumlah':C.bad } },
+    axis:{ x:{ type:'category', categories:DATA.returnDelta.map(x=>x.label) } },
+    bar:{ width:{ ratio:.6 } }, legend:{ show:false }, size:{ height:200 }
+  });
+}
+
+// 13. Cancel rate per month
+if(DATA.cancelPerMonth && DATA.cancelPerMonth.length > 0) {
+  c3.generate({
+    bindto:'#chartCancelRate',
+    data:{
+      x:'x',
+      columns:[
+        ['x', ...DATA.cancelPerMonth.map(m=>m.month)],
+        ['Cancel %', ...DATA.cancelPerMonth.map(m=>m.rate)]
+      ],
+      type:'bar',
+      colors:{ 'Cancel %':C.gray }
+    },
+    axis:{ x:{ type:'category' }, y:{ tick:{ format:v=>v+'%' } } },
+    legend:{ show:false },
+    size:{ height:200 }
+  });
+}
+
+/* NAVIGASI SLIDE */
+const slides = document.querySelectorAll('.slide');
+const totalSlides = slides.length;
+let current = 0;
+document.getElementById('totalSlide').textContent = totalSlides;
+
+function goTo(idx){
+  if(idx < 0 || idx >= totalSlides) return;
+  slides[current].classList.remove('active');
+  current = idx;
+  slides[current].classList.add('active');
+  document.getElementById('curSlide').textContent = current + 1;
+  document.getElementById('progressBar').style.width = ((current+1)/totalSlides*100) + '%';
+}
+
+document.getElementById('prevBtn').onclick = ()=>goTo(current - 1);
+document.getElementById('nextBtn').onclick = ()=>goTo(current + 1);
+document.getElementById('fullBtn').onclick = ()=>{ if(!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); };
+document.getElementById('printBtn').onclick = ()=>window.print();
+
+document.addEventListener('keydown', e=>{
+  if(e.key === 'ArrowRight' || e.key === ' '){ e.preventDefault(); goTo(current + 1); }
+  if(e.key === 'ArrowLeft'){ e.preventDefault(); goTo(current - 1); }
+  if(e.key === 'f' || e.key === 'F'){ document.getElementById('fullBtn').click(); }
+  if(e.key === 'Home'){ goTo(0); }
+  if(e.key === 'End'){ goTo(totalSlides - 1); }
+});
+
+let touchStartX = 0;
+document.addEventListener('touchstart', e=>{ touchStartX = e.touches[0].clientX; });
+document.addEventListener('touchend', e=>{
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  if(Math.abs(dx) > 60){ if(dx < 0) goTo(current + 1); else goTo(current - 1); }
+});
+</script>
+</body>
+</html>

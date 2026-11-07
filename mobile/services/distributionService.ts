@@ -33,4 +33,19 @@ export const distributionService = {
     });
     return res.data;
   },
+
+  getFinancialFlow: async (params?: Record<string, unknown>) => {
+    const res = await api.get(API_ENDPOINTS.DISTRIBUTIONS.FINANCIAL_FLOW, { params });
+    return res.data;
+  },
+
+  getInternalOrders: async (params?: Record<string, unknown>) => {
+    const res = await api.get(API_ENDPOINTS.DISTRIBUTIONS.INTERNAL_ORDERS, { params });
+    return res.data?.data || res.data || [];
+  },
+
+  getTransferOrders: async (params?: Record<string, unknown>) => {
+    const res = await api.get(API_ENDPOINTS.DISTRIBUTIONS.TRANSFER_ORDERS, { params });
+    return res.data?.data || res.data || [];
+  },
 };

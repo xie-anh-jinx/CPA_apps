@@ -18,6 +18,7 @@ import {
   Paperclip,
   Minus,
   MessageSquare,
+  GripHorizontal,
 } from "lucide-react";
 import {
   streamChat,
@@ -30,12 +31,100 @@ import {
 import ChatMarkdown from "./ChatMarkdown";
 import AIOrb from "./AIOrb";
 
+// ─── Draggable Hook (DOM-direct, Pointer Events, zero lag) ────────────────────
+function useDraggable() {
+  const elementRef = useRef<HTMLElement | null>(null);
+  const posRef = useRef({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
+  const hasMovedRef = useRef(false);
+  const startPointerRef = useRef({ x: 0, y: 0 });
+  const startPosRef = useRef({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+
+  const applyTransform = useCallback((x: number, y: number) => {
+    if (elementRef.current) {
+      elementRef.current.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    }
+  }, []);
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    // Only primary mouse button (0) or touch
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+
+    // Do not initiate drag if user clicked on interactive control inside (close button, input, action icons, etc.)
+    const target = e.target as HTMLElement;
+    const isInteractive = target.closest("button:not(.aic-floating-pill-trigger), a, input, textarea, select");
+    if (isInteractive) return;
+
+    isDraggingRef.current = true;
+    hasMovedRef.current = false;
+    startPointerRef.current = { x: e.clientX, y: e.clientY };
+    startPosRef.current = { ...posRef.current };
+    setIsDragging(true);
+
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch (_) {}
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      const dx = ev.clientX - startPointerRef.current.x;
+      const dy = ev.clientY - startPointerRef.current.y;
+
+      if (!hasMovedRef.current && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        hasMovedRef.current = true;
+      }
+
+      if (hasMovedRef.current) {
+        const x = startPosRef.current.x + dx;
+        const y = startPosRef.current.y + dy;
+        posRef.current = { x, y };
+        applyTransform(x, y);
+      }
+    };
+
+    const onPointerUp = (ev: PointerEvent) => {
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(ev.pointerId);
+      } catch (_) {}
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerUp);
+
+      // Keep hasMovedRef true briefly so trailing onClick event on the same click-release is suppressed
+      if (hasMovedRef.current) {
+        setTimeout(() => {
+          hasMovedRef.current = false;
+        }, 120);
+      }
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerUp);
+  }, [applyTransform]);
+
+  const resetPos = useCallback(() => {
+    posRef.current = { x: 0, y: 0 };
+    applyTransform(0, 0);
+  }, [applyTransform]);
+
+  return { elementRef, isDragging, hasMovedRef, onPointerDown, resetPos };
+}
+
+
 // ─── Preset Prompts ───────────────────────────────────────────────────────────
 const SUGGESTED_PROMPTS = [
-  { label: "Stok Kritis Hari Ini", query: "Tampilkan SKU yang stoknya kritis atau habis di gudang." },
-  { label: "Omzet & Faktur YTD", query: "Bagaimana ringkasan omzet penjualan dan faktur YTD 2026?" },
-  { label: "Aging Piutang >60 Hari", query: "Analisa piutang yang berumur lebih dari 60 hari." },
-  { label: "Prediksi Demand AI", query: "Berikan proyeksi demand produk utama untuk bulan depan." },
+  { label: "📊 SCM Executive Review", query: "Buatkan laporan Supply Chain Management Review seperti pada gambar." },
+  { label: "📥 Ekspor SCM ke Excel", query: "Export laporan scm review ke excel." },
+  { label: "🗺️ Struktur & Logika Database", query: "Jelaskan struktur database ERP PADI dan bagaimana alur relasi antar tabelnya." },
+  { label: "📖 Kamus Tabel Penjualan", query: "Terjemahkan struktur tabel penjualan dan jelaskan arti kolom-kolomnya." },
+  { label: "🔍 Query 5 Pelanggan Terbesar", query: "Bantu saya query 5 pelanggan dengan omzet terbesar dari database." },
+  { label: "📦 Stok Kritis Gudang", query: "Tampilkan SKU yang stoknya kritis atau habis di gudang." },
+  { label: "💰 Aging Piutang >60 Hari", query: "Analisa piutang pelanggan yang berumur lebih dari 60 hari." },
+  { label: "📈 Prediksi Demand AI", query: "Berikan proyeksi demand produk utama untuk bulan depan." },
 ];
 
 // ─── PADI AI Logo Component ────────────────────────────────────────────────────
@@ -93,6 +182,17 @@ export default function AIChatBox({
   const [chatMode, setChatMode] = useState<ChatMode>("demo");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string>("admin");
+
+  // Draggable — DOM-direct, no re-renders during drag
+  const dockDrag   = useDraggable();
+  const drawerDrag = useDraggable();
+
+  // Reset drawer drag position when drawer opens
+  useEffect(() => {
+    if (isDrawerOpen) drawerDrag.resetPos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDrawerOpen]);
+
 
   // Listen to Sidebar 'Tanya CPA AI' event to open drawer
   useEffect(() => {
@@ -228,7 +328,8 @@ export default function AIChatBox({
         size: file.size,
       };
 
-      if (file.type.startsWith("image/") && file.size < 4 * 1024 * 1024) {
+      // Support up to 30MB for documents (xlsx, pdf, csv, txt) and images
+      if (file.size <= 30 * 1024 * 1024) {
         const reader = new FileReader();
         reader.onload = () => {
           newAtt.dataUrl = reader.result as string;
@@ -236,7 +337,7 @@ export default function AIChatBox({
         };
         reader.readAsDataURL(file);
       } else {
-        setAttachments((prev) => [...prev, newAtt]);
+        alert(`Ukuran file "${file.name}" melebihi batas maksimal 30MB.`);
       }
     });
 
@@ -674,15 +775,32 @@ export default function AIChatBox({
 
       {/* ── Floating / Inline Chat Box Container ── */}
       {variant === "floating" ? (
-        <div className="aic-floating-dock">
+        <div
+          className="aic-floating-dock"
+          ref={dockDrag.elementRef as React.RefObject<HTMLDivElement>}
+        >
           {/* If minimized to floating button */}
           {isDockCollapsed && !isDrawerOpen ? (
             <button
               type="button"
-              onClick={() => setIsDockCollapsed(false)}
+              onClick={(e) => {
+                if (dockDrag.hasMovedRef.current) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  return;
+                }
+                setIsDockCollapsed(false);
+              }}
               className="aic-floating-pill-trigger"
-              title="Tanya CPA AI (Klik untuk membuka chatbox)"
+              title="Tanya CPA AI (Klik untuk membuka, tahan & seret untuk memindahkan)"
+              onPointerDown={dockDrag.onPointerDown}
+              style={{
+                cursor: dockDrag.isDragging ? "grabbing" : "grab",
+                touchAction: "none",
+                userSelect: "none",
+              }}
             >
+              <GripHorizontal size={14} style={{ opacity: 0.65, marginRight: "-1px" }} />
               <span
                 style={{
                   background: "#ffffff",
@@ -704,7 +822,22 @@ export default function AIChatBox({
           ) : !isDrawerOpen ? (
             /* Full Floating Card with chatbox input */
             <div className="aic-floating-card">
-              <div className="aic-floating-card-header">
+              <div
+                className="aic-floating-card-header"
+                onPointerDown={dockDrag.onPointerDown}
+                style={{
+                  cursor: dockDrag.isDragging ? "grabbing" : "grab",
+                  touchAction: "none",
+                  userSelect: "none",
+                }}
+              >
+                {/* Drag handle */}
+                <div
+                  className="aic-drag-handle"
+                  title="Geser untuk memindahkan"
+                >
+                  <GripHorizontal size={14} />
+                </div>
                 <div className="aic-floating-card-title">
                   <span
                     style={{
@@ -782,14 +915,27 @@ export default function AIChatBox({
       {/* ── Expandable Conversation Drawer / Window ── */}
       {isDrawerOpen && (
         <>
+          {/* Semi-transparent overlay: click outside closes drawer */}
           <div
             className="aic-drawer-overlay"
             onClick={() => setIsDrawerOpen(false)}
           />
 
-          <div className={`aic-drawer ${isFullscreen ? "fullscreen" : ""}`}>
+          <div
+            className={`aic-drawer ${isFullscreen ? "fullscreen" : ""}`}
+            ref={drawerDrag.elementRef as React.RefObject<HTMLDivElement>}
+          >
             {/* ── Drawer Header ── */}
-            <div className="aic-drawer-header">
+            <div
+              className="aic-drawer-header"
+              onPointerDown={!isFullscreen ? drawerDrag.onPointerDown : undefined}
+              style={{
+                cursor: isFullscreen ? "default" : drawerDrag.isDragging ? "grabbing" : "grab",
+                touchAction: "none",
+                userSelect: "none",
+              }}
+              title={isFullscreen ? "" : "Geser untuk memindahkan jendela"}
+            >
               <div className="aic-drawer-title">
                 <div
                   style={{
@@ -1080,6 +1226,7 @@ export default function AIChatBox({
 
             {/* ── Drawer Footer with Quick Input ── */}
             <div className="aic-drawer-footer">
+              {renderAttachmentsPreview()}
               <div style={{ width: "100%", display: "flex", justifyContent: "center" }}>
                 {/* Secondary input inside drawer so user can continue chatting easily */}
                 <form

@@ -33,11 +33,11 @@ class MCPUser:
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin"
+        return self.role in ("admin", "superadmin", "director", "executive")
 
     @property
     def is_manager(self) -> bool:
-        return self.role in ("admin", "manager")
+        return self.role in ("admin", "superadmin", "director", "executive", "manager")
 
     @property
     def is_sales(self) -> bool:

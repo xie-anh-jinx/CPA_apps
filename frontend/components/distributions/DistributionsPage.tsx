@@ -1,14 +1,32 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { apiDistributions } from "@/lib/api";
+import { Search, X, RotateCcw } from "lucide-react";
+import { apiDistributions, apiWarehouses } from "@/lib/api";
+import FinancialFlowTab from "./FinancialFlowTab";
+import MultiSelectFilter, { MultiSelectOption } from "@/components/inventory/MultiSelectFilter";
 
 interface DistributionSummary {
   total_do: number;
+  total_volume?: number;
+  total_qty?: number;
   send?: number;
+  send_volume?: number;
+  send_qty?: number;
   received?: number;
+  received_volume?: number;
+  received_qty?: number;
+  return_do?: number;
+  return_volume?: number;
+  return_qty?: number;
   invoice?: number;
+  invoice_volume?: number;
+  invoice_qty?: number;
   cancel?: number;
+  cancel_volume?: number;
+  cancel_qty?: number;
   draft?: number;
+  draft_volume?: number;
+  draft_qty?: number;
   delivered: number;
   in_transit: number;
   pending: number;
@@ -26,6 +44,7 @@ interface DoReceiptHeader {
   po_no?: string;
   id_gudang?: string;
   gudang?: string;
+  gudang_alamat?: string;
   contact_person?: string;
   telpon_no?: string;
   nama_penerima?: string;
@@ -36,6 +55,11 @@ interface DoReceiptHeader {
   biaya_pengiriman?: number | string | null;
   return_date?: string | null;
   return_date_str?: string;
+  selisih_hari?: number | null;
+  durasi_terima_hari?: number | null;
+  no_invoice?: string | null;
+  tgl_invoice?: string | null;
+  durasi_invoice_hari?: number | null;
   delivery_address?: string;
   status?: string;
   status_label?: string;
@@ -44,6 +68,10 @@ interface DoReceiptHeader {
   transporter?: string;
   tgl_keluar?: string | null;
   keterangan?: string;
+  total_volume_liter?: number;
+  total_qty?: number;
+  total_volume_diterima_liter?: number;
+  total_qty_diterima?: number;
 }
 
 interface DoLineItem {
@@ -52,9 +80,12 @@ interface DoLineItem {
   nama_barang: string;
   qty: number;
   satuan: string;
+  isi_satuan?: number;
+  volume_liter?: number;
   packing_number?: string;
   packing_type?: string;
   qty_diterima?: number;
+  volume_diterima_liter?: number;
   keterangan?: string;
 }
 
@@ -65,6 +96,7 @@ interface DeliveryRecord {
   customer_id?: string;
   nama_customer: string;
   destination?: string;
+  origin?: string;
   kota_tujuan?: string;
   status: string;
   status_label?: string;
@@ -72,9 +104,22 @@ interface DeliveryRecord {
   tgl_keluar?: string | null;
   waktu_sampai?: string | null;
   received_date?: string | null;
+  received_name?: string | null;
+  return_date?: string | null;
+  selisih_hari?: number | null;
+  durasi_terima_hari?: number | null;
+  no_invoice?: string | null;
+  tgl_invoice?: string | null;
+  durasi_invoice_hari?: number | null;
+  total_volume_liter?: number;
+  total_qty?: number;
   driver?: string;
   plat_nomor?: string;
   lic_plate?: string;
+  nama_gudang?: string | null;
+  id_gudang?: string | null;
+  po_no?: string | null;
+  no_pl?: string | null;
 }
 
 interface InternalOrderRecord {
@@ -118,11 +163,14 @@ interface InternalTransferRecord {
   create_date?: string | null;
   tanggal_kirim?: string | null;
   tanggal_terima?: string | null;
+  id_gudang_asal?: string | null;
+  id_gudang_tujuan?: string | null;
   gudang_asal: string;
   gudang_tujuan: string;
   nomor_io?: string | null;
   tgl_io_approve?: string | null;
   receive_note?: string | null;
+  keterangan?: string | null;
   status: string;
 }
 
@@ -225,6 +273,8 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   "received": { label: "Received", cls: "badge-status badge-delivered" },
   "invoice": { label: "Invoice", cls: "badge-status badge-info" },
   "cancel": { label: "Cancel", cls: "badge-status badge-danger" },
+  "return": { label: "Return", cls: "badge-status badge-info" },
+  "Return": { label: "Return", cls: "badge-status badge-info" },
 };
 
 const DO_STATUS_BADGE: Record<string, { label: string; cls: string; desc: string }> = {
@@ -240,6 +290,8 @@ const DO_STATUS_BADGE: Record<string, { label: string; cls: string; desc: string
   "Draft": { label: "Draft", cls: "badge-status badge-draft", desc: "Draft / Menunggu Kirim" },
   "send": { label: "Send", cls: "badge-status badge-in_transit", desc: "Send / Dalam Perjalanan" },
   "received": { label: "Received", cls: "badge-status badge-delivered", desc: "Received / Diterima Customer" },
+  "return": { label: "Return", cls: "badge-status badge-info", desc: "Return / DO Kembali" },
+  "Return": { label: "Return", cls: "badge-status badge-info", desc: "Return / DO Kembali" },
   "invoice": { label: "Invoice", cls: "badge-status badge-info", desc: "Invoice / Telah Ditagihkan" },
   "cancel": { label: "Cancel", cls: "badge-status badge-danger", desc: "Cancel / Batal" },
   "draft": { label: "Draft", cls: "badge-status badge-draft", desc: "Draft / Menunggu Kirim" },
@@ -333,6 +385,48 @@ function formatDibuatDate(val?: string | null) {
   }
 }
 
+/**
+ * Parses an ISO date string to a local-timezone Date (avoids UTC midnight shift).
+ * Supports "YYYY-MM-DD" (pure date) or any full ISO datetime string.
+ */
+function parseDateLocal(val: string | null | undefined): Date | null {
+  if (!val) return null;
+  const s = String(val).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return new Date(y, m - 1, d, 0, 0, 0);
+  }
+  const dt = new Date(s);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+/** Compute elapsed days + hours from startStr to now. Returns null if start is invalid. */
+function getLiveTrackingInfo(startStr: string | null | undefined): {
+  days: number; hours: number; label: string;
+} | null {
+  const start = parseDateLocal(startStr);
+  if (!start) return null;
+  const diffMs = Math.max(0, Date.now() - start.getTime());
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const label = days === 0 ? `< 24 Jam (${hours}j)` : `${days} Hari ${hours} Jam`;
+  return { days, hours, label };
+}
+
+/** Color theme for receive-date live tracking */
+function getReceiveLiveTheme(days: number) {
+  if (days <= 2) return { color: "#38bdf8", bgColor: "rgba(56,189,248,0.12)", borderColor: "rgba(56,189,248,0.35)" };
+  if (days <= 5) return { color: "#eab308", bgColor: "rgba(234,179,8,0.12)", borderColor: "rgba(234,179,8,0.35)" };
+  return { color: "#ef4444", bgColor: "rgba(239,68,68,0.12)", borderColor: "rgba(239,68,68,0.35)" };
+}
+
+/** Color theme for return-date live tracking */
+function getReturnLiveTheme(days: number) {
+  if (days <= 3) return { color: "#22c55e", bgColor: "rgba(34,197,94,0.12)", borderColor: "rgba(34,197,94,0.35)" };
+  if (days <= 7) return { color: "#eab308", bgColor: "rgba(234,179,8,0.12)", borderColor: "rgba(234,179,8,0.35)" };
+  return { color: "#ef4444", bgColor: "rgba(239,68,68,0.12)", borderColor: "rgba(239,68,68,0.35)" };
+}
+
 function getCurrentMonthDates() {
   try {
     const now = new Date();
@@ -348,16 +442,36 @@ function getCurrentMonthDates() {
   }
 }
 
-export default function DistributionsPage() {
+export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: "DO" | "IO" | "IT" | "FINANCIAL_FLOW" } = {}) {
   const [summary, setSummary] = useState<DistributionSummary | null>(null);
   const [items, setItems] = useState<DeliveryRecord[]>([]);
-  const [mapData, setMapData] = useState<any[]>([]);
   
   const [ioItems, setIoItems] = useState<InternalOrderRecord[]>([]);
   const [itItems, setItItems] = useState<InternalTransferRecord[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [mainTab, setMainTab] = useState<"DO" | "IO" | "IT">("DO");
+  const [currentUser, setCurrentUser] = useState<any>(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("cpa_user");
+      if (stored) {
+        setCurrentUser(JSON.parse(stored));
+      }
+    } catch (e) {}
+  }, []);
+
+  const isWarehouse = currentUser?.role === "warehouse" || currentUser?.role === "warehouse_staff";
+  const isAsset = ["asset", "asset_staff", "ga", "it"].includes(currentUser?.role);
+  const canSeeFinancialFlow = !isWarehouse && !isAsset && currentUser?.role !== "sales_rep" && currentUser?.role !== "sales";
+  const [mainTab, setMainTab] = useState<"DO" | "IO" | "IT" | "FINANCIAL_FLOW">(initialTab);
+
+  useEffect(() => {
+    if (!canSeeFinancialFlow && mainTab === "FINANCIAL_FLOW") {
+      setMainTab("DO");
+    }
+  }, [canSeeFinancialFlow, mainTab]);
+
   const [activeTab, setActiveTab] = useState<string>("all");
   const [ioStatusFilter, setIoStatusFilter] = useState<"all" | "draft" | "dsm" | "approve" | "it_process" | "partial" | "it_complete" | "cancel">("all");
   const [itStatusFilter, setItStatusFilter] = useState<"all" | "draft" | "send" | "receipt" | "cancel">("all");
@@ -366,6 +480,76 @@ export default function DistributionsPage() {
   const [calendarDateFrom, setCalendarDateFrom] = useState<string>(() => getCurrentMonthDates().from);
   const [calendarDateTo, setCalendarDateTo] = useState<string>(() => getCurrentMonthDates().to);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  // Warehouse Filter for DO
+  const [warehouses, setWarehouses] = useState<{ id_gudang: string; nama_gudang: string }[]>([]);
+  const [selectedDoWarehouse, setSelectedDoWarehouse] = useState<string>("ALL");
+
+  // Multi-Filter States across DO, IO, and IT
+  const [searchTerm, setSearchTerm] = useState<string>("");
+  const [selectedDoNumbers, setSelectedDoNumbers] = useState<string[]>([]);
+  const [selectedDoDates, setSelectedDoDates] = useState<string[]>([]);
+  const [selectedIoNumbers, setSelectedIoNumbers] = useState<string[]>([]);
+  const [selectedItNumbers, setSelectedItNumbers] = useState<string[]>([]);
+  const [selectedOriginWarehouses, setSelectedOriginWarehouses] = useState<string[]>([]);
+  const [selectedDestinationWarehouses, setSelectedDestinationWarehouses] = useState<string[]>([]);
+  const [selectedDoStatuses, setSelectedDoStatuses] = useState<string[]>([]);
+  const [selectedIoStatuses, setSelectedIoStatuses] = useState<string[]>([]);
+  const [selectedItStatuses, setSelectedItStatuses] = useState<string[]>([]);
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+  const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
+  const [selectedIoKantors, setSelectedIoKantors] = useState<string[]>([]);
+  const [selectedIoCreators, setSelectedIoCreators] = useState<string[]>([]);
+
+  // Active filter chip styling (matching Stock Aging style)
+  const activeChipStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "5px",
+    padding: "3px 8px",
+    borderRadius: "14px",
+    background: "rgba(56, 189, 248, 0.15)",
+    color: "#38bdf8",
+    border: "1px solid rgba(56, 189, 248, 0.3)",
+    fontSize: "0.75rem",
+    fontWeight: 600,
+  };
+
+  // Checkbox row selection states ("Pilihan dari beberapa transaksi")
+  const [selectedDoIds, setSelectedDoIds] = useState<Set<string>>(new Set());
+  const [selectedIoIds, setSelectedIoIds] = useState<Set<string>>(new Set());
+  const [selectedItIds, setSelectedItIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    let isMounted = true;
+    apiDistributions.warehouses()
+      .then((res) => {
+        if (isMounted && res.data && Array.isArray(res.data)) {
+          setWarehouses(res.data);
+        }
+      })
+      .catch(() => {
+        apiWarehouses.list()
+          .then((res) => {
+            if (isMounted && res.data && Array.isArray(res.data)) {
+              setWarehouses(res.data);
+            }
+          })
+          .catch((err) => console.error("Gagal memuat gudang:", err));
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Live clock — refreshes every 60s so live tracking badges re-compute
+  const [liveNow, setLiveNow] = useState<Date>(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setLiveNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  // Keep TypeScript happy — liveNow is intentionally read in JSX cells below
+  void liveNow;
 
   // Pagination States (20 records per page)
   const ITEMS_PER_PAGE = 20;
@@ -525,22 +709,345 @@ export default function DistributionsPage() {
     }
   };
 
-  // Filtered lists & counts for IO and IT
-  const filteredIoItems = useMemo(() => {
-    if (ioStatusFilter === "all") return ioItems;
-    return ioItems.filter((i: InternalOrderRecord) => {
-      const code = (i.status_code || "").trim();
-      const st = (i.status || "").trim().toLowerCase();
-      if (ioStatusFilter === "draft") return code === "D" || st === "draft";
-      if (ioStatusFilter === "dsm") return code === "S" || st === "checked dsm";
-      if (ioStatusFilter === "approve") return code === "A" || st === "approve";
-      if (ioStatusFilter === "it_process") return code === "P" || st.includes("process");
-      if (ioStatusFilter === "partial") return code === "Z" || st.includes("partial");
-      if (ioStatusFilter === "it_complete") return code === "C" || st.includes("complete");
-      if (ioStatusFilter === "cancel") return ["X", "R", "K", "Y"].includes(code) || st.includes("cancel") || st.includes("reject");
+  // Dynamically extract customer and driver list from DO records
+  const availableCustomers = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach((d) => {
+      if (d.nama_customer) s.add(d.nama_customer.trim());
+    });
+    return Array.from(s).sort();
+  }, [items]);
+
+  const availableDrivers = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach((d) => {
+      if (d.driver) s.add(d.driver.trim());
+    });
+    return Array.from(s).sort();
+  }, [items]);
+
+  // MultiSelect Options for Table Headers: DO
+  const customerOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      if (r.nama_customer) {
+        counts[r.nama_customer] = (counts[r.nama_customer] || 0) + 1;
+      }
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((c) => ({
+        label: c,
+        value: c,
+        count: counts[c],
+      }));
+  }, [items]);
+
+  const driverOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      if (r.driver) {
+        counts[r.driver] = (counts[r.driver] || 0) + 1;
+      }
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((d) => ({
+        label: d,
+        value: d,
+        count: counts[d],
+      }));
+  }, [items]);
+
+  const doNumberOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      if (r.nomor) {
+        counts[r.nomor] = (counts[r.nomor] || 0) + 1;
+      }
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((no) => ({
+        label: no,
+        value: no,
+        subLabel: items.find((d) => d.nomor === no)?.nama_customer || undefined,
+        count: counts[no],
+      }));
+  }, [items]);
+
+  const doDateOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      const d = r.tanggal;
+      if (d) {
+        counts[d] = (counts[d] || 0) + 1;
+      }
+    });
+    return Object.keys(counts)
+      .sort((a, b) => b.localeCompare(a))
+      .map((d) => ({
+        label: formatDisplayDate(d),
+        value: d,
+        subLabel: d,
+        count: counts[d],
+      }));
+  }, [items]);
+
+  const warehouseDoOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      const g = r.nama_gudang || r.id_gudang;
+      if (g) {
+        counts[g] = (counts[g] || 0) + 1;
+      }
+    });
+
+    const knownNames = new Set<string>();
+    const options: MultiSelectOption[] = [];
+
+    if (warehouses && warehouses.length > 0) {
+      warehouses.forEach((w) => {
+        const name = w.nama_gudang || w.id_gudang;
+        if (!knownNames.has(name.toLowerCase())) {
+          knownNames.add(name.toLowerCase());
+          options.push({
+            label: name,
+            value: name,
+            subLabel: w.id_gudang && w.nama_gudang !== w.id_gudang ? `Kode: ${w.id_gudang}` : undefined,
+            count: counts[name] || (w.id_gudang ? counts[w.id_gudang] : 0) || 0,
+          });
+        }
+      });
+    }
+
+    Object.keys(counts).forEach((g) => {
+      if (!knownNames.has(g.toLowerCase())) {
+        knownNames.add(g.toLowerCase());
+        options.push({
+          label: g,
+          value: g,
+          count: counts[g],
+        });
+      }
+    });
+
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [warehouses, items]);
+
+  const doStatusOptions: MultiSelectOption[] = useMemo(() => {
+    let send = 0, received = 0, ret = 0, invoice = 0, draft = 0, cancel = 0;
+    items.forEach((row) => {
+      const isRowInvoice = row.status === "I" || row.status_label === "invoice" || Boolean(row.tgl_invoice);
+      const isRowReturn = !isRowInvoice && (row.status === "R" || row.status_label === "Received") && Boolean(row.return_date);
+      const isRowReceived = !isRowInvoice && !isRowReturn && (row.status === "R" || row.status_label === "Received");
+      const isRowSend = row.status === "S" || row.status_label === "Send" || row.status_label === "in_transit";
+      const isRowDraft = row.status === "D" || row.status_label === "Draft";
+      const isRowCancel = row.status === "C" || row.status_label === "Cancel";
+      if (isRowInvoice) invoice++;
+      else if (isRowReturn) ret++;
+      else if (isRowReceived) received++;
+      else if (isRowSend) send++;
+      else if (isRowDraft) draft++;
+      else if (isRowCancel) cancel++;
+    });
+    return [
+      { label: "Send (Kirim)", value: "send", badge: "🚛", color: "#38bdf8", count: send },
+      { label: "Received (Sampai)", value: "received", badge: "✅", color: "#22c55e", count: received },
+      { label: "Return (Kembali)", value: "return", badge: "🔄", color: "#06b6d4", count: ret },
+      { label: "Invoice (Faktur)", value: "invoice", badge: "📄", color: "#818cf8", count: invoice },
+      { label: "Draft", value: "draft", badge: "⏳", color: "#94a3b8", count: draft },
+      { label: "Cancel (Batal)", value: "cancel", badge: "❌", color: "#ef4444", count: cancel },
+    ];
+  }, [items]);
+
+  // Filtered Delivery Order (DO) List
+  const filteredDoItems = useMemo(() => {
+    return items.filter((row) => {
+      // 1. Text Search Input
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        const match =
+          (row.nomor || "").toLowerCase().includes(term) ||
+          (row.nama_customer || "").toLowerCase().includes(term) ||
+          (row.driver || "").toLowerCase().includes(term) ||
+          (row.lic_plate || "").toLowerCase().includes(term) ||
+          (row.po_no || "").toLowerCase().includes(term) ||
+          (row.no_pl || "").toLowerCase().includes(term) ||
+          (row.no_invoice || "").toLowerCase().includes(term) ||
+          (row.destination || "").toLowerCase().includes(term) ||
+          (row.origin || "").toLowerCase().includes(term) ||
+          (row.nama_gudang || "").toLowerCase().includes(term);
+        if (!match) return false;
+      }
+
+      // 2. DO Number Selection (Search / Multi-Select No. DO)
+      if (selectedDoNumbers.length > 0) {
+        if (!row.nomor || !selectedDoNumbers.includes(row.nomor)) return false;
+      }
+
+      // 2b. DO Date Selection (Multi-Select Tanggal DO)
+      if (selectedDoDates.length > 0) {
+        if (!row.tanggal || !selectedDoDates.includes(row.tanggal)) return false;
+      }
+
+      // 3. Status DO Selection
+      if (selectedDoStatuses.length > 0) {
+        const isRowInvoice = row.status === "I" || row.status_label === "invoice" || Boolean(row.tgl_invoice);
+        const isRowReturn = !isRowInvoice && (row.status === "R" || row.status_label === "Received") && Boolean(row.return_date);
+        const isRowReceived = !isRowInvoice && !isRowReturn && (row.status === "R" || row.status_label === "Received");
+        const isRowSend = row.status === "S" || row.status_label === "Send" || row.status_label === "in_transit";
+        const isRowDraft = row.status === "D" || row.status_label === "Draft";
+        const isRowCancel = row.status === "C" || row.status_label === "Cancel";
+
+        const matches = selectedDoStatuses.some((st) => {
+          if (st === "invoice") return isRowInvoice;
+          if (st === "return") return isRowReturn;
+          if (st === "received") return isRowReceived;
+          if (st === "send") return isRowSend;
+          if (st === "draft") return isRowDraft;
+          if (st === "cancel") return isRowCancel;
+          return false;
+        });
+        if (!matches) return false;
+      } else if (activeTab !== "all") {
+        const isRowInvoice = row.status === "I" || row.status_label === "invoice" || Boolean(row.tgl_invoice);
+        const isRowReturn = !isRowInvoice && (row.status === "R" || row.status_label === "Received") && Boolean(row.return_date);
+        if (activeTab === "invoice" && !isRowInvoice) return false;
+        if (activeTab === "return" && !isRowReturn) return false;
+        if (activeTab === "received" && (isRowInvoice || isRowReturn || !(row.status === "R" || row.status_label === "Received"))) return false;
+        if (activeTab === "send" && !(row.status === "S" || row.status_label === "Send")) return false;
+        if (activeTab === "cancel" && !(row.status === "C" || row.status_label === "Cancel")) return false;
+      }
+
+      // 3. Origin Warehouse Selection
+      if (selectedOriginWarehouses.length > 0) {
+        const matches = selectedOriginWarehouses.some((wh) => {
+          const target = wh.toLowerCase().trim();
+          const rowGudang = (row.nama_gudang || "").toLowerCase().trim();
+          const rowId = (row.id_gudang || "").toLowerCase().trim();
+          return (
+            rowGudang === target ||
+            rowId === target ||
+            rowGudang.includes(target) ||
+            target.includes(rowGudang) ||
+            rowId.includes(target) ||
+            target.includes(rowId)
+          );
+        });
+        if (!matches) return false;
+      }
+
+      // 4. Customer Selection
+      if (selectedCustomers.length > 0) {
+        if (!row.nama_customer || !selectedCustomers.includes(row.nama_customer)) return false;
+      }
+
+      // 5. Driver Selection
+      if (selectedDrivers.length > 0) {
+        if (!row.driver || !selectedDrivers.includes(row.driver)) return false;
+      }
+
       return true;
     });
-  }, [ioItems, ioStatusFilter]);
+  }, [items, searchTerm, selectedDoNumbers, selectedDoDates, selectedDoStatuses, activeTab, selectedOriginWarehouses, selectedCustomers, selectedDrivers]);
+
+  // Filtered Internal Order (IO) List
+  const filteredIoItems = useMemo(() => {
+    return ioItems.filter((i: InternalOrderRecord) => {
+      // 1. Text Search Input
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        const match =
+          (i.nomor_io || "").toLowerCase().includes(term) ||
+          (i.dibuat_oleh || "").toLowerCase().includes(term) ||
+          (i.gudang_asal || "").toLowerCase().includes(term) ||
+          (i.gudang_tujuan || "").toLowerCase().includes(term) ||
+          (i.nama_kantor || "").toLowerCase().includes(term) ||
+          (i.keterangan || "").toLowerCase().includes(term) ||
+          (i.nama_barang || "").toLowerCase().includes(term) ||
+          (i.kode_barang || "").toLowerCase().includes(term);
+        if (!match) return false;
+      }
+
+      // 2. IO Number Selection (Search / Multi-Select No. IO)
+      if (selectedIoNumbers.length > 0) {
+        if (!i.nomor_io || !selectedIoNumbers.includes(i.nomor_io)) return false;
+      }
+
+      // 3. Status IO Selection
+      if (selectedIoStatuses.length > 0) {
+        const code = (i.status_code || "").trim();
+        const st = (i.status || "").trim().toLowerCase();
+        const matches = selectedIoStatuses.some((filterKey) => {
+          if (filterKey === "draft") return code === "D" || st === "draft";
+          if (filterKey === "dsm") return code === "S" || st === "checked dsm";
+          if (filterKey === "approve") return code === "A" || st === "approve";
+          if (filterKey === "it_process") return code === "P" || st.includes("process");
+          if (filterKey === "partial") return code === "Z" || st.includes("partial");
+          if (filterKey === "it_complete") return code === "C" || st.includes("complete");
+          if (filterKey === "cancel") return ["X", "R", "K", "Y"].includes(code) || st.includes("cancel") || st.includes("reject");
+          return false;
+        });
+        if (!matches) return false;
+      } else if (ioStatusFilter !== "all") {
+        const code = (i.status_code || "").trim();
+        const st = (i.status || "").trim().toLowerCase();
+        if (ioStatusFilter === "draft" && !(code === "D" || st === "draft")) return false;
+        if (ioStatusFilter === "dsm" && !(code === "S" || st === "checked dsm")) return false;
+        if (ioStatusFilter === "approve" && !(code === "A" || st === "approve")) return false;
+        if (ioStatusFilter === "it_process" && !(code === "P" || st.includes("process"))) return false;
+        if (ioStatusFilter === "partial" && !(code === "Z" || st.includes("partial"))) return false;
+        if (ioStatusFilter === "it_complete" && !(code === "C" || st.includes("complete"))) return false;
+        if (ioStatusFilter === "cancel" && !(["X", "R", "K", "Y"].includes(code) || st.includes("cancel") || st.includes("reject"))) return false;
+      }
+
+      // 3. Origin Warehouse Selection
+      if (selectedOriginWarehouses.length > 0) {
+        const matches = selectedOriginWarehouses.some((wh) =>
+          (i.gudang_asal || "").toLowerCase().includes(wh.toLowerCase())
+        );
+        if (!matches) return false;
+      }
+
+      // 4. Destination Warehouse Selection
+      if (selectedDestinationWarehouses.length > 0) {
+        const matches = selectedDestinationWarehouses.some((wh) =>
+          (i.gudang_tujuan || "").toLowerCase().includes(wh.toLowerCase())
+        );
+        if (!matches) return false;
+      }
+
+      // 5. Kantor Selection
+      if (selectedIoKantors.length > 0) {
+        if (!i.nama_kantor || !selectedIoKantors.includes(i.nama_kantor)) return false;
+      }
+
+      // 6. Creator Selection
+      if (selectedIoCreators.length > 0) {
+        if (!i.dibuat_oleh || !selectedIoCreators.includes(i.dibuat_oleh)) return false;
+      }
+
+      return true;
+    });
+  }, [ioItems, searchTerm, selectedIoNumbers, selectedIoStatuses, ioStatusFilter, selectedOriginWarehouses, selectedDestinationWarehouses, selectedIoKantors, selectedIoCreators]);
+
+  const ioNumberOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    ioItems.forEach((row) => {
+      if (row.nomor_io) {
+        counts[row.nomor_io] = (counts[row.nomor_io] || 0) + 1;
+      }
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((no) => ({
+        label: no,
+        value: no,
+        subLabel: ioItems.find((i) => i.nomor_io === no)?.nama_kantor || undefined,
+        count: counts[no],
+      }));
+  }, [ioItems]);
 
   const ioStatusCounts = useMemo(() => {
     let draft = 0, dsm = 0, approve = 0, it_process = 0, partial = 0, it_complete = 0, cancel = 0;
@@ -558,14 +1065,191 @@ export default function DistributionsPage() {
     return { all: ioItems.length, draft, dsm, approve, it_process, partial, it_complete, cancel };
   }, [ioItems]);
 
+  // MultiSelect Options for Table Headers: IO
+  const ioStatusOptions: MultiSelectOption[] = useMemo(() => {
+    return [
+      { label: "Draft", value: "draft", badge: "⏳", color: "#94a3b8", count: ioStatusCounts.draft },
+      { label: "Checked DSM", value: "dsm", badge: "📑", color: "#38bdf8", count: ioStatusCounts.dsm },
+      { label: "Approve", value: "approve", badge: "📤", color: "#10b981", count: ioStatusCounts.approve },
+      { label: "IT Process", value: "it_process", badge: "⚙️", color: "#f59e0b", count: ioStatusCounts.it_process },
+      { label: "Partial", value: "partial", badge: "📦", color: "#06b6d4", count: ioStatusCounts.partial },
+      { label: "IT Complete", value: "it_complete", badge: "✅", color: "#8b5cf6", count: ioStatusCounts.it_complete },
+      { label: "Cancel", value: "cancel", badge: "❌", color: "#ef4444", count: ioStatusCounts.cancel },
+    ];
+  }, [ioStatusCounts]);
+
+  const ioGudangAsalOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    ioItems.forEach((i) => {
+      const g = i.gudang_asal || "—";
+      counts[g] = (counts[g] || 0) + 1;
+    });
+    const knownNames = new Set<string>();
+    const options: MultiSelectOption[] = [];
+    if (warehouses && warehouses.length > 0) {
+      warehouses.forEach((w) => {
+        const name = w.nama_gudang || w.id_gudang;
+        if (!knownNames.has(name.toLowerCase())) {
+          knownNames.add(name.toLowerCase());
+          options.push({
+            label: name,
+            value: name,
+            subLabel: w.id_gudang && w.nama_gudang !== w.id_gudang ? `Kode: ${w.id_gudang}` : undefined,
+            count: counts[name] || (w.id_gudang ? counts[w.id_gudang] : 0) || 0,
+          });
+        }
+      });
+    }
+    Object.keys(counts).forEach((g) => {
+      if (!knownNames.has(g.toLowerCase())) {
+        knownNames.add(g.toLowerCase());
+        options.push({ label: g, value: g, count: counts[g] });
+      }
+    });
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [warehouses, ioItems]);
+
+  const ioGudangTujuanOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    ioItems.forEach((i) => {
+      const g = i.gudang_tujuan || "—";
+      counts[g] = (counts[g] || 0) + 1;
+    });
+    const knownNames = new Set<string>();
+    const options: MultiSelectOption[] = [];
+    if (warehouses && warehouses.length > 0) {
+      warehouses.forEach((w) => {
+        const name = w.nama_gudang || w.id_gudang;
+        if (!knownNames.has(name.toLowerCase())) {
+          knownNames.add(name.toLowerCase());
+          options.push({
+            label: name,
+            value: name,
+            subLabel: w.id_gudang && w.nama_gudang !== w.id_gudang ? `Kode: ${w.id_gudang}` : undefined,
+            count: counts[name] || (w.id_gudang ? counts[w.id_gudang] : 0) || 0,
+          });
+        }
+      });
+    }
+    Object.keys(counts).forEach((g) => {
+      if (!knownNames.has(g.toLowerCase())) {
+        knownNames.add(g.toLowerCase());
+        options.push({ label: g, value: g, count: counts[g] });
+      }
+    });
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [warehouses, ioItems]);
+
+  const ioKantorOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    ioItems.forEach((i) => {
+      const k = i.nama_kantor || "—";
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((k) => ({
+        label: k,
+        value: k,
+        count: counts[k],
+      }));
+  }, [ioItems]);
+
+  const ioDibuatOlehOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    ioItems.forEach((i) => {
+      const u = i.dibuat_oleh || "—";
+      counts[u] = (counts[u] || 0) + 1;
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((u) => ({
+        label: u,
+        value: u,
+        count: counts[u],
+      }));
+  }, [ioItems]);
+
+  // Filtered Internal Transfer (IT) List
   const filteredItItems = useMemo(() => {
-    if (itStatusFilter === "all") return itItems;
-    if (itStatusFilter === "draft") return itItems.filter((i) => (i.status || "").trim() === "D");
-    if (itStatusFilter === "send") return itItems.filter((i) => (i.status || "").trim() === "S");
-    if (itStatusFilter === "receipt") return itItems.filter((i) => ["R", "C"].includes((i.status || "").trim()));
-    if (itStatusFilter === "cancel") return itItems.filter((i) => (i.status || "").trim() === "X");
-    return itItems;
-  }, [itItems, itStatusFilter]);
+    return itItems.filter((i) => {
+      // 1. Text Search Input
+      if (searchTerm.trim()) {
+        const term = searchTerm.toLowerCase();
+        const match =
+          (i.nomor || "").toLowerCase().includes(term) ||
+          (i.nomor_io || "").toLowerCase().includes(term) ||
+          (i.gudang_asal || "").toLowerCase().includes(term) ||
+          (i.gudang_tujuan || "").toLowerCase().includes(term) ||
+          (i.receive_note || "").toLowerCase().includes(term) ||
+          (i.keterangan || "").toLowerCase().includes(term);
+        if (!match) return false;
+      }
+
+      // 2. IT Number Selection (Search / Multi-Select No. IT)
+      if (selectedItNumbers.length > 0) {
+        if (!i.nomor || !selectedItNumbers.includes(i.nomor)) return false;
+      }
+
+      // 3. Status IT Selection
+      if (selectedItStatuses.length > 0) {
+        const code = (i.status || "").trim();
+        const matches = selectedItStatuses.some((filterKey) => {
+          if (filterKey === "draft") return code === "D";
+          if (filterKey === "send") return code === "S";
+          if (filterKey === "receipt") return ["R", "C"].includes(code);
+          if (filterKey === "cancel") return code === "X";
+          return false;
+        });
+        if (!matches) return false;
+      } else if (itStatusFilter !== "all") {
+        const code = (i.status || "").trim();
+        if (itStatusFilter === "draft" && code !== "D") return false;
+        if (itStatusFilter === "send" && code !== "S") return false;
+        if (itStatusFilter === "receipt" && !["R", "C"].includes(code)) return false;
+        if (itStatusFilter === "cancel" && code !== "X") return false;
+      }
+
+      // 3. Origin Warehouse Selection
+      if (selectedOriginWarehouses.length > 0) {
+        const matches = selectedOriginWarehouses.some((wh) =>
+          (i.gudang_asal || "").toLowerCase().includes(wh.toLowerCase()) ||
+          (i.id_gudang_asal || "").toLowerCase().includes(wh.toLowerCase())
+        );
+        if (!matches) return false;
+      }
+
+      // 4. Destination Warehouse Selection
+      if (selectedDestinationWarehouses.length > 0) {
+        const matches = selectedDestinationWarehouses.some((wh) =>
+          (i.gudang_tujuan || "").toLowerCase().includes(wh.toLowerCase()) ||
+          (i.id_gudang_tujuan || "").toLowerCase().includes(wh.toLowerCase())
+        );
+        if (!matches) return false;
+      }
+
+      return true;
+    });
+  }, [itItems, searchTerm, selectedItNumbers, selectedItStatuses, itStatusFilter, selectedOriginWarehouses, selectedDestinationWarehouses]);
+
+  const itNumberOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    itItems.forEach((row) => {
+      if (row.nomor) {
+        counts[row.nomor] = (counts[row.nomor] || 0) + 1;
+      }
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((no) => ({
+        label: no,
+        value: no,
+        subLabel: itItems.find((t) => t.nomor === no)?.gudang_asal
+          ? `${itItems.find((t) => t.nomor === no)?.gudang_asal} → ${itItems.find((t) => t.nomor === no)?.gudang_tujuan}`
+          : undefined,
+        count: counts[no],
+      }));
+  }, [itItems]);
 
   const itStatusCounts = useMemo(() => {
     let draft = 0, send = 0, receipt = 0, cancel = 0;
@@ -579,15 +1263,87 @@ export default function DistributionsPage() {
     return { all: itItems.length, draft, send, receipt, cancel };
   }, [itItems]);
 
-  // Reset page when date filter or status filter changes
-  useEffect(() => { setDoPage(1); }, [calendarDateFrom, calendarDateTo, activeTab]);
-  useEffect(() => { setIoPage(1); }, [calendarDateFrom, calendarDateTo, ioStatusFilter]);
-  useEffect(() => { setItPage(1); }, [calendarDateFrom, calendarDateTo, itStatusFilter]);
+  // MultiSelect Options for Table Headers: IT
+  const itStatusOptions: MultiSelectOption[] = useMemo(() => {
+    return [
+      { label: "Draft", value: "draft", badge: "⏳", color: "#94a3b8", count: itStatusCounts.draft },
+      { label: "Send (Kirim)", value: "send", badge: "📤", color: "#38bdf8", count: itStatusCounts.send },
+      { label: "Receipt (Selesai)", value: "receipt", badge: "✅", color: "#10b981", count: itStatusCounts.receipt },
+      { label: "Cancel (Batal)", value: "cancel", badge: "❌", color: "#ef4444", count: itStatusCounts.cancel },
+    ];
+  }, [itStatusCounts]);
+
+  const itGudangAsalOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    itItems.forEach((i) => {
+      const g = i.gudang_asal || "—";
+      counts[g] = (counts[g] || 0) + 1;
+    });
+    const knownNames = new Set<string>();
+    const options: MultiSelectOption[] = [];
+    if (warehouses && warehouses.length > 0) {
+      warehouses.forEach((w) => {
+        const name = w.nama_gudang || w.id_gudang;
+        if (!knownNames.has(name.toLowerCase())) {
+          knownNames.add(name.toLowerCase());
+          options.push({
+            label: name,
+            value: name,
+            subLabel: w.id_gudang && w.nama_gudang !== w.id_gudang ? `Kode: ${w.id_gudang}` : undefined,
+            count: counts[name] || (w.id_gudang ? counts[w.id_gudang] : 0) || 0,
+          });
+        }
+      });
+    }
+    Object.keys(counts).forEach((g) => {
+      if (!knownNames.has(g.toLowerCase())) {
+        knownNames.add(g.toLowerCase());
+        options.push({ label: g, value: g, count: counts[g] });
+      }
+    });
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [warehouses, itItems]);
+
+  const itGudangTujuanOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    itItems.forEach((i) => {
+      const g = i.gudang_tujuan || "—";
+      counts[g] = (counts[g] || 0) + 1;
+    });
+    const knownNames = new Set<string>();
+    const options: MultiSelectOption[] = [];
+    if (warehouses && warehouses.length > 0) {
+      warehouses.forEach((w) => {
+        const name = w.nama_gudang || w.id_gudang;
+        if (!knownNames.has(name.toLowerCase())) {
+          knownNames.add(name.toLowerCase());
+          options.push({
+            label: name,
+            value: name,
+            subLabel: w.id_gudang && w.nama_gudang !== w.id_gudang ? `Kode: ${w.id_gudang}` : undefined,
+            count: counts[name] || (w.id_gudang ? counts[w.id_gudang] : 0) || 0,
+          });
+        }
+      });
+    }
+    Object.keys(counts).forEach((g) => {
+      if (!knownNames.has(g.toLowerCase())) {
+        knownNames.add(g.toLowerCase());
+        options.push({ label: g, value: g, count: counts[g] });
+      }
+    });
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [warehouses, itItems]);
+
+  // Reset page when search or any filter changes
+  useEffect(() => { setDoPage(1); }, [calendarDateFrom, calendarDateTo, activeTab, searchTerm, selectedDoNumbers, selectedDoDates, selectedDoStatuses, selectedOriginWarehouses, selectedCustomers, selectedDrivers]);
+  useEffect(() => { setIoPage(1); }, [calendarDateFrom, calendarDateTo, ioStatusFilter, searchTerm, selectedIoNumbers, selectedIoStatuses, selectedOriginWarehouses, selectedDestinationWarehouses, selectedIoKantors, selectedIoCreators]);
+  useEffect(() => { setItPage(1); }, [calendarDateFrom, calendarDateTo, itStatusFilter, searchTerm, selectedItNumbers, selectedItStatuses, selectedOriginWarehouses, selectedDestinationWarehouses]);
 
   // Derived pagination slices
-  const totalDoPages = Math.max(1, Math.ceil(items.length / ITEMS_PER_PAGE));
+  const totalDoPages = Math.max(1, Math.ceil(filteredDoItems.length / ITEMS_PER_PAGE));
   const safeDoPage = Math.min(doPage, totalDoPages);
-  const paginatedDoItems = items.slice((safeDoPage - 1) * ITEMS_PER_PAGE, safeDoPage * ITEMS_PER_PAGE);
+  const paginatedDoItems = filteredDoItems.slice((safeDoPage - 1) * ITEMS_PER_PAGE, safeDoPage * ITEMS_PER_PAGE);
 
   const totalIoPages = Math.max(1, Math.ceil(filteredIoItems.length / ITEMS_PER_PAGE));
   const safeIoPage = Math.min(ioPage, totalIoPages);
@@ -596,6 +1352,178 @@ export default function DistributionsPage() {
   const totalItPages = Math.max(1, Math.ceil(filteredItItems.length / ITEMS_PER_PAGE));
   const safeItPage = Math.min(itPage, totalItPages);
   const paginatedItItems = filteredItItems.slice((safeItPage - 1) * ITEMS_PER_PAGE, safeItPage * ITEMS_PER_PAGE);
+
+  // Computed metrics for selected items
+  const selectedDoVolume = useMemo(() => {
+    return items
+      .filter((d) => selectedDoIds.has(d.nomor))
+      .reduce((acc, curr) => acc + (Number(curr.total_volume_liter || 0)), 0);
+  }, [items, selectedDoIds]);
+
+  // Helper: toggle all rows on current page
+  const handleToggleSelectAll = (tab: "DO" | "IO" | "IT") => {
+    if (tab === "DO") {
+      const allPageIds = paginatedDoItems.map((d) => d.nomor);
+      const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedDoIds.has(id));
+      setSelectedDoIds((prev) => {
+        const next = new Set(prev);
+        if (allSelected) {
+          allPageIds.forEach((id) => next.delete(id));
+        } else {
+          allPageIds.forEach((id) => next.add(id));
+        }
+        return next;
+      });
+    } else if (tab === "IO") {
+      const allPageIds = paginatedIoItems.map((i) => i.nomor_io);
+      const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedIoIds.has(id));
+      setSelectedIoIds((prev) => {
+        const next = new Set(prev);
+        if (allSelected) {
+          allPageIds.forEach((id) => next.delete(id));
+        } else {
+          allPageIds.forEach((id) => next.add(id));
+        }
+        return next;
+      });
+    } else if (tab === "IT") {
+      const allPageIds = paginatedItItems.map((t) => t.nomor);
+      const allSelected = allPageIds.length > 0 && allPageIds.every((id) => selectedItIds.has(id));
+      setSelectedItIds((prev) => {
+        const next = new Set(prev);
+        if (allSelected) {
+          allPageIds.forEach((id) => next.delete(id));
+        } else {
+          allPageIds.forEach((id) => next.add(id));
+        }
+        return next;
+      });
+    }
+  };
+
+  // Helper: copy selected transaction numbers
+  const handleCopyNumbers = (tab: "DO" | "IO" | "IT") => {
+    let ids: string[] = [];
+    if (tab === "DO") ids = Array.from(selectedDoIds);
+    else if (tab === "IO") ids = Array.from(selectedIoIds);
+    else if (tab === "IT") ids = Array.from(selectedItIds);
+    if (ids.length > 0) {
+      navigator.clipboard.writeText(ids.join(", "));
+    }
+  };
+
+  // Helper: export selected rows to CSV file
+  const handleExportSelected = (tab: "DO" | "IO" | "IT") => {
+    let csvContent = "";
+    let filename = "";
+
+    if (tab === "DO") {
+      const selectedRows = items.filter((d) => selectedDoIds.has(d.nomor));
+      if (selectedRows.length === 0) return;
+      const headers = ["No. DO", "Tanggal DO", "Customer", "Kota Tujuan", "Volume (Liter)", "Driver", "Plat Nomor", "Status", "No. PO", "No. Invoice"];
+      const rows = selectedRows.map((r) => [
+        `"${r.nomor || ""}"`,
+        `"${formatDisplayDate(r.tanggal)}"`,
+        `"${(r.nama_customer || "").replace(/"/g, '""')}"`,
+        `"${(r.destination || "").replace(/"/g, '""')}"`,
+        `"${r.total_volume_liter || 0}"`,
+        `"${(r.driver || "").replace(/"/g, '""')}"`,
+        `"${(r.lic_plate || "").replace(/"/g, '""')}"`,
+        `"${r.status || ""}"`,
+        `"${r.po_no || ""}"`,
+        `"${r.no_invoice || ""}"`,
+      ]);
+      csvContent = [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+      filename = `PADI_DO_Selected_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else if (tab === "IO") {
+      const selectedRows = ioItems.filter((i) => selectedIoIds.has(i.nomor_io));
+      if (selectedRows.length === 0) return;
+      const headers = ["Nomor IO", "Tanggal", "Kantor", "Gudang Asal", "Gudang Tujuan", "Dibuat Oleh", "Status", "Keterangan"];
+      const rows = selectedRows.map((r) => [
+        `"${r.nomor_io || ""}"`,
+        `"${r.tanggal || ""}"`,
+        `"${(r.nama_kantor || "").replace(/"/g, '""')}"`,
+        `"${(r.gudang_asal || "").replace(/"/g, '""')}"`,
+        `"${(r.gudang_tujuan || "").replace(/"/g, '""')}"`,
+        `"${(r.dibuat_oleh || "").replace(/"/g, '""')}"`,
+        `"${r.status || r.status_code || ""}"`,
+        `"${(r.keterangan || "").replace(/"/g, '""')}"`,
+      ]);
+      csvContent = [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+      filename = `PADI_IO_Selected_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else if (tab === "IT") {
+      const selectedRows = itItems.filter((t) => selectedItIds.has(t.nomor));
+      if (selectedRows.length === 0) return;
+      const headers = ["IT No", "Tanggal", "Gudang Asal", "Gudang Tujuan", "Nomor IO Ref", "Status", "Keterangan"];
+      const rows = selectedRows.map((r) => [
+        `"${r.nomor || ""}"`,
+        `"${formatDisplayDate(r.tanggal)}"`,
+        `"${(r.gudang_asal || "").replace(/"/g, '""')}"`,
+        `"${(r.gudang_tujuan || "").replace(/"/g, '""')}"`,
+        `"${r.nomor_io || ""}"`,
+        `"${r.status || ""}"`,
+        `"${(r.receive_note || "").replace(/"/g, '""')}"`,
+      ]);
+      csvContent = [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
+      filename = `PADI_IT_Selected_${new Date().toISOString().slice(0, 10)}.csv`;
+    }
+
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  // Helper: check if any multi-filter is active
+  const hasActiveFilters = Boolean(
+    searchTerm.trim() ||
+    selectedDoNumbers.length > 0 ||
+    selectedDoDates.length > 0 ||
+    selectedIoNumbers.length > 0 ||
+    selectedItNumbers.length > 0 ||
+    selectedDoStatuses.length > 0 ||
+    selectedIoStatuses.length > 0 ||
+    selectedItStatuses.length > 0 ||
+    selectedOriginWarehouses.length > 0 ||
+    selectedDestinationWarehouses.length > 0 ||
+    selectedCustomers.length > 0 ||
+    selectedDrivers.length > 0 ||
+    selectedIoKantors.length > 0 ||
+    selectedIoCreators.length > 0 ||
+    selectedDoWarehouse !== "ALL" ||
+    activeTab !== "all" ||
+    ioStatusFilter !== "all" ||
+    itStatusFilter !== "all"
+  );
+
+  const handleResetAllFilters = () => {
+    setSearchTerm("");
+    setSelectedDoNumbers([]);
+    setSelectedDoDates([]);
+    setSelectedIoNumbers([]);
+    setSelectedItNumbers([]);
+    setSelectedDoStatuses([]);
+    setSelectedIoStatuses([]);
+    setSelectedItStatuses([]);
+    setSelectedOriginWarehouses([]);
+    setSelectedDestinationWarehouses([]);
+    setSelectedCustomers([]);
+    setSelectedDrivers([]);
+    setSelectedIoKantors([]);
+    setSelectedIoCreators([]);
+    setSelectedDoWarehouse("ALL");
+    setActiveTab("all");
+    setIoStatusFilter("all");
+    setItStatusFilter("all");
+    const curr = getCurrentMonthDates();
+    setCalendarDateFrom(curr.from);
+    setCalendarDateTo(curr.to);
+  };
 
   const renderPagination = (
     currentPage: number,
@@ -697,7 +1625,8 @@ export default function DistributionsPage() {
   };
 
   const renderDoReceiptModalBox = (docNumber: string, onClose: () => void) => {
-    const statusKey = doModalHeader?.status || doModalHeader?.status_label || "S";
+    const isModalReturn = (doModalHeader?.status === "R" || doModalHeader?.status_label === "Received") && Boolean(doModalHeader?.return_date);
+    const statusKey = isModalReturn ? "return" : (doModalHeader?.status || doModalHeader?.status_label || "S");
     const badge = DO_STATUS_BADGE[statusKey] || { label: statusKey, cls: "badge-status badge-info", desc: statusKey };
 
     const renderAddress = (addr?: string) => {
@@ -1134,6 +2063,51 @@ export default function DistributionsPage() {
                   </div>
                 </div>
 
+                {/* Selisih Return & Receive Date */}
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  <div style={{ width: "150px", flexShrink: 0, fontSize: "0.85rem", color: "var(--text-secondary)", fontWeight: 500 }}>
+                    Selisih Hari
+                  </div>
+                  <div
+                    style={{
+                      flex: 1,
+                      borderBottom: "1px solid var(--bg-border)",
+                      padding: "0.2rem 0.25rem",
+                      fontSize: "0.85rem",
+                      color: "var(--text-primary)",
+                      fontWeight: 600,
+                      minHeight: "26px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                    }}
+                  >
+                    {(() => {
+                      const selisih = doModalHeader?.selisih_hari ?? (
+                        doModalHeader?.return_date && doModalHeader?.receive_date
+                          ? Math.round((new Date(doModalHeader.return_date).getTime() - new Date(doModalHeader.receive_date).getTime()) / (1000 * 60 * 60 * 24))
+                          : null
+                      );
+
+                      if (selisih !== null && selisih !== undefined && !isNaN(selisih)) {
+                        const isSame = selisih === 0;
+                        const isFast = selisih > 0 && selisih <= 3;
+                        const isLate = selisih > 7;
+                        const color = isSame || isFast ? "#22c55e" : isLate ? "#ef4444" : "#eab308";
+                        return (
+                          <span style={{ color, fontWeight: 700 }}>
+                            {isSame ? "0 Hari" : `${selisih} Hari`}
+                          </span>
+                        );
+                      }
+                      if (doModalHeader?.receive_date && !doModalHeader?.return_date) {
+                        return <span style={{ color: "#eab308", fontSize: "0.78rem" }}>Belum Kembali (Menunggu FRDO)</span>;
+                      }
+                      return <span style={{ color: "var(--text-muted)" }}>—</span>;
+                    })()}
+                  </div>
+                </div>
+
                 {/* Transport / Driver info */}
                 {(doModalHeader?.driver || doModalHeader?.lic_plate || doModalHeader?.transporter) && (
                   <div
@@ -1161,17 +2135,62 @@ export default function DistributionsPage() {
                     )}
                   </div>
                 )}
+
+                {/* Invoice Status & Lead Time */}
+                {(doModalHeader?.no_invoice || doModalHeader?.tgl_invoice || doModalHeader?.status === "I") && (
+                  <div
+                    style={{
+                      marginTop: "0.4rem",
+                      padding: "0.5rem 0.75rem",
+                      background: "rgba(99, 102, 241, 0.08)",
+                      border: "1px solid rgba(99, 102, 241, 0.25)",
+                      borderRadius: "6px",
+                      fontSize: "0.78rem",
+                      color: "var(--text-secondary)",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      alignItems: "center",
+                      gap: "0.75rem",
+                    }}
+                  >
+                    <div>📄 No. Invoice: <strong style={{ color: "#818cf8", fontFamily: "monospace" }}>{doModalHeader.no_invoice || "—"}</strong></div>
+                    {doModalHeader.tgl_invoice && (
+                      <div>Tgl Terbit: <strong style={{ color: "var(--text-primary)" }}>{formatDisplayDate(doModalHeader.tgl_invoice)}</strong></div>
+                    )}
+                    {doModalHeader.durasi_invoice_hari !== undefined && doModalHeader.durasi_invoice_hari !== null && (
+                      <div style={{ color: "#818cf8", fontWeight: 700 }}>
+                        ⚡ Durasi DO ke Invoice: {doModalHeader.durasi_invoice_hari === 0 ? "0 Hari" : `${doModalHeader.durasi_invoice_hari} Hari`}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Line Items Table */}
-            <div style={{ marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ marginBottom: "0.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.5rem" }}>
               <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <span>📦</span> Daftar Barang (Delivery Order Detail)
               </div>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                Total: <strong style={{ color: "#38bdf8" }}>{doModalItems.length}</strong> item
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", fontSize: "0.75rem" }}>
+                <span style={{ color: "var(--text-secondary)" }}>
+                  Item: <strong style={{ color: "#38bdf8" }}>{doModalItems.length}</strong> SKU
+                </span>
+                {(() => {
+                  const totalModalQty = doModalItems.reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
+                  const totalModalVol = doModalItems.reduce((acc, it) => acc + (Number(it.volume_liter != null ? it.volume_liter : (Number(it.qty || 0) * (it.isi_satuan || 1)))), 0);
+                  return (
+                    <>
+                      <span style={{ color: "var(--text-secondary)" }}>
+                        Total Qty: <strong style={{ color: "var(--text-primary)" }}>{totalModalQty.toLocaleString("id-ID")}</strong> kemasan
+                      </span>
+                      <span style={{ color: "var(--text-secondary)" }}>
+                        Total Volume: <strong style={{ color: "#22c55e", fontSize: "0.82rem" }}>{totalModalVol.toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ltr</strong>
+                      </span>
+                    </>
+                  );
+                })()}
+              </div>
             </div>
 
             {doModalItems.length === 0 ? (
@@ -1188,49 +2207,93 @@ export default function DistributionsPage() {
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "left", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Nama Barang</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Qty</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "center", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Satuan</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Volume (Liter)</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "left", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Packing Number</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Qty Diterima</th>
+                      <th style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Vol. Diterima (Liter)</th>
                       <th style={{ padding: "0.6rem 0.75rem", textAlign: "left", fontWeight: 600, color: "var(--text-secondary)", fontSize: "0.7rem", textTransform: "uppercase" }}>Keterangan</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {doModalItems.map((item: DoLineItem, idx: number) => (
-                      <tr
-                        key={`do-detail-${item.kode_barang}-${idx}`}
-                        style={{
-                          borderBottom: idx < doModalItems.length - 1 ? "1px solid var(--bg-border)" : "none",
-                          background: idx % 2 === 1 ? "var(--bg-surface)" : "transparent",
-                        }}
-                      >
-                        <td style={{ padding: "0.55rem 0.6rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.75rem" }}>
-                          {item.no || idx + 1}
-                        </td>
-                        <td style={{ padding: "0.55rem 0.75rem", fontFamily: "monospace", fontSize: "0.75rem", color: "#38bdf8", fontWeight: 600 }}>
-                          {item.kode_barang}
-                        </td>
-                        <td style={{ padding: "0.55rem 0.75rem", color: "var(--text-primary)", fontWeight: 500 }}>
-                          {item.nama_barang}
-                        </td>
-                        <td style={{ padding: "0.55rem 0.75rem", textAlign: "right", fontWeight: 700, color: "var(--text-primary)" }}>
-                          {item.qty ? Number(item.qty).toLocaleString("id-ID") : 0}
-                        </td>
-                        <td style={{ padding: "0.55rem 0.75rem", textAlign: "center", color: "var(--text-secondary)" }}>
-                          <span style={{ padding: "0.15rem 0.45rem", borderRadius: "4px", background: "var(--bg-hover)", fontSize: "0.72rem" }}>
-                            {item.satuan || "Drum"}
-                          </span>
-                        </td>
-                        <td style={{ padding: "0.55rem 0.75rem", fontFamily: "monospace", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-                          {item.packing_number || "—"}
-                        </td>
-                        <td style={{ padding: "0.55rem 0.75rem", textAlign: "right", fontWeight: 600, color: "#10B981" }}>
-                          {item.qty_diterima !== undefined && item.qty_diterima !== null ? Number(item.qty_diterima).toLocaleString("id-ID") : "—"}
-                        </td>
-                        <td style={{ padding: "0.55rem 0.75rem", color: "var(--text-muted)", fontSize: "0.75rem" }}>
-                          {item.keterangan || "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    {doModalItems.map((item: DoLineItem, idx: number) => {
+                      const itemVol = item.volume_liter != null ? item.volume_liter : (Number(item.qty || 0) * (item.isi_satuan || 1));
+                      const itemVolDiterima = item.volume_diterima_liter != null ? item.volume_diterima_liter : (item.qty_diterima != null ? Number(item.qty_diterima) * (item.isi_satuan || 1) : null);
+                      return (
+                        <tr
+                          key={`do-detail-${item.kode_barang}-${idx}`}
+                          style={{
+                            borderBottom: idx < doModalItems.length - 1 ? "1px solid var(--bg-border)" : "none",
+                            background: idx % 2 === 1 ? "var(--bg-surface)" : "transparent",
+                          }}
+                        >
+                          <td style={{ padding: "0.55rem 0.6rem", textAlign: "center", color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                            {item.no || idx + 1}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", fontFamily: "monospace", fontSize: "0.75rem", color: "#38bdf8", fontWeight: 600 }}>
+                            {item.kode_barang}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", color: "var(--text-primary)", fontWeight: 500 }}>
+                            {item.nama_barang}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", textAlign: "right", fontWeight: 700, color: "var(--text-primary)" }}>
+                            {item.qty ? Number(item.qty).toLocaleString("id-ID") : 0}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", textAlign: "center", color: "var(--text-secondary)" }}>
+                            <span style={{ padding: "0.15rem 0.45rem", borderRadius: "4px", background: "var(--bg-hover)", fontSize: "0.72rem" }}>
+                              {item.satuan || "Drum"}
+                            </span>
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", textAlign: "right", fontWeight: 700, color: "#38bdf8" }}>
+                            {`${Number(itemVol).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ltr`}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", fontFamily: "monospace", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
+                            {item.packing_number || "—"}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", textAlign: "right", fontWeight: 600, color: "#10B981" }}>
+                            {item.qty_diterima !== undefined && item.qty_diterima !== null ? Number(item.qty_diterima).toLocaleString("id-ID") : "—"}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", textAlign: "right", fontWeight: 600, color: "#10B981" }}>
+                            {itemVolDiterima !== null && itemVolDiterima !== undefined
+                              ? `${Number(itemVolDiterima).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ltr`
+                              : "—"}
+                          </td>
+                          <td style={{ padding: "0.55rem 0.75rem", color: "var(--text-muted)", fontSize: "0.75rem" }}>
+                            {item.keterangan || "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
+                  {doModalItems.length > 0 && (() => {
+                    const totalQty = doModalItems.reduce((acc, it) => acc + (Number(it.qty) || 0), 0);
+                    const totalVol = doModalItems.reduce((acc, it) => acc + (Number(it.volume_liter != null ? it.volume_liter : (Number(it.qty || 0) * (it.isi_satuan || 1)))), 0);
+                    const totalQtyRecv = doModalItems.reduce((acc, it) => acc + (it.qty_diterima != null ? Number(it.qty_diterima) : 0), 0);
+                    const totalVolRecv = doModalItems.reduce((acc, it) => acc + (it.volume_diterima_liter != null ? Number(it.volume_diterima_liter) : (it.qty_diterima != null ? Number(it.qty_diterima) * (it.isi_satuan || 1) : 0)), 0);
+                    return (
+                      <tfoot>
+                        <tr style={{ background: "rgba(56, 189, 248, 0.08)", borderTop: "2px solid var(--bg-border)", fontWeight: 700 }}>
+                          <td colSpan={3} style={{ padding: "0.6rem 0.75rem", textAlign: "right", fontSize: "0.75rem", color: "var(--text-primary)" }}>
+                            TOTAL:
+                          </td>
+                          <td style={{ padding: "0.6rem 0.75rem", textAlign: "right", color: "var(--text-primary)", fontSize: "0.8rem" }}>
+                            {totalQty.toLocaleString("id-ID")}
+                          </td>
+                          <td style={{ padding: "0.6rem 0.75rem" }} />
+                          <td style={{ padding: "0.6rem 0.75rem", textAlign: "right", color: "#38bdf8", fontSize: "0.8rem" }}>
+                            {`${totalVol.toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ltr`}
+                          </td>
+                          <td style={{ padding: "0.6rem 0.75rem" }} />
+                          <td style={{ padding: "0.6rem 0.75rem", textAlign: "right", color: "#10B981", fontSize: "0.8rem" }}>
+                            {totalQtyRecv > 0 ? totalQtyRecv.toLocaleString("id-ID") : "—"}
+                          </td>
+                          <td style={{ padding: "0.6rem 0.75rem", textAlign: "right", color: "#10B981", fontSize: "0.8rem" }}>
+                            {totalVolRecv > 0 ? `${totalVolRecv.toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ltr` : "—"}
+                          </td>
+                          <td style={{ padding: "0.6rem 0.75rem" }} />
+                        </tr>
+                      </tfoot>
+                    );
+                  })()}
                 </table>
               </div>
             )}
@@ -1923,10 +2986,12 @@ export default function DistributionsPage() {
   const handleDownloadExcel = async (type: "IO" | "IT" | "DO") => {
     try {
       setIsDownloading(true);
+      const whParam = type === "DO" && selectedDoWarehouse !== "ALL" ? selectedDoWarehouse : undefined;
       const res = await apiDistributions.exportExcel({
         type,
         date_from: calendarDateFrom || undefined,
         date_to: calendarDateTo || undefined,
+        id_gudang: whParam,
       });
       const blob = new Blob([res.data], {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1937,8 +3002,9 @@ export default function DistributionsPage() {
       let label = "Delivery_Order";
       if (type === "IO") label = "Internal_Order";
       else if (type === "IT") label = "Internal_Transfer";
+      const whSuffix = whParam ? `_${whParam}` : "";
       const dateSuffix = `${calendarDateFrom || "all"}_sd_${calendarDateTo || "all"}`.replace(/-/g, "");
-      a.download = `${label}_${dateSuffix}.xlsx`;
+      a.download = `${label}${whSuffix}_${dateSuffix}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1960,26 +3026,69 @@ export default function DistributionsPage() {
       };
       
       if (mainTab === "DO") {
-        const [sumRes, itemsRes, mapRes] = await Promise.allSettled([
-          apiDistributions.summary(dateFilter),
-          apiDistributions.list({ status: activeTab === "all" ? undefined : activeTab, limit: 500, ...dateFilter }),
-          apiDistributions.mapData({ status: activeTab === "all" ? undefined : activeTab, ...dateFilter }),
+        const whParam =
+          selectedOriginWarehouses.length === 1
+            ? selectedOriginWarehouses[0]
+            : selectedDoWarehouse !== "ALL"
+            ? selectedDoWarehouse
+            : undefined;
+        const doStatusParam =
+          selectedDoStatuses.length > 0
+            ? selectedDoStatuses.join(",")
+            : activeTab === "all"
+            ? undefined
+            : activeTab;
+
+        const [sumRes, itemsRes] = await Promise.allSettled([
+          apiDistributions.summary({ ...dateFilter, id_gudang: whParam }),
+          apiDistributions.list({
+            status: doStatusParam,
+            q: searchTerm.trim() || undefined,
+            limit: 5000,
+            id_gudang: whParam,
+            ...dateFilter,
+          }),
         ]);
 
         if (sumRes.status === "fulfilled") setSummary(sumRes.value.data);
         if (itemsRes.status === "fulfilled") setItems(itemsRes.value.data.data || []);
-        if (mapRes.status === "fulfilled") setMapData(mapRes.value.data || []);
       } else if (mainTab === "IO") {
+        const whAsalParam = selectedOriginWarehouses.length === 1 ? selectedOriginWarehouses[0] : undefined;
+        const whTujuanParam = selectedDestinationWarehouses.length === 1 ? selectedDestinationWarehouses[0] : undefined;
+        const ioStatusParam =
+          selectedIoStatuses.length > 0
+            ? selectedIoStatuses.join(",")
+            : ioStatusFilter === "all"
+            ? undefined
+            : ioStatusFilter;
+
         const res = await apiDistributions.internalOrders({
           date_from: calendarDateFrom || undefined,
           date_to: calendarDateTo || undefined,
+          q: searchTerm.trim() || undefined,
+          status: ioStatusParam,
+          id_gudang_asal: whAsalParam,
+          id_gudang_tujuan: whTujuanParam,
           limit: 10000,
         });
         setIoItems(res.data.data || []);
       } else if (mainTab === "IT") {
+        const whAsalParam = selectedOriginWarehouses.length === 1 ? selectedOriginWarehouses[0] : undefined;
+        const whTujuanParam = selectedDestinationWarehouses.length === 1 ? selectedDestinationWarehouses[0] : undefined;
+        const itStatusParam =
+          selectedItStatuses.length > 0
+            ? selectedItStatuses.join(",")
+            : itStatusFilter === "all"
+            ? undefined
+            : itStatusFilter;
+
         const res = await apiDistributions.transferOrders({
           date_from: calendarDateFrom || undefined,
           date_to: calendarDateTo || undefined,
+          q: searchTerm.trim() || undefined,
+          status: itStatusParam,
+          id_gudang_asal: whAsalParam,
+          id_gudang_tujuan: whTujuanParam,
           limit: 10000,
         });
         setItItems(res.data.data || []);
@@ -1989,7 +3098,21 @@ export default function DistributionsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, mainTab, calendarDateFrom, calendarDateTo]);
+  }, [
+    activeTab,
+    mainTab,
+    calendarDateFrom,
+    calendarDateTo,
+    selectedDoWarehouse,
+    selectedOriginWarehouses,
+    selectedDestinationWarehouses,
+    selectedDoStatuses,
+    selectedIoStatuses,
+    selectedItStatuses,
+    ioStatusFilter,
+    itStatusFilter,
+    searchTerm,
+  ]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1997,7 +3120,11 @@ export default function DistributionsPage() {
     <div className="animate-fade-up">
       <div className="page-header">
         <h1 className="page-title">Monitoring Distribusi</h1>
-        <p className="page-subtitle">Tracking Delivery Order (DO), Internal Order (IO), dan Internal Transfer (IT)</p>
+        <p className="page-subtitle">
+          {isWarehouse
+            ? "Tracking Delivery Order (DO), Internal Order (IO), dan Internal Transfer (IT)"
+            : "Tracking Delivery Order (DO), Internal Order (IO), Internal Transfer (IT), dan Financial Flow"}
+        </p>
       </div>
 
       <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", borderBottom: "1px solid var(--bg-border)", paddingBottom: "0.5rem" }}>
@@ -2005,6 +3132,7 @@ export default function DistributionsPage() {
           { key: "DO", label: "Surat Jalan (DO)" },
           { key: "IO", label: "Internal Order (IO)" },
           { key: "IT", label: "Internal Transfer (IT)" },
+          ...(canSeeFinancialFlow ? [{ key: "FINANCIAL_FLOW", label: "Financial Flow" }] : []),
         ].map((tab) => (
           <button
             key={tab.key}
@@ -2025,295 +3153,814 @@ export default function DistributionsPage() {
         ))}
       </div>
 
+      {mainTab !== "FINANCIAL_FLOW" && (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "12px",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "10px",
+            padding: "10px 16px",
+            marginBottom: "16px",
+          }}
+        >
+          {/* Quick Date Presets & Date Picker */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>
+              📅 Periode:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const curr = getCurrentMonthDates();
+                setCalendarDateFrom(curr.from);
+                setCalendarDateTo(curr.to);
+              }}
+              style={{
+                fontSize: "0.75rem",
+                padding: "4px 9px",
+                borderRadius: "6px",
+                border: "1px solid var(--bg-border)",
+                background: "rgba(56, 189, 248, 0.12)",
+                color: "#38bdf8",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              title="Tampilkan data Bulan Berjalan"
+            >
+              Bulan Ini
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const past = new Date();
+                past.setDate(past.getDate() - 7);
+                setCalendarDateFrom(past.toISOString().slice(0, 10));
+                setCalendarDateTo(new Date().toISOString().slice(0, 10));
+              }}
+              style={{
+                fontSize: "0.75rem",
+                padding: "4px 9px",
+                borderRadius: "6px",
+                border: "1px solid var(--bg-border)",
+                background: "var(--bg-card)",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+              }}
+              title="7 Hari Terakhir"
+            >
+              7 Hari
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCalendarDateFrom("");
+                setCalendarDateTo(new Date().toISOString().slice(0, 10));
+              }}
+              style={{
+                fontSize: "0.75rem",
+                padding: "4px 9px",
+                borderRadius: "6px",
+                border: "1px solid var(--bg-border)",
+                background: "var(--bg-card)",
+                color: "var(--text-secondary)",
+                cursor: "pointer",
+              }}
+              title="Semua Periode"
+            >
+              Semua
+            </button>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                background: "var(--bg-card)",
+                border: "1px solid var(--bg-border)",
+                borderRadius: "6px",
+                padding: "3px 8px",
+              }}
+            >
+              <input
+                type="date"
+                value={calendarDateFrom}
+                onChange={(e) => setCalendarDateFrom(e.target.value)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-primary)",
+                  fontSize: "0.78rem",
+                  outline: "none",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              />
+              <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>s/d</span>
+              <input
+                type="date"
+                value={calendarDateTo}
+                onChange={(e) => setCalendarDateTo(e.target.value)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-primary)",
+                  fontSize: "0.78rem",
+                  outline: "none",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Warehouse Multi-Select Filter & Export Excel */}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "nowrap", flexShrink: 0 }}>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+              <span
+                style={{
+                  fontSize: "0.8rem",
+                  color: "var(--text-secondary)",
+                  fontWeight: 600,
+                  display: "inline-flex",
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: "5px",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                  lineHeight: "normal",
+                }}
+              >
+                🏢 Gudang:
+              </span>
+              <MultiSelectFilter
+                title="Gudang"
+                placeholder="Semua Gudang"
+                searchPlaceholder="Cari gudang..."
+                options={mainTab === "IO" ? ioGudangAsalOptions : mainTab === "IT" ? itGudangAsalOptions : warehouseDoOptions}
+                selectedValues={selectedOriginWarehouses}
+                onChange={setSelectedOriginWarehouses}
+                popoverWidth={260}
+                compact={false}
+              />
+            </div>
+
+            {mainTab === "DO" && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+                <span
+                  style={{
+                    fontSize: "0.8rem",
+                    color: "var(--text-secondary)",
+                    fontWeight: 600,
+                    display: "inline-flex",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: "5px",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    lineHeight: "normal",
+                  }}
+                >
+                  📅 Tanggal DO:
+                </span>
+                <MultiSelectFilter
+                  title="Tanggal DO"
+                  placeholder="Semua Tanggal DO"
+                  searchPlaceholder="Cari tanggal..."
+                  options={doDateOptions}
+                  selectedValues={selectedDoDates}
+                  onChange={setSelectedDoDates}
+                  popoverWidth={240}
+                  compact={false}
+                />
+              </div>
+            )}
+
+            <button
+              onClick={() => handleDownloadExcel(mainTab as "DO" | "IO" | "IT")}
+              disabled={isDownloading}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                background: isDownloading ? "#065f46" : "#059669",
+                color: "#ffffff",
+                border: "none",
+                borderRadius: "6px",
+                padding: "6px 12px",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                cursor: isDownloading ? "not-allowed" : "pointer",
+                boxShadow: "0 2px 6px rgba(5, 150, 105, 0.25)",
+                whiteSpace: "nowrap",
+              }}
+              title={`Download ${mainTab}.xlsx`}
+            >
+              {isDownloading ? (
+                <>
+                  <span>⏳</span>
+                  <span>Mengunduh...</span>
+                </>
+              ) : (
+                <>
+                  <span>📥</span>
+                  <span>Export {mainTab}.xlsx</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Active Filters Summary Bar (Stock Aging style) */}
+      {hasActiveFilters && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "8px",
+            background: "rgba(56, 189, 248, 0.05)",
+            border: "1px solid rgba(56, 189, 248, 0.2)",
+            borderRadius: "8px",
+            padding: "8px 12px",
+            marginBottom: "16px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "#38bdf8", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+              Filter Aktif:
+            </span>
+
+            {searchTerm.trim() && (
+              <span style={activeChipStyle}>
+                <span>🔍 &ldquo;{searchTerm}&rdquo;</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSearchTerm("")} />
+              </span>
+            )}
+
+            {mainTab === "DO" && selectedDoNumbers.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>📦 No. DO: {selectedDoNumbers.length > 2 ? `${selectedDoNumbers.length} nomor` : selectedDoNumbers.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedDoNumbers([])} />
+              </span>
+            )}
+
+            {mainTab === "DO" && selectedDoDates.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>📅 Tgl DO: {selectedDoDates.length > 2 ? `${selectedDoDates.length} tanggal` : selectedDoDates.map((d) => formatDisplayDate(d)).join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedDoDates([])} />
+              </span>
+            )}
+
+            {mainTab === "IO" && selectedIoNumbers.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>📋 No. IO: {selectedIoNumbers.length > 2 ? `${selectedIoNumbers.length} nomor` : selectedIoNumbers.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedIoNumbers([])} />
+              </span>
+            )}
+
+            {mainTab === "IT" && selectedItNumbers.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🔄 No. IT: {selectedItNumbers.length > 2 ? `${selectedItNumbers.length} nomor` : selectedItNumbers.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedItNumbers([])} />
+              </span>
+            )}
+
+            {mainTab === "DO" && selectedDoStatuses.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>Status DO: {selectedDoStatuses.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedDoStatuses([])} />
+              </span>
+            )}
+
+            {mainTab === "IO" && selectedIoStatuses.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>Status IO: {selectedIoStatuses.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedIoStatuses([])} />
+              </span>
+            )}
+
+            {mainTab === "IT" && selectedItStatuses.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>Status IT: {selectedItStatuses.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedItStatuses([])} />
+              </span>
+            )}
+
+            {selectedOriginWarehouses.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏢 Gudang Asal: {selectedOriginWarehouses.length} dipilih</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedOriginWarehouses([])} />
+              </span>
+            )}
+
+            {selectedDestinationWarehouses.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🎯 Gudang Tujuan: {selectedDestinationWarehouses.length} dipilih</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedDestinationWarehouses([])} />
+              </span>
+            )}
+
+            {selectedCustomers.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>👥 Customer: {selectedCustomers.length} dipilih</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedCustomers([])} />
+              </span>
+            )}
+
+            {selectedDrivers.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🚛 Sopir: {selectedDrivers.length} dipilih</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedDrivers([])} />
+              </span>
+            )}
+
+            {selectedIoKantors.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏢 Kantor: {selectedIoKantors.length} dipilih</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedIoKantors([])} />
+              </span>
+            )}
+
+            {selectedIoCreators.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>✍️ Pembuat: {selectedIoCreators.length} dipilih</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedIoCreators([])} />
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <span style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>
+              Menampilkan{" "}
+              <strong style={{ color: "var(--text-primary)" }}>
+                {mainTab === "DO" ? filteredDoItems.length : mainTab === "IO" ? filteredIoItems.length : filteredItItems.length}
+              </strong>{" "}
+              dari {mainTab === "DO" ? items.length : mainTab === "IO" ? ioItems.length : itItems.length} transaksi
+            </span>
+            <button
+              onClick={handleResetAllFilters}
+              style={{
+                background: "rgba(239, 68, 68, 0.15)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                color: "#f87171",
+                padding: "3px 8px",
+                borderRadius: "5px",
+                fontSize: "0.72rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+              title="Reset semua filter ke kondisi awal"
+            >
+              <RotateCcw size={12} />
+              Reset Semua
+            </button>
+          </div>
+        </div>
+      )}
+
       {mainTab === "DO" && (
         <>
-          {/* Action Bar: Calendar Date Filter & Download Excel */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              marginBottom: "1rem",
-              padding: "0.85rem 1.15rem",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--bg-border)",
-              borderRadius: "8px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <span style={{ fontSize: "1.35rem" }}>🚛</span>
-              <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                Tracking Delivery Order (DO)
-              </div>
-            </div>
+          {(() => {
+            const totalDo = summary?.total_do ?? items.length ?? 0;
+            const totalVol = summary?.total_volume ?? 0;
+            const totalQty = summary?.total_qty ?? 0;
 
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  const curr = getCurrentMonthDates();
-                  setCalendarDateFrom(curr.from);
-                  setCalendarDateTo(curr.to);
-                }}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  fontSize: "0.75rem",
-                  padding: "0.35rem 0.7rem",
-                  borderRadius: "6px",
-                  border: "1px solid var(--bg-border)",
-                  background: "rgba(56, 189, 248, 0.12)",
-                  color: "var(--color-primary)",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-                title="Tampilkan data Bulan Berjalan"
-              >
-                📅 Bulan Ini
-              </button>
+            const sendCount = summary?.send ?? summary?.in_transit ?? 0;
+            const sendPct = totalDo > 0 ? ((sendCount / totalDo) * 100).toFixed(1) : "0.0";
+            const sendVol = summary?.send_volume ?? 0;
+            const sendQty = summary?.send_qty ?? 0;
+            const sendVolPct = totalVol > 0 ? ((sendVol / totalVol) * 100).toFixed(1) : "0.0";
 
-              <button
-                type="button"
-                onClick={() => {
-                  setCalendarDateFrom("");
-                  setCalendarDateTo(new Date().toISOString().slice(0, 10));
-                }}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  fontSize: "0.75rem",
-                  padding: "0.35rem 0.7rem",
-                  borderRadius: "6px",
-                  border: "1px solid var(--bg-border)",
-                  background: "var(--bg-surface)",
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                }}
-                title="Tampilkan semua data tanpa batasan tanggal"
-              >
-                Semua Periode
-              </button>
+            const recvCount = summary?.received ?? summary?.delivered ?? 0;
+            const recvPct = totalDo > 0 ? ((recvCount / totalDo) * 100).toFixed(1) : "0.0";
+            const recvVol = summary?.received_volume ?? 0;
+            const recvQty = summary?.received_qty ?? 0;
+            const recvVolPct = totalVol > 0 ? ((recvVol / totalVol) * 100).toFixed(1) : "0.0";
 
-              <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 500, marginLeft: "0.2rem" }}>
-                Rentang Tanggal:
-              </span>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--bg-border)",
-                  borderRadius: "6px",
-                  padding: "0.35rem 0.65rem",
-                }}
-              >
-                <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>📅</span>
-                <input
-                  type="date"
-                  value={calendarDateFrom}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCalendarDateFrom(e.target.value)}
+            const returnCount = summary?.return_do ?? 0;
+            const returnPct = totalDo > 0 ? ((returnCount / totalDo) * 100).toFixed(1) : "0.0";
+            const returnVol = summary?.return_volume ?? 0;
+            const returnQty = summary?.return_qty ?? 0;
+            const returnVolPct = totalVol > 0 ? ((returnVol / totalVol) * 100).toFixed(1) : "0.0";
+
+            const invCount = summary?.invoice ?? 0;
+            const invPct = totalDo > 0 ? ((invCount / totalDo) * 100).toFixed(1) : "0.0";
+            const invVol = summary?.invoice_volume ?? 0;
+            const invQty = summary?.invoice_qty ?? 0;
+            const invVolPct = totalVol > 0 ? ((invVol / totalVol) * 100).toFixed(1) : "0.0";
+
+            const cancelCount = summary?.cancel ?? 0;
+            const cancelPct = totalDo > 0 ? ((cancelCount / totalDo) * 100).toFixed(1) : "0.0";
+            const cancelVol = summary?.cancel_volume ?? 0;
+            const cancelQty = summary?.cancel_qty ?? 0;
+            const cancelVolPct = totalVol > 0 ? ((cancelVol / totalVol) * 100).toFixed(1) : "0.0";
+
+            const formatVol = (val?: number | null) => {
+              if (val == null || isNaN(val)) return "0 Ltr";
+              return `${Number(val).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ltr`;
+            };
+            const formatQty = (val?: number | null) => {
+              if (val == null || isNaN(val)) return "0";
+              return Number(val).toLocaleString("id-ID");
+            };
+
+            return (
+              <div className="kpi-grid" style={{ marginBottom: "1.25rem", gridTemplateColumns: "repeat(auto-fit, minmax(175px, 1fr))" }}>
+                {/* Total DO */}
+                <div
+                  className="kpi-card primary"
+                  onClick={() => setSelectedDoStatuses([])}
                   style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-primary)",
-                    fontSize: "0.82rem",
-                    outline: "none",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
                     cursor: "pointer",
-                    fontFamily: "inherit",
+                    border: selectedDoStatuses.length === 0 ? "2px solid #38bdf8" : "1px solid var(--bg-border)",
+                    boxShadow: selectedDoStatuses.length === 0 ? "0 0 12px rgba(56, 189, 248, 0.25)" : undefined,
+                    transition: "all 0.2s ease",
                   }}
-                  title="Tanggal Mulai"
-                />
-                <span style={{ color: "#64748b", fontSize: "0.8rem" }}>s/d</span>
-                <input
-                  type="date"
-                  value={calendarDateTo}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCalendarDateTo(e.target.value)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-primary)",
-                    fontSize: "0.82rem",
-                    outline: "none",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                  title="Tanggal Akhir"
-                />
-              </div>
-
-              <button
-                onClick={() => handleDownloadExcel("DO")}
-                disabled={isDownloading}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.45rem",
-                  background: isDownloading ? "#065f46" : "#059669",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "0.48rem 1.1rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 600,
-                  cursor: isDownloading ? "not-allowed" : "pointer",
-                  transition: "all 0.2s ease",
-                  boxShadow: "0 2px 6px rgba(5, 150, 105, 0.3)",
-                }}
-                title={`Download Delivery Order format Excel (.xlsx) untuk rentang tanggal ${calendarDateFrom} s/d ${calendarDateTo}`}
-              >
-                {isDownloading ? (
-                  <>
-                    <span>⏳</span>
-                    <span>Mengunduh...</span>
-                  </>
-                ) : (
-                  <>
-                    <span style={{ fontSize: "1rem" }}>📥</span>
-                    <span>Download Excel (DO.xlsx)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div className="kpi-grid" style={{ marginBottom: "1.25rem", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-            <div className="kpi-card primary">
-              <div className="kpi-icon primary">📦</div>
-              <div className="kpi-value">{summary?.total_do ?? items.length ?? "—"}</div>
-              <div className="kpi-label">Total DO</div>
-            </div>
-            <div className="kpi-card info">
-              <div className="kpi-icon info">🚛</div>
-              <div className="kpi-value">{summary?.send ?? summary?.in_transit ?? "—"}</div>
-              <div className="kpi-label">DO Send (Kirim)</div>
-            </div>
-            <div className="kpi-card success">
-              <div className="kpi-icon success">✅</div>
-              <div className="kpi-value">{summary?.received ?? summary?.delivered ?? "—"}</div>
-              <div className="kpi-label">DO Received (Sampai)</div>
-            </div>
-            <div className="kpi-card" style={{ borderLeft: "4px solid #6366f1" }}>
-              <div className="kpi-icon" style={{ background: "rgba(99, 102, 241, 0.15)", color: "#818cf8" }}>📄</div>
-              <div className="kpi-value" style={{ color: "#818cf8" }}>{summary?.invoice ?? "—"}</div>
-              <div className="kpi-label">DO Invoice</div>
-            </div>
-            <div className="kpi-card" style={{ borderLeft: "4px solid #ef4444" }}>
-              <div className="kpi-icon" style={{ background: "rgba(239, 68, 68, 0.15)", color: "#ef4444" }}>❌</div>
-              <div className="kpi-value" style={{ color: "#ef4444" }}>{summary?.cancel ?? "—"}</div>
-              <div className="kpi-label">DO Cancel</div>
-            </div>
-            <div className="kpi-card warning">
-              <div className="kpi-icon warning">⏳</div>
-              <div className="kpi-value" style={{ color: "var(--color-warning)" }}>{summary?.draft ?? summary?.pending ?? "—"}</div>
-              <div className="kpi-label">DO Draft</div>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
-            {[
-              { key: "all", label: "Semua" },
-              { key: "send", label: "🚛 Send" },
-              { key: "received", label: "✅ Received" },
-              { key: "invoice", label: "📄 Invoice" },
-              { key: "cancel", label: "❌ Cancel" },
-              { key: "draft", label: "⏳ Draft" },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`btn ${activeTab === tab.key ? "btn-primary" : "btn-ghost"} btn-sm`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="card" style={{ padding: "1.25rem", marginBottom: "1.25rem" }}>
-            <div className="card-header" style={{ marginBottom: "1rem" }}>
-              <div className="card-title">Aktivitas Rute Pengiriman</div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: "1rem" }}>
-              {loading ? (
-                <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", gridColumn: "1 / -1" }}>
-                  Memuat data rute...
-                </div>
-              ) : mapData.length === 0 ? (
-                <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", gridColumn: "1 / -1" }}>
-                  Tidak ada aktivitas pengiriman.
-                </div>
-              ) : (
-                (() => {
-                  const routes = mapData.reduce((acc, curr) => {
-                    const dest = (curr.destination || "Tidak diketahui").toUpperCase();
-                    if (!acc[dest]) {
-                      acc[dest] = { name: dest, in_transit: 0, delivered: 0, draft: 0, total: 0 };
-                    }
-                    acc[dest].total += 1;
-                    if (curr.status_label === "in_transit") acc[dest].in_transit += 1;
-                    else if (curr.status_label === "delivered") acc[dest].delivered += 1;
-                    else acc[dest].draft += 1;
-                    return acc;
-                  }, {} as Record<string, any>);
-
-                  return Object.values(routes)
-                    .sort((a: any, b: any) => b.total - a.total)
-                    .slice(0, 8)
-                    .map((route: any) => (
-                      <div key={route.name} style={{ background: "var(--bg-surface)", padding: "1rem", borderRadius: "var(--radius-md)", border: "1px solid var(--bg-border)" }}>
-                        <div style={{ fontWeight: 600, marginBottom: "0.5rem", fontSize: "0.9rem" }}>📍 Tujuan: {route.name}</div>
-                        <div style={{ display: "flex", gap: "0.5rem", fontSize: "0.75rem" }}>
-                          <span style={{ color: "var(--color-primary)", background: "color-mix(in srgb, var(--color-primary) 15%, transparent)", padding: "0.2rem 0.5rem", borderRadius: "100px" }}>
-                            {route.in_transit} Jalan
-                          </span>
-                          <span style={{ color: "var(--color-success)", background: "color-mix(in srgb, var(--color-success) 15%, transparent)", padding: "0.2rem 0.5rem", borderRadius: "100px" }}>
-                            {route.delivered} Sampai
-                          </span>
-                        </div>
+                  title="Klik untuk tampilkan Semua Status DO"
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <div className="kpi-icon primary" style={{ marginBottom: 0 }}>📦</div>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "10px", background: "rgba(59, 130, 246, 0.15)", color: "#60a5fa" }}>
+                        100%
+                      </span>
+                    </div>
+                    <div className="kpi-value">{totalDo.toLocaleString("id-ID")}</div>
+                    <div className="kpi-label">Total DO</div>
+                  </div>
+                  <div style={{ marginTop: "0.65rem", paddingTop: "0.45rem", borderTop: "1px solid var(--bg-border)", display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.72rem" }}>
+                      <span style={{ color: "var(--text-muted)" }}>Volume (Liter):</span>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{formatVol(totalVol)}</span>
+                    </div>
+                    {totalQty > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.7rem" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Qty Kemasan:</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{formatQty(totalQty)} item</span>
                       </div>
-                    ));
-                })()
-              )}
-            </div>
-          </div>
+                    )}
+                  </div>
+                </div>
 
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ overflowX: "auto" }}>
-              <table className="data-table">
+                {/* DO Send */}
+                <div
+                  className="kpi-card info"
+                  onClick={() => {
+                    setSelectedDoStatuses((prev) =>
+                      prev.includes("send") ? prev.filter((s) => s !== "send") : [...prev, "send"]
+                    );
+                  }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    border: selectedDoStatuses.includes("send") ? "2px solid #38bdf8" : "1px solid var(--bg-border)",
+                    boxShadow: selectedDoStatuses.includes("send") ? "0 0 12px rgba(56, 189, 248, 0.25)" : undefined,
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Klik untuk toggle filter DO Send (Kirim)"
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <div className="kpi-icon info" style={{ marginBottom: 0 }}>🚛</div>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "10px", background: "rgba(56, 189, 248, 0.15)", color: "#38bdf8" }}>
+                        {sendPct}%
+                      </span>
+                    </div>
+                    <div className="kpi-value">{sendCount.toLocaleString("id-ID")}</div>
+                    <div className="kpi-label">DO Send (Kirim)</div>
+                  </div>
+                  <div style={{ marginTop: "0.65rem", paddingTop: "0.45rem", borderTop: "1px solid var(--bg-border)", display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.72rem" }}>
+                      <span style={{ color: "var(--text-muted)" }}>Volume (Liter):</span>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        {formatVol(sendVol)}{" "}
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>({sendVolPct}%)</span>
+                      </span>
+                    </div>
+                    {sendQty > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.7rem" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Qty Kemasan:</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{formatQty(sendQty)} item</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* DO Received */}
+                <div
+                  className="kpi-card success"
+                  onClick={() => {
+                    setSelectedDoStatuses((prev) =>
+                      prev.includes("received") ? prev.filter((s) => s !== "received") : [...prev, "received"]
+                    );
+                  }}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    border: selectedDoStatuses.includes("received") ? "2px solid #22c55e" : "1px solid var(--bg-border)",
+                    boxShadow: selectedDoStatuses.includes("received") ? "0 0 12px rgba(34, 197, 94, 0.25)" : undefined,
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Klik untuk toggle filter DO Received (Sampai)"
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <div className="kpi-icon success" style={{ marginBottom: 0 }}>✅</div>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "10px", background: "rgba(34, 197, 94, 0.15)", color: "#4ade80" }}>
+                        {recvPct}%
+                      </span>
+                    </div>
+                    <div className="kpi-value">{recvCount.toLocaleString("id-ID")}</div>
+                    <div className="kpi-label">DO Received (Sampai)</div>
+                  </div>
+                  <div style={{ marginTop: "0.65rem", paddingTop: "0.45rem", borderTop: "1px solid var(--bg-border)", display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.72rem" }}>
+                      <span style={{ color: "var(--text-muted)" }}>Volume (Liter):</span>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        {formatVol(recvVol)}{" "}
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>({recvVolPct}%)</span>
+                      </span>
+                    </div>
+                    {recvQty > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.7rem" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Qty Kemasan:</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{formatQty(recvQty)} item</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* DO Return */}
+                <div
+                  className="kpi-card"
+                  onClick={() => {
+                    setSelectedDoStatuses((prev) =>
+                      prev.includes("return") ? prev.filter((s) => s !== "return") : [...prev, "return"]
+                    );
+                  }}
+                  style={{
+                    borderLeft: "4px solid #06b6d4",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    border: selectedDoStatuses.includes("return") ? "2px solid #06b6d4" : "1px solid var(--bg-border)",
+                    borderLeftWidth: "4px",
+                    boxShadow: selectedDoStatuses.includes("return") ? "0 0 12px rgba(6, 182, 212, 0.25)" : undefined,
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Klik untuk toggle filter DO Return (Kembali)"
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <div className="kpi-icon" style={{ background: "rgba(6, 182, 212, 0.15)", color: "#06b6d4", marginBottom: 0 }}>🔄</div>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "10px", background: "rgba(6, 182, 212, 0.15)", color: "#22d3ee" }}>
+                        {returnPct}%
+                      </span>
+                    </div>
+                    <div className="kpi-value" style={{ color: "#22d3ee" }}>{returnCount.toLocaleString("id-ID")}</div>
+                    <div className="kpi-label">DO Return (Kembali)</div>
+                  </div>
+                  <div style={{ marginTop: "0.65rem", paddingTop: "0.45rem", borderTop: "1px solid var(--bg-border)", display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.72rem" }}>
+                      <span style={{ color: "var(--text-muted)" }}>Volume (Liter):</span>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        {formatVol(returnVol)}{" "}
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>({returnVolPct}%)</span>
+                      </span>
+                    </div>
+                    {returnQty > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.7rem" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Qty Kemasan:</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{formatQty(returnQty)} item</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* DO Invoice */}
+                <div
+                  className="kpi-card"
+                  onClick={() => {
+                    setSelectedDoStatuses((prev) =>
+                      prev.includes("invoice") ? prev.filter((s) => s !== "invoice") : [...prev, "invoice"]
+                    );
+                  }}
+                  style={{
+                    borderLeft: "4px solid #6366f1",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    border: selectedDoStatuses.includes("invoice") ? "2px solid #818cf8" : "1px solid var(--bg-border)",
+                    borderLeftWidth: "4px",
+                    boxShadow: selectedDoStatuses.includes("invoice") ? "0 0 12px rgba(129, 140, 248, 0.25)" : undefined,
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Klik untuk toggle filter DO Invoice"
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <div className="kpi-icon" style={{ background: "rgba(99, 102, 241, 0.15)", color: "#818cf8", marginBottom: 0 }}>📄</div>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "10px", background: "rgba(99, 102, 241, 0.15)", color: "#818cf8" }}>
+                        {invPct}%
+                      </span>
+                    </div>
+                    <div className="kpi-value" style={{ color: "#818cf8" }}>{invCount.toLocaleString("id-ID")}</div>
+                    <div className="kpi-label">DO Invoice</div>
+                  </div>
+                  <div style={{ marginTop: "0.65rem", paddingTop: "0.45rem", borderTop: "1px solid var(--bg-border)", display: "flex", flexDirection: "column", gap: "0.25rem", fontSize: "0.72rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ color: "var(--text-muted)" }}>Volume (Liter):</span>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        {formatVol(invVol)}{" "}
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>({invVolPct}%)</span>
+                      </span>
+                    </div>
+                    {invQty > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.7rem" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Qty Kemasan:</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{formatQty(invQty)} item</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* DO Cancel */}
+                <div
+                  className="kpi-card"
+                  onClick={() => {
+                    setSelectedDoStatuses((prev) =>
+                      prev.includes("cancel") ? prev.filter((s) => s !== "cancel") : [...prev, "cancel"]
+                    );
+                  }}
+                  style={{
+                    borderLeft: "4px solid #ef4444",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    border: selectedDoStatuses.includes("cancel") ? "2px solid #ef4444" : "1px solid var(--bg-border)",
+                    borderLeftWidth: "4px",
+                    boxShadow: selectedDoStatuses.includes("cancel") ? "0 0 12px rgba(239, 68, 68, 0.25)" : undefined,
+                    transition: "all 0.2s ease",
+                  }}
+                  title="Klik untuk toggle filter DO Cancel"
+                >
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                      <div className="kpi-icon" style={{ background: "rgba(239, 68, 68, 0.15)", color: "#ef4444", marginBottom: 0 }}>❌</div>
+                      <span style={{ fontSize: "0.72rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "10px", background: "rgba(239, 68, 68, 0.15)", color: "#f87171" }}>
+                        {cancelPct}%
+                      </span>
+                    </div>
+                    <div className="kpi-value" style={{ color: "#ef4444" }}>{cancelCount.toLocaleString("id-ID")}</div>
+                    <div className="kpi-label">DO Cancel</div>
+                  </div>
+                  <div style={{ marginTop: "0.65rem", paddingTop: "0.45rem", borderTop: "1px solid var(--bg-border)", display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.72rem" }}>
+                      <span style={{ color: "var(--text-muted)" }}>Volume (Liter):</span>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                        {formatVol(cancelVol)}{" "}
+                        <span style={{ color: "var(--text-muted)", fontSize: "0.68rem" }}>({cancelVolPct}%)</span>
+                      </span>
+                    </div>
+                    {cancelQty > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "0.7rem" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Qty Kemasan:</span>
+                        <span style={{ color: "var(--text-secondary)" }}>{formatQty(cancelQty)} item</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          <div style={{ background: "var(--bg-surface)", borderRadius: "12px", border: "1px solid var(--bg-border)", overflow: "visible" }}>
+            <div style={{ overflowX: "auto", overflowY: "visible" }}>
+              <table className="data-table" style={{ width: "100%", minWidth: "1400px" }}>
                 <thead>
                   <tr>
-                    <th>No. DO</th>
-                    <th>Tanggal DO</th>
-                    <th>Customer</th>
+                    <th style={{ minWidth: "170px" }}>
+                      <div style={{ marginBottom: "6px" }}>Nomor DO</div>
+                      <MultiSelectFilter
+                        title="Nomor DO"
+                        placeholder="Semua No. DO"
+                        searchPlaceholder="Cari nomor DO..."
+                        options={doNumberOptions}
+                        selectedValues={selectedDoNumbers}
+                        onChange={setSelectedDoNumbers}
+                        popoverWidth={280}
+                        compact={true}
+                      />
+                    </th>
+                    <th style={{ minWidth: "160px" }}>
+                      <div style={{ marginBottom: "6px" }}>Gudang</div>
+                      <MultiSelectFilter
+                        title="Gudang"
+                        placeholder="Semua Gudang"
+                        searchPlaceholder="Cari gudang..."
+                        options={warehouseDoOptions}
+                        selectedValues={selectedOriginWarehouses}
+                        onChange={setSelectedOriginWarehouses}
+                        popoverWidth={240}
+                        compact={true}
+                      />
+                    </th>
+                    <th style={{ minWidth: "160px" }}>
+                      <div style={{ marginBottom: "6px" }}>Tanggal DO</div>
+                      <MultiSelectFilter
+                        title="Tanggal DO"
+                        placeholder="Semua Tanggal"
+                        searchPlaceholder="Cari tanggal (DD-MM-YYYY)..."
+                        options={doDateOptions}
+                        selectedValues={selectedDoDates}
+                        onChange={setSelectedDoDates}
+                        popoverWidth={240}
+                        compact={true}
+                        icon={<span style={{ fontSize: "12px" }}>📅</span>}
+                      />
+                    </th>
+                    <th style={{ minWidth: "220px" }}>
+                      <div style={{ marginBottom: "6px" }}>Customer</div>
+                      <MultiSelectFilter
+                        title="Customer"
+                        placeholder="Semua Customer"
+                        searchPlaceholder="Cari customer..."
+                        options={customerOptions}
+                        selectedValues={selectedCustomers}
+                        onChange={setSelectedCustomers}
+                        popoverWidth={280}
+                        compact={true}
+                      />
+                    </th>
                     <th>Kota Tujuan</th>
-                    <th>Driver / Kendaraan</th>
+                    <th style={{ textAlign: "right" }}>Volume (Liter)</th>
+                    <th style={{ minWidth: "140px" }}>Driver / Kendaraan</th>
                     <th>Waktu Kirim</th>
-                    <th>Status</th>
+                    <th title="Live tracking dihitung sejak DO dibuat">Receive Date</th>
+                    <th title="Live tracking dihitung sejak Receive Date dibuat">Return Date</th>
+                    <th style={{ textAlign: "center" }} title="Selisih hari dari barang diterima hingga surat jalan kembali">Selisih FRDO</th>
+                    <th style={{ minWidth: "190px" }} title="Status pengiriman dan durasi DO dibuat hingga invoice terbit">
+                      <div style={{ marginBottom: "6px" }}>Status DO</div>
+                      <MultiSelectFilter
+                        title="Status DO"
+                        placeholder="Semua Status"
+                        searchable={false}
+                        options={doStatusOptions}
+                        selectedValues={selectedDoStatuses}
+                        onChange={setSelectedDoStatuses}
+                        popoverWidth={230}
+                        compact={true}
+                        align="right"
+                      />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: 7 }).map((_, j) => (
+                        {Array.from({ length: 12 }).map((_, j) => (
                           <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
                         ))}
                       </tr>
                     ))
-                  ) : items.length === 0 ? (
+                  ) : filteredDoItems.length === 0 ? (
                     <tr>
-                      <td colSpan={7} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
-                        Tidak ada data DO.
+                      <td colSpan={12} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
+                        Tidak ada data DO yang sesuai dengan filter.
                       </td>
                     </tr>
                   ) : (
                     paginatedDoItems.map((row) => {
                       const isExpanded = expandedDoId === row.nomor;
-                      const statusKey = row.status || row.status_label || "draft";
+                      const isRowInvoice = row.status === "I" || row.status_label === "invoice" || Boolean(row.tgl_invoice);
+                      const isRowReturn = !isRowInvoice && (row.status === "R" || row.status_label === "Received") && Boolean(row.return_date);
+                      const statusKey = isRowInvoice ? "invoice" : isRowReturn ? "return" : (row.status || row.status_label || "draft");
                       const badge = DO_STATUS_BADGE[statusKey] || STATUS_BADGE[statusKey] || { label: statusKey, cls: "badge-status badge-muted" };
                       return (
                         <React.Fragment key={row.nomor}>
                           <tr style={{ background: isExpanded ? "rgba(56, 189, 248, 0.08)" : undefined }}>
+                            {/* 1. Nomor DO */}
                             <td className="font-mono" style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}>
                               <button
                                 type="button"
@@ -2343,26 +3990,380 @@ export default function DistributionsPage() {
                                 <span style={{ fontSize: "0.65rem", opacity: 0.85 }}>📋</span>
                               </button>
                             </td>
+
+                            {/* 2. Gudang */}
+                            <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                              {row.nama_gudang ? (
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                                  <span style={{ opacity: 0.7 }}>🏢</span>
+                                  <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>{row.nama_gudang}</span>
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
                             <td>{formatDisplayDate(row.tanggal)}</td>
                             <td>
                               <div style={{ fontWeight: 600 }}>{row.nama_customer || "—"}</div>
                               <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{row.id_customer || row.customer_id || "—"}</div>
                             </td>
                             <td style={{ color: "var(--text-secondary)" }}>{row.destination || row.kota_tujuan || "—"}</td>
+                            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                              <div style={{ fontWeight: 700, color: "#38bdf8" }}>
+                                {row.total_volume_liter != null && row.total_volume_liter > 0
+                                  ? `${Number(row.total_volume_liter).toLocaleString("id-ID", { maximumFractionDigits: 1 })} Ltr`
+                                  : "—"}
+                              </div>
+                              {row.total_qty != null && row.total_qty > 0 && (
+                                <div style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                                  {Number(row.total_qty).toLocaleString("id-ID")} kemasan
+                                </div>
+                              )}
+                            </td>
                             <td>
                               <div style={{ color: "var(--text-secondary)" }}>{row.driver || "—"}</div>
                               <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{row.lic_plate || row.plat_nomor || "—"}</div>
                             </td>
-                            <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>
+                            <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                               {row.tgl_keluar ? formatDisplayDate(row.tgl_keluar) : (row.waktu_kirim ? new Date(row.waktu_kirim).toLocaleString("id") : "—")}
                             </td>
+                            <td style={{ fontSize: "0.8rem", whiteSpace: "nowrap" }}>
+                              {row.received_date ? (
+                                <div>
+                                  <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                                    {formatDisplayDate(row.received_date)}
+                                  </div>
+                                  {row.received_name && (
+                                    <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                                      {row.received_name}
+                                    </div>
+                                  )}
+                                  {(() => {
+                                    let durasiTerima: number | null = row.durasi_terima_hari ?? null;
+                                    if (durasiTerima === null && row.received_date && row.tanggal) {
+                                      const tRecv = parseDateLocal(row.received_date)?.getTime();
+                                      const tDo = parseDateLocal(row.tanggal)?.getTime();
+                                      if (tRecv && tDo) {
+                                        durasiTerima = Math.round((tRecv - tDo) / (1000 * 60 * 60 * 24));
+                                      }
+                                    }
+                                    if (durasiTerima === null || isNaN(durasiTerima)) return null;
+                                    const isFast = durasiTerima <= 2;
+                                    const isMid = durasiTerima <= 5;
+                                    const color = isFast ? "#22c55e" : isMid ? "#eab308" : "#ef4444";
+                                    const bg = isFast ? "rgba(34, 197, 94, 0.12)" : isMid ? "rgba(234, 179, 8, 0.12)" : "rgba(239, 68, 68, 0.12)";
+                                    const border = isFast ? "rgba(34, 197, 94, 0.3)" : isMid ? "rgba(234, 179, 8, 0.3)" : "rgba(239, 68, 68, 0.3)";
+                                    return (
+                                      <div style={{ marginTop: "0.2rem" }}>
+                                        <span
+                                          style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "0.2rem",
+                                            fontSize: "0.68rem",
+                                            fontWeight: 600,
+                                            color,
+                                            background: bg,
+                                            border: `1px solid ${border}`,
+                                            borderRadius: "4px",
+                                            padding: "0.1rem 0.35rem",
+                                          }}
+                                          title={`DO dibuat: ${formatDisplayDate(row.tanggal)} → Diterima: ${formatDisplayDate(row.received_date)}`}
+                                        >
+                                          ✓ {durasiTerima} Hari
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              ) : (() => {
+                                // Live tracking receive date dihitung sejak DO dibuat
+                                const startDate = row.tanggal;
+                                const info = getLiveTrackingInfo(startDate);
+                                const theme = info ? getReceiveLiveTheme(info.days) : null;
+                                return (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                                    <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", background: "var(--bg-surface)", padding: "0.15rem 0.45rem", borderRadius: "4px", border: "1px solid var(--bg-border)", display: "inline-block" }}>
+                                      Belum Diterima
+                                    </span>
+                                    {info && theme && (
+                                      <span
+                                        title={`DO dibuat: ${formatDisplayDate(row.tanggal)} — Live tracking berjalan sejak DO dibuat`}
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "0.3rem",
+                                          fontSize: "0.68rem",
+                                          fontWeight: 600,
+                                          color: theme.color,
+                                          background: theme.bgColor,
+                                          border: `1px solid ${theme.borderColor}`,
+                                          borderRadius: "5px",
+                                          padding: "0.12rem 0.4rem",
+                                          letterSpacing: "0.01em",
+                                        }}
+                                      >
+                                        <span className="live-pulse-dot" style={{ background: theme.color }} />
+                                        ⏱ {info.label}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                            </td>
+                            <td style={{ fontSize: "0.8rem", whiteSpace: "nowrap" }}>
+                              {row.return_date ? (
+                                <div>
+                                  <span style={{ fontWeight: 600, color: "#38bdf8" }}>
+                                    {formatDisplayDate(row.return_date)}
+                                  </span>
+                                  {(() => {
+                                    let selisih: number | null = row.selisih_hari ?? null;
+                                    if (selisih === null && row.return_date && row.received_date) {
+                                      const tReturn = parseDateLocal(row.return_date)?.getTime();
+                                      const tRecv = parseDateLocal(row.received_date)?.getTime();
+                                      if (tReturn && tRecv) {
+                                        selisih = Math.round((tReturn - tRecv) / (1000 * 60 * 60 * 24));
+                                      }
+                                    }
+                                    if (selisih === null || isNaN(selisih)) return null;
+                                    const isFast = selisih <= 3;
+                                    const isMid = selisih <= 7;
+                                    const color = isFast ? "#22c55e" : isMid ? "#eab308" : "#ef4444";
+                                    const bg = isFast ? "rgba(34, 197, 94, 0.12)" : isMid ? "rgba(234, 179, 8, 0.12)" : "rgba(239, 68, 68, 0.12)";
+                                    const border = isFast ? "rgba(34, 197, 94, 0.3)" : isMid ? "rgba(234, 179, 8, 0.3)" : "rgba(239, 68, 68, 0.3)";
+                                    return (
+                                      <div style={{ marginTop: "0.2rem" }}>
+                                        <span
+                                          style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "0.2rem",
+                                            fontSize: "0.68rem",
+                                            fontWeight: 600,
+                                            color,
+                                            background: bg,
+                                            border: `1px solid ${border}`,
+                                            borderRadius: "4px",
+                                            padding: "0.1rem 0.35rem",
+                                          }}
+                                          title={`Diterima: ${formatDisplayDate(row.received_date)} → Return: ${formatDisplayDate(row.return_date)}`}
+                                        >
+                                          ✓ {selisih} Hari
+                                        </span>
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                              ) : row.received_date ? (() => {
+                                // Live tracking return date dihitung sejak receive date dibuat
+                                const info = getLiveTrackingInfo(row.received_date);
+                                const theme = info ? getReturnLiveTheme(info.days) : null;
+                                return (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "0.3rem" }}>
+                                    <span style={{ fontSize: "0.72rem", color: "#eab308", background: "rgba(234,179,8,0.1)", padding: "0.15rem 0.45rem", borderRadius: "4px", border: "1px solid rgba(234,179,8,0.25)", display: "inline-block" }}>
+                                      Belum Kembali
+                                    </span>
+                                    {info && theme && (
+                                      <span
+                                        title={`Diterima: ${formatDisplayDate(row.received_date)} — Live tracking berjalan sejak barang diterima`}
+                                        style={{
+                                          display: "inline-flex",
+                                          alignItems: "center",
+                                          gap: "0.3rem",
+                                          fontSize: "0.68rem",
+                                          fontWeight: 600,
+                                          color: theme.color,
+                                          background: theme.bgColor,
+                                          border: `1px solid ${theme.borderColor}`,
+                                          borderRadius: "5px",
+                                          padding: "0.12rem 0.4rem",
+                                          letterSpacing: "0.01em",
+                                        }}
+                                      >
+                                        <span className="live-pulse-dot" style={{ background: theme.color }} />
+                                        ⏱ {info.label}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })() : (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                                  <span style={{ fontSize: "0.72rem", color: "#eab308", background: "rgba(234,179,8,0.1)", padding: "0.15rem 0.45rem", borderRadius: "4px", border: "1px solid rgba(234,179,8,0.25)", display: "inline-block" }}>
+                                    Belum Kembali
+                                  </span>
+                                  <span style={{ fontSize: "0.63rem", color: "var(--text-muted)", fontStyle: "italic" }}>
+                                    (Menunggu Terima)
+                                  </span>
+                                </div>
+                              )}
+                            </td>
+                            <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                              {(() => {
+                                let selisih: number | null = row.selisih_hari ?? null;
+                                if (selisih === null && row.return_date && row.received_date) {
+                                  const tReturn = new Date(row.return_date).getTime();
+                                  const tRecv = new Date(row.received_date).getTime();
+                                  if (!isNaN(tReturn) && !isNaN(tRecv)) {
+                                    selisih = Math.round((tReturn - tRecv) / (1000 * 60 * 60 * 24));
+                                  }
+                                }
+
+                                if (selisih !== null && !isNaN(selisih)) {
+                                  const isSameDay = selisih === 0;
+                                  const isFast = selisih > 0 && selisih <= 3;
+                                  const isLate = selisih > 7;
+                                  const color = isSameDay || isFast ? "#22c55e" : isLate ? "#ef4444" : "#eab308";
+                                  const bg = isSameDay || isFast ? "rgba(34, 197, 94, 0.15)" : isLate ? "rgba(239, 68, 68, 0.15)" : "rgba(234, 179, 8, 0.15)";
+                                  const border = isSameDay || isFast ? "rgba(34, 197, 94, 0.3)" : isLate ? "rgba(239, 68, 68, 0.3)" : "rgba(234, 179, 8, 0.3)";
+
+                                  return (
+                                    <span
+                                      style={{
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        padding: "0.2rem 0.5rem",
+                                        borderRadius: "6px",
+                                        fontSize: "0.75rem",
+                                        fontWeight: 700,
+                                        background: bg,
+                                        color: color,
+                                        border: `1px solid ${border}`,
+                                      }}
+                                      title={`Return: ${row.return_date || '-'} | Receive: ${row.received_date || '-'}`}
+                                    >
+                                      {isSameDay ? "0 Hari" : `${selisih} Hari`}
+                                    </span>
+                                  );
+                                }
+
+                                if (row.received_date && !row.return_date) {
+                                  return (
+                                    <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                                      Menunggu FRDO
+                                    </span>
+                                  );
+                                }
+
+                                return <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>—</span>;
+                              })()}
+                            </td>
                             <td>
-                              <span className={badge.cls}>{badge.label}</span>
+                              {(() => {
+                                if (isRowInvoice) {
+                                  let durasiInvoice: number | null = row.durasi_invoice_hari ?? null;
+                                  if (durasiInvoice === null && row.tgl_invoice && row.tanggal) {
+                                    const tInv = parseDateLocal(row.tgl_invoice)?.getTime();
+                                    const tDo = parseDateLocal(row.tanggal)?.getTime();
+                                    if (tInv && tDo) {
+                                      durasiInvoice = Math.round((tInv - tDo) / (1000 * 60 * 60 * 24));
+                                    }
+                                  }
+
+                                  const isFast = durasiInvoice !== null && durasiInvoice <= 3;
+                                  const isMid = durasiInvoice !== null && durasiInvoice <= 7;
+                                  const leadColor = isFast ? "#22c55e" : isMid ? "#eab308" : "#818cf8";
+                                  const leadBg = isFast ? "rgba(34, 197, 94, 0.12)" : isMid ? "rgba(234, 179, 8, 0.12)" : "rgba(99, 102, 241, 0.12)";
+                                  const leadBorder = isFast ? "rgba(34, 197, 94, 0.3)" : isMid ? "rgba(234, 179, 8, 0.3)" : "rgba(99, 102, 241, 0.3)";
+
+                                  return (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                                        <span
+                                          style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "0.25rem",
+                                            padding: "0.18rem 0.5rem",
+                                            borderRadius: "6px",
+                                            fontSize: "0.75rem",
+                                            fontWeight: 700,
+                                            background: "rgba(99, 102, 241, 0.15)",
+                                            color: "#818cf8",
+                                            border: "1px solid rgba(99, 102, 241, 0.35)",
+                                          }}
+                                        >
+                                          📄 Invoice
+                                        </span>
+                                      </div>
+                                      {durasiInvoice !== null && (
+                                        <span
+                                          style={{
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: "0.25rem",
+                                            fontSize: "0.7rem",
+                                            fontWeight: 600,
+                                            color: leadColor,
+                                            background: leadBg,
+                                            border: `1px solid ${leadBorder}`,
+                                            padding: "0.12rem 0.4rem",
+                                            borderRadius: "4px",
+                                            width: "fit-content",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                          title={`DO dibuat: ${formatDisplayDate(row.tanggal)} → Invoice terbit: ${row.tgl_invoice ? formatDisplayDate(row.tgl_invoice) : '-'}`}
+                                        >
+                                          ⚡ {durasiInvoice} Hari
+                                        </span>
+                                      )}
+                                      {row.no_invoice && (
+                                        <div
+                                          style={{ fontSize: "0.68rem", color: "var(--text-muted)", fontFamily: "monospace", display: "flex", alignItems: "center", gap: "0.2rem" }}
+                                          title={row.tgl_invoice ? `Invoice Terbit: ${formatDisplayDate(row.tgl_invoice)}` : undefined}
+                                        >
+                                          <span>№</span>
+                                          <span>{row.no_invoice}</span>
+                                        </div>
+                                      )}
+                                      {row.tgl_invoice && !row.no_invoice && (
+                                        <div style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                                          Terbit: {formatDisplayDate(row.tgl_invoice)}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                }
+
+                                if (statusKey === "cancel" || row.status === "C") {
+                                  return (
+                                    <span className="badge-status badge-danger">
+                                      Cancel
+                                    </span>
+                                  );
+                                }
+
+                                // Status selain invoice (send, received, return, draft)
+                                const elapsedDo = getLiveTrackingInfo(row.tanggal);
+                                return (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                                    <span className={badge.cls}>{badge.label}</span>
+                                    <span
+                                      style={{
+                                        fontSize: "0.68rem",
+                                        color: "var(--text-muted)",
+                                        background: "var(--bg-surface)",
+                                        padding: "0.1rem 0.35rem",
+                                        borderRadius: "4px",
+                                        border: "1px solid var(--bg-border)",
+                                        width: "fit-content",
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: "0.2rem",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                      title={`DO dibuat: ${formatDisplayDate(row.tanggal)} — Menunggu Invoice`}
+                                    >
+                                      ⏳ {elapsedDo ? `${elapsedDo.days} hr` : "Belum Invoice"}
+                                    </span>
+                                  </div>
+                                );
+                              })()}
                             </td>
                           </tr>
                           {isExpanded && (
                             <tr key={`${row.nomor}-modal-subrow`}>
-                              <td colSpan={7} style={{ padding: "0.85rem 1rem 1.4rem", background: "var(--bg-surface)", borderBottom: "2px solid #38bdf8" }}>
+                              <td colSpan={12} style={{ padding: "0.85rem 1rem 1.4rem", background: "var(--bg-surface)", borderBottom: "2px solid #38bdf8" }}>
                                 {renderDoReceiptModalBox(row.nomor, () => setExpandedDoId(null))}
                               </td>
                             </tr>
@@ -2374,164 +4375,13 @@ export default function DistributionsPage() {
                 </tbody>
               </table>
             </div>
-            {renderPagination(safeDoPage, totalDoPages, items.length, setDoPage)}
+            {renderPagination(safeDoPage, totalDoPages, filteredDoItems.length, setDoPage)}
           </div>
         </>
       )}
 
       {mainTab === "IO" && (
         <>
-          {/* Action Bar: Calendar Date Filter & Download Excel */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              marginBottom: "1rem",
-              padding: "0.85rem 1.15rem",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--bg-border)",
-              borderRadius: "8px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <span style={{ fontSize: "1.35rem" }}>📑</span>
-              <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                Data Internal Order (IO)
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  const curr = getCurrentMonthDates();
-                  setCalendarDateFrom(curr.from);
-                  setCalendarDateTo(curr.to);
-                }}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  fontSize: "0.75rem",
-                  padding: "0.35rem 0.7rem",
-                  borderRadius: "6px",
-                  border: "1px solid var(--bg-border)",
-                  background: "rgba(16, 185, 129, 0.12)",
-                  color: "var(--color-success)",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-                title="Tampilkan data Bulan Berjalan"
-              >
-                📅 Bulan Ini
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCalendarDateFrom("");
-                  setCalendarDateTo(new Date().toISOString().slice(0, 10));
-                }}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  fontSize: "0.75rem",
-                  padding: "0.35rem 0.7rem",
-                  borderRadius: "6px",
-                  border: "1px solid var(--bg-border)",
-                  background: "var(--bg-surface)",
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                }}
-                title="Tampilkan semua data tanpa batasan tanggal"
-              >
-                Semua Periode
-              </button>
-
-              <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 500, marginLeft: "0.2rem" }}>
-                Rentang Tanggal:
-              </span>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--bg-border)",
-                  borderRadius: "6px",
-                  padding: "0.35rem 0.65rem",
-                }}
-              >
-                <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>📅</span>
-                <input
-                  type="date"
-                  value={calendarDateFrom}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCalendarDateFrom(e.target.value)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-primary)",
-                    fontSize: "0.82rem",
-                    outline: "none",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                  title="Tanggal Mulai"
-                />
-                <span style={{ color: "#64748b", fontSize: "0.8rem" }}>s/d</span>
-                <input
-                  type="date"
-                  value={calendarDateTo}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCalendarDateTo(e.target.value)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-primary)",
-                    fontSize: "0.82rem",
-                    outline: "none",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                  title="Tanggal Akhir"
-                />
-              </div>
-
-              <button
-                onClick={() => handleDownloadExcel("IO")}
-                disabled={isDownloading}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.45rem",
-                  background: isDownloading ? "#065f46" : "#059669",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "0.48rem 1.1rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 600,
-                  cursor: isDownloading ? "not-allowed" : "pointer",
-                  transition: "all 0.2s ease",
-                  boxShadow: "0 2px 6px rgba(5, 150, 105, 0.3)",
-                }}
-                title={`Download Internal Order format Excel (.xlsx) untuk rentang tanggal ${calendarDateFrom} s/d ${calendarDateTo}`}
-              >
-                {isDownloading ? (
-                  <>
-                    <span>⏳</span>
-                    <span>Mengunduh...</span>
-                  </>
-                ) : (
-                  <>
-                    <span style={{ fontSize: "1rem" }}>📥</span>
-                    <span>Download Excel (IO.xlsx)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-
           {/* Filter Status Pills IO */}
           <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
             {[
@@ -2554,25 +4404,98 @@ export default function DistributionsPage() {
             ))}
           </div>
 
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ overflowX: "auto" }}>
-            <table className="data-table">
+          <div style={{ background: "var(--bg-surface)", borderRadius: "12px", border: "1px solid var(--bg-border)", overflow: "visible" }}>
+            <div style={{ overflowX: "auto", overflowY: "visible" }}>
+            <table className="data-table" style={{ width: "100%", minWidth: "1450px" }}>
               <thead>
                 <tr>
                   <th style={{ width: "35px", textAlign: "center" }}>No</th>
-                  <th>Nomor IO</th>
+                  <th style={{ minWidth: "180px" }}>
+                    <div style={{ marginBottom: "6px" }}>Nomor IO</div>
+                    <MultiSelectFilter
+                      title="Nomor IO"
+                      placeholder="Semua No. IO"
+                      searchPlaceholder="Cari nomor IO..."
+                      options={ioNumberOptions}
+                      selectedValues={selectedIoNumbers}
+                      onChange={setSelectedIoNumbers}
+                      popoverWidth={280}
+                      compact={true}
+                    />
+                  </th>
                   <th>Tanggal</th>
-                  <th>Kantor</th>
-                  <th>Gudang Asal</th>
-                  <th>Gudang Tujuan</th>
-                  <th>Dibuat oleh</th>
+                  <th style={{ minWidth: "170px" }}>
+                    <div style={{ marginBottom: "6px" }}>Kantor</div>
+                    <MultiSelectFilter
+                      title="Kantor"
+                      placeholder="Semua Kantor"
+                      searchPlaceholder="Cari kantor..."
+                      options={ioKantorOptions}
+                      selectedValues={selectedIoKantors}
+                      onChange={setSelectedIoKantors}
+                      popoverWidth={230}
+                      compact={true}
+                    />
+                  </th>
+                  <th style={{ minWidth: "180px" }}>
+                    <div style={{ marginBottom: "6px" }}>Gudang Asal</div>
+                    <MultiSelectFilter
+                      title="Gudang Asal"
+                      placeholder="Semua Asal"
+                      searchPlaceholder="Cari gudang asal..."
+                      options={ioGudangAsalOptions}
+                      selectedValues={selectedOriginWarehouses}
+                      onChange={setSelectedOriginWarehouses}
+                      popoverWidth={240}
+                      compact={true}
+                    />
+                  </th>
+                  <th style={{ minWidth: "180px" }}>
+                    <div style={{ marginBottom: "6px" }}>Gudang Tujuan</div>
+                    <MultiSelectFilter
+                      title="Gudang Tujuan"
+                      placeholder="Semua Tujuan"
+                      searchPlaceholder="Cari gudang tujuan..."
+                      options={ioGudangTujuanOptions}
+                      selectedValues={selectedDestinationWarehouses}
+                      onChange={setSelectedDestinationWarehouses}
+                      popoverWidth={240}
+                      compact={true}
+                    />
+                  </th>
+                  <th style={{ minWidth: "170px" }}>
+                    <div style={{ marginBottom: "6px" }}>Dibuat oleh</div>
+                    <MultiSelectFilter
+                      title="Pembuat"
+                      placeholder="Semua Pemohon"
+                      searchPlaceholder="Cari pembuat..."
+                      options={ioDibuatOlehOptions}
+                      selectedValues={selectedIoCreators}
+                      onChange={setSelectedIoCreators}
+                      popoverWidth={230}
+                      compact={true}
+                    />
+                  </th>
                   <th>Send</th>
                   <th>Check By DSM</th>
                   <th>Dicek ST</th>
                   <th>Dicek WHM</th>
                   <th>Approve</th>
                   <th>No. IP</th>
-                  <th>Status</th>
+                  <th style={{ minWidth: "180px" }}>
+                    <div style={{ marginBottom: "6px" }}>Status</div>
+                    <MultiSelectFilter
+                      title="Status IO"
+                      placeholder="Semua Status"
+                      searchable={false}
+                      options={ioStatusOptions}
+                      selectedValues={selectedIoStatuses}
+                      onChange={setSelectedIoStatuses}
+                      popoverWidth={230}
+                      compact={true}
+                      align="right"
+                    />
+                  </th>
                   <th>Nama Barang</th>
                   <th>Kode Barang</th>
                   <th>Qty</th>
@@ -2592,11 +4515,11 @@ export default function DistributionsPage() {
                 ) : filteredIoItems.length === 0 ? (
                   <tr>
                     <td colSpan={19} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
-                      Tidak ada data Internal Order{ioStatusFilter !== "all" ? ` dengan status ${ioStatusFilter}` : ""}.
+                      Tidak ada data Internal Order yang sesuai dengan filter.
                     </td>
                   </tr>
                 ) : (
-                  filteredIoItems.map((row: InternalOrderRecord, idx: number) => {
+                  paginatedIoItems.map((row: InternalOrderRecord, idx: number) => {
                     const code = (row.status_code || row.status || "").trim();
                     const badge = IO_STATUS_BADGE[code] || IO_STATUS_BADGE[row.status] || { label: row.status || code || "—", cls: "badge-status badge-muted", desc: code };
 
@@ -2605,7 +4528,7 @@ export default function DistributionsPage() {
                     return (
                       <React.Fragment key={`${row.nomor_io}-${row.kode_barang || ''}-${idx}`}>
                         <tr style={{ background: isExpanded ? "rgba(16, 185, 129, 0.08)" : undefined }}>
-                          <td style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "0.75rem" }}>{idx + 1}</td>
+                          <td style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "0.75rem" }}>{(safeIoPage - 1) * ITEMS_PER_PAGE + idx + 1}</td>
                           <td className="font-mono" style={{ fontSize: "0.75rem", whiteSpace: "nowrap" }}>
                             <button
                               type="button"
@@ -2694,188 +4617,13 @@ export default function DistributionsPage() {
             </table>
           </div>
           
-          {/* Status Footer: Menampilkan seluruh data tanpa batasan per halaman */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              padding: "0.85rem 1.25rem",
-              background: "var(--bg-surface)",
-              borderTop: "1px solid var(--bg-border)",
-              fontSize: "0.85rem",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <div>
-              Menampilkan seluruh <span style={{ color: "#10B981", fontWeight: 700 }}>{filteredIoItems.length}</span> data Internal Order
-              {calendarDateFrom && calendarDateTo ? (
-                <> (Periode: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{formatDisplayDate(calendarDateFrom)}</span> s/d <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{formatDisplayDate(calendarDateTo)}</span>)</>
-              ) : " (Semua Periode)"}
-            </div>
-            <div style={{ fontSize: "0.8rem", color: "#10B981", fontWeight: 500, display: "flex", alignItems: "center", gap: "0.35rem" }}>
-              <span>✓</span> Data Bulan Berjalan / Periode Aktif
-            </div>
-          </div>
+          {renderPagination(safeIoPage, totalIoPages, filteredIoItems.length, setIoPage)}
         </div>
         </>
       )}
 
       {mainTab === "IT" && (
         <>
-          {/* Action Bar: Calendar Date Filter & Download Excel */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              marginBottom: "1rem",
-              padding: "0.85rem 1.15rem",
-              background: "var(--bg-surface)",
-              border: "1px solid var(--bg-border)",
-              borderRadius: "8px",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-              <span style={{ fontSize: "1.35rem" }}>🔄</span>
-              <div style={{ fontWeight: 600, fontSize: "0.95rem", color: "var(--text-primary)" }}>
-                Data Internal Transfer (IT)
-              </div>
-            </div>
-
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => {
-                  const curr = getCurrentMonthDates();
-                  setCalendarDateFrom(curr.from);
-                  setCalendarDateTo(curr.to);
-                }}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  fontSize: "0.75rem",
-                  padding: "0.35rem 0.7rem",
-                  borderRadius: "6px",
-                  border: "1px solid var(--bg-border)",
-                  background: "rgba(56, 189, 248, 0.12)",
-                  color: "var(--color-primary)",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-                title="Tampilkan data Bulan Berjalan"
-              >
-                📅 Bulan Ini
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCalendarDateFrom("");
-                  setCalendarDateTo(new Date().toISOString().slice(0, 10));
-                }}
-                className="btn btn-ghost btn-sm"
-                style={{
-                  fontSize: "0.75rem",
-                  padding: "0.35rem 0.7rem",
-                  borderRadius: "6px",
-                  border: "1px solid var(--bg-border)",
-                  background: "var(--bg-surface)",
-                  color: "var(--text-secondary)",
-                  cursor: "pointer",
-                }}
-                title="Tampilkan semua data tanpa batasan tanggal"
-              >
-                Semua Periode
-              </button>
-
-              <span style={{ fontSize: "0.82rem", color: "var(--text-secondary)", fontWeight: 500, marginLeft: "0.2rem" }}>
-                Rentang Tanggal:
-              </span>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.35rem",
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--bg-border)",
-                  borderRadius: "6px",
-                  padding: "0.35rem 0.65rem",
-                }}
-              >
-                <span style={{ fontSize: "0.85rem", color: "#94a3b8" }}>📅</span>
-                <input
-                  type="date"
-                  value={calendarDateFrom}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCalendarDateFrom(e.target.value)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-primary)",
-                    fontSize: "0.82rem",
-                    outline: "none",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                  title="Tanggal Mulai"
-                />
-                <span style={{ color: "#64748b", fontSize: "0.8rem" }}>s/d</span>
-                <input
-                  type="date"
-                  value={calendarDateTo}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCalendarDateTo(e.target.value)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    color: "var(--text-primary)",
-                    fontSize: "0.82rem",
-                    outline: "none",
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                  title="Tanggal Akhir"
-                />
-              </div>
-
-              <button
-                onClick={() => handleDownloadExcel("IT")}
-                disabled={isDownloading}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.45rem",
-                  background: isDownloading ? "#065f46" : "#059669",
-                  color: "#ffffff",
-                  border: "none",
-                  borderRadius: "6px",
-                  padding: "0.48rem 1.1rem",
-                  fontSize: "0.82rem",
-                  fontWeight: 600,
-                  cursor: isDownloading ? "not-allowed" : "pointer",
-                  transition: "all 0.2s ease",
-                  boxShadow: "0 2px 6px rgba(5, 150, 105, 0.3)",
-                }}
-                title={`Download Internal Transfer format Excel (.xlsx) untuk rentang tanggal ${calendarDateFrom} s/d ${calendarDateTo}`}
-              >
-                {isDownloading ? (
-                  <>
-                    <span>⏳</span>
-                    <span>Mengunduh...</span>
-                  </>
-                ) : (
-                  <>
-                    <span style={{ fontSize: "1rem" }}>📥</span>
-                    <span>Download Excel (IT.xlsx)</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-
           {/* Filter Status Pills IT */}
           <div style={{ display: "flex", gap: "0.4rem", marginBottom: "0.75rem", flexWrap: "wrap" }}>
             {[
@@ -2895,22 +4643,71 @@ export default function DistributionsPage() {
             ))}
           </div>
 
-          <div className="card" style={{ padding: 0, overflow: "hidden" }}>
-            <div style={{ overflowX: "auto" }}>
-            <table className="data-table">
+          <div style={{ background: "var(--bg-surface)", borderRadius: "12px", border: "1px solid var(--bg-border)", overflow: "visible" }}>
+            <div style={{ overflowX: "auto", overflowY: "visible" }}>
+            <table className="data-table" style={{ width: "100%", minWidth: "1250px" }}>
               <thead>
                 <tr>
-                  <th>IT No</th>
+                  <th style={{ minWidth: "180px" }}>
+                    <div style={{ marginBottom: "6px" }}>IT No</div>
+                    <MultiSelectFilter
+                      title="No. IT"
+                      placeholder="Semua No. IT"
+                      searchPlaceholder="Cari nomor IT..."
+                      options={itNumberOptions}
+                      selectedValues={selectedItNumbers}
+                      onChange={setSelectedItNumbers}
+                      popoverWidth={280}
+                      compact={true}
+                    />
+                  </th>
                   <th>Date</th>
                   <th>Create Date</th>
                   <th>Delivery Date</th>
                   <th>Receive Date</th>
-                  <th>Gudang Asal</th>
-                  <th>Gudang Tujuan</th>
+                  <th style={{ minWidth: "180px" }}>
+                    <div style={{ marginBottom: "6px" }}>Gudang Asal</div>
+                    <MultiSelectFilter
+                      title="Gudang Asal"
+                      placeholder="Semua Asal"
+                      searchPlaceholder="Cari gudang asal..."
+                      options={itGudangAsalOptions}
+                      selectedValues={selectedOriginWarehouses}
+                      onChange={setSelectedOriginWarehouses}
+                      popoverWidth={240}
+                      compact={true}
+                    />
+                  </th>
+                  <th style={{ minWidth: "180px" }}>
+                    <div style={{ marginBottom: "6px" }}>Gudang Tujuan</div>
+                    <MultiSelectFilter
+                      title="Gudang Tujuan"
+                      placeholder="Semua Tujuan"
+                      searchPlaceholder="Cari gudang tujuan..."
+                      options={itGudangTujuanOptions}
+                      selectedValues={selectedDestinationWarehouses}
+                      onChange={setSelectedDestinationWarehouses}
+                      popoverWidth={240}
+                      compact={true}
+                    />
+                  </th>
                   <th>Nomor IO</th>
                   <th>Tgl. IO Approve</th>
                   <th>Receive Note</th>
-                  <th>Status</th>
+                  <th style={{ minWidth: "170px" }}>
+                    <div style={{ marginBottom: "6px" }}>Status</div>
+                    <MultiSelectFilter
+                      title="Status IT"
+                      placeholder="Semua Status"
+                      searchable={false}
+                      options={itStatusOptions}
+                      selectedValues={selectedItStatuses}
+                      onChange={setSelectedItStatuses}
+                      popoverWidth={220}
+                      compact={true}
+                      align="right"
+                    />
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2925,11 +4722,11 @@ export default function DistributionsPage() {
                 ) : filteredItItems.length === 0 ? (
                   <tr>
                     <td colSpan={11} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
-                      Tidak ada data Internal Transfer{itStatusFilter !== "all" ? ` dengan status ${itStatusFilter}` : ""}.
+                      Tidak ada data Internal Transfer yang sesuai dengan filter.
                     </td>
                   </tr>
                 ) : (
-                  filteredItItems.map((row: InternalTransferRecord) => {
+                  paginatedItItems.map((row: InternalTransferRecord) => {
                     const isExpanded = expandedItId === row.nomor;
                     const code = row.status?.trim() || "";
                     const badge = IT_STATUS_BADGE[code] || { label: code || "—", cls: "badge-status badge-muted", desc: code };
@@ -3017,34 +4814,12 @@ export default function DistributionsPage() {
             </table>
           </div>
           
-          {/* Status Footer: Menampilkan seluruh data tanpa batasan per halaman */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: "0.75rem",
-              padding: "0.85rem 1.25rem",
-              background: "var(--bg-surface)",
-              borderTop: "1px solid var(--bg-border)",
-              fontSize: "0.85rem",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <div>
-              Menampilkan seluruh <span style={{ color: "#38bdf8", fontWeight: 700 }}>{filteredItItems.length}</span> data Internal Transfer
-              {calendarDateFrom && calendarDateTo ? (
-                <> (Periode: <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{formatDisplayDate(calendarDateFrom)}</span> s/d <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{formatDisplayDate(calendarDateTo)}</span>)</>
-              ) : " (Semua Periode)"}
-            </div>
-            <div style={{ fontSize: "0.8rem", color: "#38bdf8", fontWeight: 500, display: "flex", alignItems: "center", gap: "0.35rem" }}>
-              <span>✓</span> Data Bulan Berjalan / Periode Aktif
-            </div>
-          </div>
+          {renderPagination(safeItPage, totalItPages, filteredItItems.length, setItPage)}
         </div>
         </>
       )}
+
+      {canSeeFinancialFlow && mainTab === "FINANCIAL_FLOW" && <FinancialFlowTab />}
 
 
       {/* ─── POPUP OVERLAY FALLBACK (jika dibuka dari link detail) ─── */}

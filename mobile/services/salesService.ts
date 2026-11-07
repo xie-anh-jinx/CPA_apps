@@ -25,6 +25,16 @@ export const salesService = {
     };
   },
 
+  getOrdersKpi: async (params?: Record<string, unknown>) => {
+    const res = await api.get(API_ENDPOINTS.SALES.ORDERS_KPI, { params });
+    return res.data;
+  },
+
+  getOrderDetail: async (nomor: string) => {
+    const res = await api.get(API_ENDPOINTS.SALES.ORDER_DETAIL(nomor));
+    return res.data;
+  },
+
   getAROutstanding: async (params?: Record<string, unknown>): Promise<{
     summary?: { total_outstanding: number; overdue_amount: number };
     items: AROutstandingItem[];

@@ -347,9 +347,41 @@ export default function InventoryPage() {
   return (
     <div className="animate-fade-up">
       {/* Header */}
-      <div className="page-header">
-        <h1 className="page-title">Inventory Monitoring</h1>
-        <p className="page-subtitle">Status stok, pengkategorian Min-Max, transaksi inbound & outbound real-time</p>
+      <div className="page-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+        <div>
+          <h1 className="page-title">Inventory Monitoring</h1>
+          <p className="page-subtitle">Status stok, pengkategorian Min-Max, transaksi inbound & outbound real-time</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("open-cpa-ai-chat"));
+            }
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.45rem",
+            fontSize: "0.8rem",
+            fontWeight: 700,
+            padding: "0.5rem 1rem",
+            borderRadius: "10px",
+            border: "1px solid rgba(13, 153, 255, 0.3)",
+            background: "linear-gradient(135deg, rgba(13, 153, 255, 0.12), rgba(145, 71, 255, 0.12))",
+            color: "var(--text-primary)",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+          }}
+          title="Buka CPA AI Assistant"
+        >
+          <img
+            src="/images/logo-padi-ai.png"
+            alt="PADI AI"
+            style={{ width: 16, height: 16, objectFit: "contain" }}
+          />
+          <span style={{ color: "var(--color-primary, #0D99FF)" }}>Tanya CPA AI</span>
+        </button>
       </div>
 
       {/* KPI Summary */}

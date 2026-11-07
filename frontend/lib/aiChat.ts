@@ -304,10 +304,60 @@ const DEMO_TOOLS: DemoTool[] = [
 
 function buildDemoReply(question: string, attachments: ChatAttachment[], tools: DemoTool[]): string {
   const q = question.trim();
+  const isExcelAttached = attachments.some((a) => /\.(xlsx|xls|csv)$/i.test(a.name));
+  const isRecapRequested = /recap|rekap|presentasi|slide|deck|laporan do|delivery order|kinerja pengiriman/i.test(q) || isExcelAttached;
+
+  if (isExcelAttached || (isRecapRequested && attachments.length > 0)) {
+    const fn = attachments[0]?.name || "Delivery_Order_2026.xlsx";
+    return [
+      "## 📊 Recap Analisis Delivery Order (DO) & Kinerja Pengiriman",
+      "**PT Cahaya Pengajaran Abadi · Divisi Supply Chain & Logistik**",
+      `*PERIODE AGUSTUS – NOVEMBER 2026* | Sumber Data: \`${fn}\` (1.507 dokumen)`,
+      "",
+      "---",
+      "### 🖥️ Presentasi Interaktif Telah Dibuat",
+      "Laporan recap lengkap telah selesai diproses dan disusun ke dalam template presentasi 8 slide interaktif resmi PT CPA:",
+      "",
+      "👉 **[Buka Presentasi Interaktif Deck (presentasi_do_sample.html)](/api/v1/ai/reports/download/padi_presentasi_do_sample.html)** *(Klik untuk membuka presentasi fullscreen & cetak PDF)*",
+      "",
+      "---",
+      "### 📌 Ringkasan Eksekutif Key Performance Indicators (KPI):",
+      "| Metrik Utama | Nilai Aktual | Keterangan & Rasio |",
+      "|---|---|---|",
+      "| **Total Delivery Order (DO)** | **1.507** dokumen | 100% data terverifikasi |",
+      "| **Total Volume Pengiriman** | **4,41 Jt L** (4.409.623 L) | Rata-rata: 2.926 L/DO |",
+      "| **Total Unit Kemasan** | **13.471** unit | Drum / Pail / IBC |",
+      "| **Pelanggan Aktif** | **~160** customer | Cakupan wilayah operasional |",
+      "",
+      "### 🚦 Breakdown Distribusi Status DO:",
+      "| Status Dokumen | Jumlah DO | % Kontribusi | Total Volume (L) | Catatan Operasional |",
+      "|---|---|---|---|---|",
+      "| **Invoice** | 1.005 | 66.7% | 2.488.604 L | OK status (Penagihan sehat) |",
+      "| **Send (Kirim)** | 289 | 19.2% | 1.082.098 L | WARN status (Risiko piutang tertunda) |",
+      "| **Return** | 174 | 11.5% | 545.274 L | BAD status (Perlu investigasi) |",
+      "| **Cancel** | 38 | 2.5% | 292.422 L | BAD status (Dibatalkan) |",
+      "| **Received** | 1 | 0.1% | 2.749 L | INFO status |",
+      "",
+      "### ⏱️ Temuan Lead Time & Risiko Operasional:",
+      "- **Kecepatan Invoicing:** **695 DO (69%)** terbit invoice di hari yang sama (*Same-Day Invoice*).",
+      "- **DO Tertunda (Send):** **289 DO (19,2%)** membawa volume **1,08 Jt L** belum ada konfirmasi penerimaan (*Pending Billing Risk*).",
+      "- **Return Rate:** **174 DO (11,5%)** dengan volume **545 Rb L** membutuhkan audit per gudang/customer.",
+      "- **Validasi Data:** Terdapat **20 DO** dengan tanggal invoice sebelum DO diterbitkan yang perlu disinkronkan.",
+      "",
+      "### 🏆 Top Customer & Gudang Pengirim:",
+      "- **Gudang Kontributor Utama:** `KONSINYASI STM MBMA`, `KIMU JKT`, dan `SAMPIT` memimpin frekuensi.",
+      "- **Pelanggan Volume Terbesar:** `PT Layanan Pemeliharaan Integrasi`, `PT Bloom Trading Indonesia`.",
+      "",
+      "---",
+      "### 📥 Akses & Unduhan Dokumen:",
+      "- 🖥️ **[Buka Presentasi Interaktif Deck (Full Slide)](/api/v1/ai/reports/download/padi_presentasi_do_sample.html)**",
+      "- 📥 **[Unduh File Presentasi HTML](/api/v1/ai/reports/download/padi_presentasi_do_sample.html)**",
+    ].join("\n");
+  }
 
   if (/^(hai|halo|hallo|hi|hello|hey|pagi|siang|sore|malam|assalamu)/i.test(q) && tools.length === 0) {
     return [
-      "Halo! 👋 Saya **CPA AI Assistant**.",
+      "Halo! Saya **CPA AI Assistant**.",
       "",
       "Saya dirancang untuk menjawab pertanyaan bisnis Anda langsung dari data ERP melalui **MCP server** CPA, misalnya:",
       "- Ringkasan **omzet & penjualan** per periode",

@@ -4,7 +4,7 @@
  */
 import React, { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { StatusBar } from "expo-status-bar";
+import { StatusBar } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
@@ -65,7 +65,7 @@ function RootNavigation() {
 
   return (
     <>
-      <StatusBar style={isDark ? "light" : "dark"} />
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -77,6 +77,8 @@ function RootNavigation() {
         <Stack.Screen name="warehouse/index" options={{ headerShown: false }} />
         <Stack.Screen name="aging/index" options={{ headerShown: false }} />
         <Stack.Screen name="distributions/index" options={{ headerShown: false }} />
+        <Stack.Screen name="finance/index" options={{ headerShown: false }} />
+        <Stack.Screen name="intelligence/index" options={{ headerShown: false }} />
         <Stack.Screen name="forecast/index" options={{ headerShown: false }} />
         <Stack.Screen name="reports/index" options={{ headerShown: false }} />
         <Stack.Screen name="database-graph/index" options={{ headerShown: false }} />

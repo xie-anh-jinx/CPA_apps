@@ -14,6 +14,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/sales": "Sales Monitoring",
   "/sales/orders": "Sales Order",
   "/distributions": "Distribusi",
+  "/distributions/financial-flow": "Distribusi / Financial Flow",
   "/crm": "CRM & Customer 360",
   "/reports": "Laporan",
   "/settings": "Pengaturan",
@@ -22,21 +23,31 @@ const PAGE_TITLES: Record<string, string> = {
   "/docs/database-graph": "Database Graph",
 };
 
-export default function Topbar({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
+export default function Topbar({
+  onToggleSidebar,
+  currentUser: propUser,
+}: {
+  onToggleSidebar?: () => void;
+  currentUser?: any;
+}) {
   const pathname = usePathname();
   const [search, setSearch] = useState("");
-  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(propUser || null);
   const { isConnected, lastMessage } = useWebSocket();
   const { theme, toggleTheme } = useTheme();
 
   useEffect(() => {
+    if (propUser) {
+      setCurrentUser(propUser);
+      return;
+    }
     try {
       const stored = localStorage.getItem("cpa_user");
       if (stored) {
         setCurrentUser(JSON.parse(stored));
       }
     } catch (e) {}
-  }, []);
+  }, [propUser]);
 
   const title = PAGE_TITLES[pathname] || "CPA Platform";
 
@@ -141,6 +152,14 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar?: () => vo
                   ? "DSR - Sultanbatara" 
                   : (currentUser.role === "warehouse_staff" || currentUser.role === "warehouse") 
                   ? "Kepala Gudang & Admin Cabang" 
+                  : currentUser.role === "ga"
+                  ? "General Affairs (GA)"
+                  : currentUser.role === "it"
+                  ? "IT & Infrastruktur"
+                  : currentUser.role === "all"
+                  ? "Admin Operasional"
+                  : (currentUser.role === "asset_staff" || currentUser.role === "asset")
+                  ? "Asset, IT & GA"
                   : (currentUser.role || "Admin")}
               </span>
             </div>

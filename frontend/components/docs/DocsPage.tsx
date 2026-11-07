@@ -37,7 +37,16 @@ import {
   Brain,
   TrendingUp,
   Target,
-  BarChart3
+  BarChart3,
+  Download,
+  Truck,
+  Wrench,
+  Laptop,
+  Box,
+  Bot,
+  Eye,
+  DollarSign,
+  ClipboardList
 } from "lucide-react";
 import MermaidViewer from "./MermaidViewer";
 
@@ -46,6 +55,7 @@ const MERMAID_CHART = `flowchart TB
     subgraph ClientLayer ["Client & User Access Layer"]
         Browser["🖥️ Browser Desktop & Tablet"]
         Mobile["📱 Mobile Browser"]
+        AIClients["🤖 AI Clients (Claude Desktop / ChatGPT Apps via MCP)"]
     end
 
     subgraph ProxyLayer ["Gateway & Reverse Proxy"]
@@ -55,6 +65,18 @@ const MERMAID_CHART = `flowchart TB
     subgraph AppLayer ["Application & Presentation Layer"]
         Frontend["⚛️ Next.js 16 (React 19, TypeScript)\\nContainer: cpa_frontend (Port 3001)"]
         Backend["⚡ FastAPI Backend (Python 3.12, Uvicorn)\\nContainer: cpa_backend (Port 8000)"]
+        ThreeJS3D["🏭 3D Warehouse Digital Twin (Vite / Three.js)\\nHost / Container :5173 (Reverse Proxy /3d/)"]
+    end
+
+    subgraph OperationalHub ["Extended Operational & Asset Hub"]
+        FleetGA["📋 Fleet & GA Logbook (Dual-Storage & JSON Export)\\nRoutes: /assets/fleet & /ga"]
+        ITAsset["💻 IT Asset & Helpdesk Hub\\nRoute: /it"]
+        HRMHub["👥 HRM & Attendance Management\\nRoute: /hrm"]
+    end
+
+    subgraph AI_MCPLayer ["AI & Model Context Protocol (MCP)"]
+        MCPServer["🔌 Model Context Protocol Server (SSE)\\nFastAPI /mcp & /api/mcp"]
+        AIChat["💬 Floating AI Chat Assistant (Natural Language Query)"]
     end
 
     subgraph AsyncLayer ["Background Processing & Real-time Layer"]
@@ -74,14 +96,21 @@ const MERMAID_CHART = `flowchart TB
         DB_Existing[("🐘 PostgreSQL 15: cpa_existing\\n(Read-Only ERP Data)")]
         DB_Analytics[("🐘 PostgreSQL 15: cpa_analytics\\n(ODS, CRM, Alerts, Users)")]
         DB_DWH[("🐘 PostgreSQL 15: Data Warehouse\\n(Historical & ETL Data)")]
+        LocalStorage[("💾 Client LocalStorage\\n(Offline-first Logbook Cache)")]
     end
 
     Browser --> Nginx
     Mobile --> Nginx
+    AIClients -->|MCP SSE / OAuth RFC 7591| Nginx
     Nginx --> Frontend
+    Nginx -->|/3d/ Proxy| ThreeJS3D
+    Nginx --> Backend
     Frontend -->|REST API / HTTP| Backend
     Frontend <-->|WebSocket Real-time| Backend
+    Frontend <-->|AI SSE Stream| MCPServer
+    Frontend <-->|Offline Cache| LocalStorage
 
+    Backend --> MCPServer
     Backend -->|Read-Only Queries| DB_Existing
     Backend -->|Read & Write| DB_Analytics
     Backend -->|Pub/Sub & Cache| Redis
@@ -155,14 +184,34 @@ const TECH_STACK_DATA: TechStackItem[] = [
     role: "Rendering grafik analitik interaktif (bar chart, pie chart, progress gauges) dan set ikon antarmuka modern.",
   },
   {
+    layer: "3D Digital Twin Engine",
+    tech: "Three.js, Vite, WebGL Canvas, OrbitControls",
+    role: "Visualisasi 3 dimensi denah gudang interaktif, tata letak rak penyimpanan pallet bertingkat, lorong aisle, okupansi kapasitas fisik, dan animasi pergerakan logistik.",
+  },
+  {
+    layer: "AI & Model Context Protocol",
+    tech: "FastMCP, Server-Sent Events (SSE), RFC 7591 OAuth Server, Claude/ChatGPT Assistant",
+    role: "Standardisasi protokol agen AI (MCP) untuk query natural language real-time, context injection data inventori/sales, dan integrasi desktop client (Claude Desktop & ChatGPT).",
+  },
+  {
     layer: "State & Data Fetching",
     tech: "SWR 2.5, Zustand 5.0, Axios 1.20",
     role: "Manajemen state lokal, cache data client-side, dan pemanggilan HTTP REST API.",
   },
   {
-    layer: "Backend API",
-    tech: "FastAPI (Python 3.12), Uvicorn ASGI Server, Pydantic V2",
-    role: "REST API berperforma tinggi dengan validasi schema otomatis, async request handling, dan dokumentasi Swagger/OpenAPI bawaan.",
+    layer: "Offline-First Storage & JSON Sync",
+    tech: "LocalStorage Web API, JSON Serializer, FileSaver API",
+    role: "Penyimpanan data lokal offline-first pada modul logbook General Affairs (GA) dan Fleet, dilengkapi fitur backup dan import data JSON terisolasi.",
+  },
+  {
+    layer: "Database Schema Graph",
+    tech: "Interactive Canvas & SVG Node Graph",
+    role: "Visualisasi interaktif topologi relasi tabel database (Foreign Keys, primary keys, indexing) untuk memudahkan audit struktur skema ERP & Analytics.",
+  },
+  {
+    layer: "Backend API & MCP Service",
+    tech: "FastAPI (Python 3.12), Uvicorn ASGI Server, Pydantic V2, FastMCP",
+    role: "REST API berperforma tinggi dengan validasi schema otomatis, async request handling, streaming SSE untuk MCP, dan dokumentasi Swagger/OpenAPI bawaan.",
   },
   {
     layer: "Database ORM",
@@ -182,7 +231,7 @@ const TECH_STACK_DATA: TechStackItem[] = [
   {
     layer: "Database Analitik",
     tech: "PostgreSQL 15 Alpine (cpa_db_analytics)",
-    role: "Menyimpan data skema ODS, users, otorisasi RBAC, CRM pipeline, aktivitas, log audit, dan alert triggers.",
+    role: "Menyimpan data skema ODS, users, otorisasi RBAC, CRM pipeline, aktivitas, log audit, and alert triggers.",
   },
   {
     layer: "Cache & Message Broker",
@@ -192,7 +241,7 @@ const TECH_STACK_DATA: TechStackItem[] = [
   {
     layer: "Asynchronous Workers",
     tech: "Celery, Celery Beat",
-    role: "Pemrosesan tugas sinkronisasi periodik (15s – 5m) di latar belakang secara terisolasi tanpa memblokir request pengguna.",
+    role: "Pemrosesan tugas sinkronisasi periodik (15s – 5m) di latar belakang secara terisolasi tanpa memblokir request pengguna (Queues: sync, analytics, alerts).",
   },
   {
     layer: "Worker Monitoring",
@@ -252,15 +301,15 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "node:20-alpine",
     internalPort: "3000",
     externalPort: "3001",
-    description: "Antarmuka Pengguna Utama Platform CPA",
+    description: "Antarmuka Pengguna Utama Platform CPA (Dashboard, Logbook GA, Fleet, IT, CRM, HRM)",
   },
   {
     containerName: "cpa_backend",
-    service: "FastAPI API",
+    service: "FastAPI & MCP Server",
     baseImage: "python:3.12-slim",
     internalPort: "8000",
-    externalPort: "8000 (Internal DWH)",
-    description: "Layanan Backend REST API & WebSockets",
+    externalPort: "8000 (Internal DWH & /api, /mcp)",
+    description: "Layanan Backend REST API, WebSockets, dan Server Model Context Protocol (MCP)",
   },
   {
     containerName: "cpa_db_existing (Database Ultima 2024)",
@@ -268,7 +317,7 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "postgres:15-alpine",
     internalPort: "5432",
     externalPort: "(Jaringan Internal)",
-    description: "Database PostgreSQL Read-Only ERP",
+    description: "Database PostgreSQL Read-Only ERP (Ultima ERP)",
   },
   {
     containerName: "cpa_db_analytics",
@@ -276,7 +325,7 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "postgres:15-alpine",
     internalPort: "5432",
     externalPort: "(Jaringan Internal)",
-    description: "Database PostgreSQL Read-Write Platform",
+    description: "Database PostgreSQL Read-Write Platform (ODS, CRM, Alerts, Users)",
   },
   {
     containerName: "cpa_redis",
@@ -284,7 +333,7 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "redis:7-alpine",
     internalPort: "6379",
     externalPort: "(Jaringan Internal)",
-    description: "In-Memory Broker & Cache",
+    description: "In-Memory Broker & Cache Pub/Sub",
   },
   {
     containerName: "cpa_celery_worker",
@@ -292,7 +341,7 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "python:3.12-slim",
     internalPort: "—",
     externalPort: "—",
-    description: "Pemroses antrean tugas sinkronisasi",
+    description: "Pemroses antrean tugas latar belakang (Queues: sync, analytics, alerts)",
   },
   {
     containerName: "cpa_celery_beat",
@@ -300,7 +349,7 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "python:3.12-slim",
     internalPort: "—",
     externalPort: "—",
-    description: "Penjadwal cron tugas sinkronisasi",
+    description: "Penjadwal cron tugas sinkronisasi periodik (15s – 5m)",
   },
   {
     containerName: "cpa_flower",
@@ -316,7 +365,15 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "devlikeapro/waha",
     internalPort: "3000",
     externalPort: "3008",
-    description: "WhatsApp HTTP Gateway API",
+    description: "WhatsApp HTTP Gateway API untuk notifikasi otomatis",
+  },
+  {
+    containerName: "3d_warehouse_service",
+    service: "Vite 3D Twin",
+    baseImage: "Node.js Vite Host",
+    internalPort: "5173",
+    externalPort: "5173 (Reverse Proxy /3d/)",
+    description: "Visualisasi 3D Interaktif Denah Gudang Fisik, Aisle, dan Rak Pallet",
   },
   {
     containerName: "airflow-webserver",
@@ -324,7 +381,7 @@ const CONTAINER_DATA: ContainerItem[] = [
     baseImage: "Custom Airflow 2",
     internalPort: "8080",
     externalPort: "8080",
-    description: "UI Manajemen Pipeline Data Warehouse",
+    description: "UI Manajemen Pipeline Data Warehouse & Retraining ML",
   },
   {
     containerName: "metabase",
@@ -488,6 +545,31 @@ export default function DocsPage() {
             <Radar size={16} />
             Buka Executive Dashboard
           </Link>
+
+          <a
+            href="/docs.pdf"
+            download="Dokumentasi_Sistem_Teknis_CPA_Platform.pdf"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "9px 18px",
+              background: "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+              border: "1px solid #38bdf8",
+              color: "#FFFFFF",
+              borderRadius: "var(--radius-md)",
+              fontSize: "0.85rem",
+              fontWeight: 600,
+              textDecoration: "none",
+              boxShadow: "0 2px 8px rgba(2, 132, 199, 0.4)",
+              transition: "var(--transition-fast)"
+            }}
+          >
+            <Download size={16} />
+            Unduh Dokumentasi PDF
+          </a>
 
           <button
             onClick={() => scrollToSection("architecture-diagram")}
@@ -730,7 +812,139 @@ export default function DocsPage() {
               Finance, AR & Credit Control
             </p>
             <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6 }}>
-              Mengontrol risiko kredit pelanggan, melakukan pre-delivery credit check sebelum barang dirilis, dan analisis umur piutang (AR Aging).
+              Mengontrol risiko kredit pelanggan, melakukan pre-delivery credit check sebelum barang dirilis, analisis umur piutang (AR Aging), pengajuan budget, dan financial flow.
+            </p>
+          </div>
+
+          {/* Card 5: Fasilitas & General Affairs (GA) */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.25rem",
+            position: "relative",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "rgba(245,160,0,0.15)",
+              color: "#F5A000",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "1rem"
+            }}>
+              <ClipboardList size={22} />
+            </div>
+            <h3 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.4rem" }}>
+              General Affairs (GA)
+            </h3>
+            <p style={{ fontSize: "0.78rem", color: "#F5A000", fontWeight: 600, marginBottom: "0.6rem" }}>
+              GA Staff & Facility Officers
+            </p>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Mendigitalisasi logbook operasional kantor cabang: genset, kebersihan 5S, konsumsi air minum, logistik pengiriman GA, meteran PDAM (m³), dan listrik (kWh) dengan KPI otomatis.
+            </p>
+          </div>
+
+          {/* Card 6: Armada Logistik (Fleet) */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.25rem",
+            position: "relative",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "rgba(56,189,248,0.15)",
+              color: "#38BDF8",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "1rem"
+            }}>
+              <Truck size={22} />
+            </div>
+            <h3 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.4rem" }}>
+              Armada & Transportasi (Fleet)
+            </h3>
+            <p style={{ fontSize: "0.78rem", color: "#38BDF8", fontWeight: 600, marginBottom: "0.6rem" }}>
+              Fleet Coordinator & Drivers
+            </p>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Mengontrol kondisi fisik armada distribusi, pencatatan odometer (KM), konsumsi bahan bakar minyak (BBM), jadwal servis berkala, dan masa berlaku dokumen STNK/KIR.
+            </p>
+          </div>
+
+          {/* Card 7: Teknologi Informasi (IT) */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.25rem",
+            position: "relative",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "rgba(168,85,247,0.15)",
+              color: "#A855F7",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "1rem"
+            }}>
+              <Laptop size={22} />
+            </div>
+            <h3 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.4rem" }}>
+              Teknologi Informasi (IT)
+            </h3>
+            <p style={{ fontSize: "0.78rem", color: "#A855F7", fontWeight: 600, marginBottom: "0.6rem" }}>
+              IT Support & Helpdesk Admin
+            </p>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Mengelola inventaris aset perangkat keras (PC, laptop, server, switch, router), status kesehatan jaringan cabang, dan helpdesk ticketing untuk keluhan teknis.
+            </p>
+          </div>
+
+          {/* Card 8: SDM & Personalia (HRM) */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.25rem",
+            position: "relative",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              width: "40px",
+              height: "40px",
+              borderRadius: "10px",
+              background: "rgba(58,201,119,0.15)",
+              color: "var(--color-success)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: "1rem"
+            }}>
+              <Users size={22} />
+            </div>
+            <h3 style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: "0.4rem" }}>
+              SDM & Personalia (HRM)
+            </h3>
+            <p style={{ fontSize: "0.78rem", color: "var(--color-success)", fontWeight: 600, marginBottom: "0.6rem" }}>
+              HR Officer & Branch Heads
+            </p>
+            <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", lineHeight: 1.6 }}>
+              Mengelola direktori karyawan multi-cabang terintegrasi, rekap absensi dan kehadiran kerja, serta alur pengajuan dan approval kuota cuti karyawan.
             </p>
           </div>
         </div>
@@ -757,7 +971,7 @@ export default function DocsPage() {
           </h2>
         </div>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.92rem", marginBottom: "1.75rem" }}>
-          Enam modul operasional terpadu yang memetakan seluruh alur bisnis dari gudang, penjualan, logistik hingga keuangan:
+          Modul operasional terpadu komprehensif yang memetakan alur bisnis dari pergudangan, penjualan, logistik, keuangan, armada kendaraan, General Affairs (GA), IT support, hingga AI & Digital Twin:
         </p>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -1090,6 +1304,331 @@ export default function DocsPage() {
               </li>
             </ul>
           </div>
+
+          {/* Module 8: Asset & Fleet Logbook Hub */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "rgba(56,189,248,0.15)", padding: "8px", borderRadius: "8px", color: "#38BDF8" }}>
+                  <Truck size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    Asset & Fleet Logbook Hub
+                  </h3>
+                  <code style={{ fontSize: "0.78rem", color: "#38BDF8" }}>/assets/fleet</code>
+                </div>
+              </div>
+              <Link
+                href="/assets/fleet"
+                style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "#38BDF8", fontWeight: 600, textDecoration: "none" }}
+              >
+                Kunjungi Fleet <ArrowUpRight size={14} />
+              </Link>
+            </div>
+            <ul style={{ paddingLeft: "1.5rem", color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.8 }}>
+              <li>
+                <strong>Manajemen Armada Distribusi:</strong> Monitoring terintegrasi kondisi fisik kendaraan operasional (truk tangki pelumas, blind van, truk engkel, motor sales).
+              </li>
+              <li>
+                <strong>Logbook Odometer & BBM:</strong> Pencatatan berkala angka kilometer (KM), volume dan pengeluaran bahan bakar minyak (BBM), serta efisiensi konsumsi per armada.
+              </li>
+              <li>
+                <strong>Jadwal Servis & Dokumen Kendaraan:</strong> Pelacakan jadwal penggantian oli, servis rutin, serta masa berlaku surat uji emisi, KIR, dan STNK armada.
+              </li>
+              <li>
+                <strong>Portabilitas Data:</strong> Fitur ekspor-impor cadangan operasional (JSON backup) dan rekapitulasi data armada ke spreadsheet Excel.
+              </li>
+            </ul>
+          </div>
+
+          {/* Module 9: General Affairs (GA) Digital Logbook */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "rgba(245,160,0,0.15)", padding: "8px", borderRadius: "8px", color: "#F5A000" }}>
+                  <ClipboardList size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    General Affairs (GA) Digital Logbook
+                  </h3>
+                  <code style={{ fontSize: "0.78rem", color: "#F5A000" }}>/ga & /ga/entry</code>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <Link
+                  href="/ga"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "#F5A000", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Dashboard GA <ArrowUpRight size={14} />
+                </Link>
+                <Link
+                  href="/ga/entry"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "#F5A000", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Input Form <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            </div>
+            <ul style={{ paddingLeft: "1.5rem", color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.8 }}>
+              <li>
+                <strong>6 Sub-Modul Operasional Fasilitas:</strong>
+                <ul style={{ paddingLeft: "1.2rem", marginTop: "0.25rem" }}>
+                  <li><em>Genset:</em> Pengecekan visual, kebocoran oli, voltase aki, level solar, dan durasi running genset darurat.</li>
+                  <li><em>Kebersihan (5S):</em> Checklist kebersihan toilet, area gudang utama, kantor, pantry, dan pembuangan limbah.</li>
+                  <li><em>Air Minum:</em> Pencatatan kuantitas konsumsi galon dan biaya pengeluaran operasional air minum staf.</li>
+                  <li><em>Pengiriman GA:</em> Pencatatan surat jalan non-komersial dan pengiriman logistik antar unit internal.</li>
+                  <li><em>PDAM:</em> Monitoring pembacaan meteran kubik air (m³) dan audit tagihan bulanan air bersih.</li>
+                  <li><em>Listrik:</em> Monitoring angka kWh meter PLN, tarif daya, dan evaluasi pemborosan energi fasilitas.</li>
+                </ul>
+              </li>
+              <li>
+                <strong>KPI Otomatis & Damage Alerts:</strong> Deteksi dini temuan kerusakan fisik, skor rating 5S kebersihan, dan proyeksi tren pengeluaran utilitas bulanan.
+              </li>
+              <li>
+                <strong>Offline-First & Dual-Storage Architecture:</strong> Data aman tersimpan di LocalStorage peramban untuk resiliensi offline di lapangan, serta sinkronisasi penuh via backup & restore JSON mandiri.
+              </li>
+            </ul>
+          </div>
+
+          {/* Module 10: IT Asset & Helpdesk Hub */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "rgba(168,85,247,0.15)", padding: "8px", borderRadius: "8px", color: "#A855F7" }}>
+                  <Laptop size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    IT Asset & Helpdesk Hub
+                  </h3>
+                  <code style={{ fontSize: "0.78rem", color: "#A855F7" }}>/it</code>
+                </div>
+              </div>
+              <Link
+                href="/it"
+                style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "#A855F7", fontWeight: 600, textDecoration: "none" }}
+              >
+                Kunjungi IT Hub <ArrowUpRight size={14} />
+              </Link>
+            </div>
+            <ul style={{ paddingLeft: "1.5rem", color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.8 }}>
+              <li>
+                <strong>Inventarisasi Aset TI:</strong> Pendataan perangkat PC desktop, laptop kerja, barcode scanner gudang, printer faktur, switch, access point, dan UPS cadangan listrik.
+              </li>
+              <li>
+                <strong>Monitoring Kondisi & Maintenance:</strong> Klasifikasi status perangkat (Aktif/Baik, Rusak, Servis, Dipinjamkan, atau Afkir/Decommissioned).
+              </li>
+              <li>
+                <strong>Helpdesk Ticketing:</strong> Pencatatan tiket kendala teknis dari karyawan kantor dan gudang dengan pemantauan durasi penanganan (SLA Support).
+              </li>
+            </ul>
+          </div>
+
+          {/* Module 11: Human Resource Management (HRM) */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "rgba(58,201,119,0.15)", padding: "8px", borderRadius: "8px", color: "var(--color-success)" }}>
+                  <Users size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    Human Resource Management (HRM)
+                  </h3>
+                  <code style={{ fontSize: "0.78rem", color: "var(--color-success)" }}>/hrm</code>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <Link
+                  href="/hrm/employees"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--color-success)", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Karyawan <ArrowUpRight size={14} />
+                </Link>
+                <Link
+                  href="/hrm/attendance"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--color-success)", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Absensi <ArrowUpRight size={14} />
+                </Link>
+                <Link
+                  href="/hrm/leaves"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--color-success)", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Cuti <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            </div>
+            <ul style={{ paddingLeft: "1.5rem", color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.8 }}>
+              <li>
+                <strong>Direktori Karyawan Multi-Cabang:</strong> Manajemen database profil staf, divisi, jabatan, masa kerja kontrak/tetap, dan kontak darurat.
+              </li>
+              <li>
+                <strong>Monitoring Presensi & Absensi:</strong> Pelacakan rekap kehadiran kerja harian staf gudang dan kantor secara terpusat.
+              </li>
+              <li>
+                <strong>Manajemen Cuti & Izin:</strong> Formulir pengajuan cuti, perhitungan sisa saldo kuota cuti tahunan, dan workflow persetujuan (approval) atasan.
+              </li>
+            </ul>
+          </div>
+
+          {/* Module 12: Keuangan Terpadu & Financial Flow */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "rgba(255,94,94,0.15)", padding: "8px", borderRadius: "8px", color: "var(--color-danger)" }}>
+                  <DollarSign size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    Keuangan Terpadu & Financial Flow
+                  </h3>
+                  <code style={{ fontSize: "0.78rem", color: "var(--color-danger)" }}>/finance & /distributions/financial-flow</code>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <Link
+                  href="/finance"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--color-danger)", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Finance Hub <ArrowUpRight size={14} />
+                </Link>
+                <Link
+                  href="/distributions/financial-flow"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--color-danger)", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Financial Flow <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            </div>
+            <ul style={{ paddingLeft: "1.5rem", color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.8 }}>
+              <li>
+                <strong>Financial Flow Distribusi:</strong> Pemetaan komprehensif alur keuangan distribusi: dari Purchase Order (PO), Sales Order (SO), Delivery Order (DO), Faktur Tagihan, hingga pelunasan kas/bank.
+              </li>
+              <li>
+                <strong>Pengajuan & Varians Anggaran (Budget Management):</strong> Pengajuan budget operasional cabang (Budget Request) dan komparasi real-time antara batas plafon anggaran vs realisasi riil (Variance Analysis).
+              </li>
+              <li>
+                <strong>Transaction Journey & Audit Trail:</strong> Penelusuran visual riwayat setiap transaksi akuntansi dari hulu ke hilir untuk transparansi audit.
+              </li>
+            </ul>
+          </div>
+
+          {/* Module 13: Asisten AI Interaktif & Model Context Protocol (MCP) */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid rgba(168,85,247,0.3)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.5rem",
+            boxShadow: "0 4px 20px rgba(168,85,247,0.08)"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "rgba(168,85,247,0.15)", padding: "8px", borderRadius: "8px", color: "#A855F7" }}>
+                  <Bot size={20} />
+                </div>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                    <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)", margin: 0 }}>
+                      Asisten AI Interaktif & Model Context Protocol (MCP)
+                    </h3>
+                    <span style={{ fontSize: "0.7rem", padding: "2px 7px", borderRadius: "4px", background: "rgba(168,85,247,0.18)", color: "#C084FC", fontWeight: 700 }}>
+                      AI AGENT & SSE
+                    </span>
+                  </div>
+                  <code style={{ fontSize: "0.78rem", color: "#C084FC" }}>/api/mcp & Floating AI Widget</code>
+                </div>
+              </div>
+              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                Aktif di seluruh halaman
+              </span>
+            </div>
+            <ul style={{ paddingLeft: "1.5rem", color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.8 }}>
+              <li>
+                <strong>Floating AI Chat Assistant:</strong> Widget chat cerdas di pojok layar aplikasi yang mampu menjawab pertanyaan pengguna dengan bahasa alami: posisi stok gudang real-time, ringkasan piutang customer, hingga tren omzet cabang.
+              </li>
+              <li>
+                <strong>Server Model Context Protocol (FastMCP):</strong> Endpoint standar terbuka (<code>/mcp</code> dan <code>/api/mcp</code>) dengan streaming Server-Sent Events (SSE) yang dapat dihubungkan langsung ke Claude Desktop, ChatGPT, atau editor cerdas lainnya.
+              </li>
+              <li>
+                <strong>OAuth Discovery & Authorization (RFC 7591 / RFC 6749):</strong> Mendukung integrasi aman dengan pihak ketiga melalui endpoint metadata discovery (<code>/.well-known</code>), token JWT, dan autentikasi terisolasi.
+              </li>
+            </ul>
+          </div>
+
+          {/* Module 14: 3D Digital Twin Warehouse & Schema Graph */}
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--bg-border)",
+            borderRadius: "var(--radius-lg)",
+            padding: "1.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem", flexWrap: "wrap", gap: "0.5rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <div style={{ background: "rgba(58,201,119,0.15)", padding: "8px", borderRadius: "8px", color: "var(--color-success)" }}>
+                  <Box size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)" }}>
+                    3D Digital Twin Warehouse & Schema Graph
+                  </h3>
+                  <code style={{ fontSize: "0.78rem", color: "var(--color-success)" }}>/database/warehouse-visualization & /database/schema</code>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: "0.75rem" }}>
+                <Link
+                  href="/database/warehouse-visualization"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--color-success)", fontWeight: 600, textDecoration: "none" }}
+                >
+                  3D Warehouse <ArrowUpRight size={14} />
+                </Link>
+                <Link
+                  href="/database/schema"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--color-success)", fontWeight: 600, textDecoration: "none" }}
+                >
+                  Schema Graph <ArrowUpRight size={14} />
+                </Link>
+              </div>
+            </div>
+            <ul style={{ paddingLeft: "1.5rem", color: "var(--text-secondary)", fontSize: "0.88rem", lineHeight: 1.8 }}>
+              <li>
+                <strong>Visualisasi Spasial 3D Digital Twin:</strong> Rendering 3D interaktif berbasis Three.js & WebGL yang menampilkan tata letak fisik gudang, barisan rak pallet bertingkat, lorong (aisle), serta simulasi operasional forklift logistik.
+              </li>
+              <li>
+                <strong>Monitoring Kapasitas & Okupansi Rak:</strong> Inspeksi visual beban penyimpanan fisik per kompartemen rak secara spasial dengan kontrol rotasi OrbitControls (360° pan/tilt/zoom).
+              </li>
+              <li>
+                <strong>Interactive Database Schema Visualizer:</strong> Diagram graf interaktif berbasis canvas yang memetakan relasi Foreign Key antartabel database ERP operasional dan database analitik.
+              </li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -1244,14 +1783,25 @@ export default function DocsPage() {
               </thead>
               <tbody>
                 <tr style={{ borderBottom: "1px solid var(--bg-border)" }}>
-                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>Warehouse Staff</td>
-                  <td style={{ padding: "12px 16px" }}><code>ratih</code></td>
-                  <td style={{ padding: "12px 16px" }}>Sultanbatara (29 gudang)</td>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>Superadmin / Management</td>
+                  <td style={{ padding: "12px 16px" }}><code>admin, direksi</code></td>
+                  <td style={{ padding: "12px 16px" }}>Seluruh Cabang (Nasional)</td>
                   <td style={{ padding: "12px 16px" }}>
-                    <span style={{ color: "var(--color-danger)", fontWeight: 600 }}>Zero Financial (Masking —)</span>
+                    <span style={{ color: "var(--color-success)", fontWeight: 600 }}>Full Financial Access</span>
                   </td>
                   <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
-                    Menu Sales, CRM, dan Laporan Keuangan diblokir total (HTTP 403 Forbidden).
+                    Akses komprehensif ke seluruh modul operasional, analitik, konfigurasi sistem, dan manajemen user.
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid var(--bg-border)" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>Finance & Credit Control</td>
+                  <td style={{ padding: "12px 16px" }}><code>finance, margono, mery, credit_control</code></td>
+                  <td style={{ padding: "12px 16px" }}>Seluruh Cabang (Nasional)</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ color: "var(--color-success)", fontWeight: 600 }}>Full Financial Access</span>
+                  </td>
+                  <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
+                    Visibilitas penuh tagihan faktur, histori pembayaran, umur piutang se-perusahaan, budget request, dan financial flow.
                   </td>
                 </tr>
                 <tr style={{ borderBottom: "1px solid var(--bg-border)" }}>
@@ -1262,18 +1812,62 @@ export default function DocsPage() {
                     <span style={{ color: "var(--color-warning)", fontWeight: 600 }}>Data Customer Pribadi</span>
                   </td>
                   <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
-                    Hanya dapat melihat data relasi sales & transaksi pelanggan miliknya. Salesperson lain diisolasi.
+                    Hanya dapat melihat data relasi sales & transaksi pelanggan miliknya. Salesperson lain diisolasi secara ketat.
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid var(--bg-border)" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>Warehouse Staff</td>
+                  <td style={{ padding: "12px 16px" }}><code>ratih</code></td>
+                  <td style={{ padding: "12px 16px" }}>Sultanbatara (29 gudang)</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ color: "var(--color-danger)", fontWeight: 600 }}>Zero Financial (Masking —)</span>
+                  </td>
+                  <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
+                    Menu Sales, CRM, dan Laporan Keuangan diblokir total (HTTP 403 Forbidden). Fokus pada monitoring stok fisik & mutasi IT.
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid var(--bg-border)" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>General Affairs (GA)</td>
+                  <td style={{ padding: "12px 16px" }}><code>ga</code></td>
+                  <td style={{ padding: "12px 16px" }}>Seluruh Cabang / Fasilitas Kantor</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ color: "#F5A000", fontWeight: 600 }}>Utilitas Operasional GA</span>
+                  </td>
+                  <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
+                    Akses eksklusif logbook fasilitas GA (<code>/ga</code>): genset, kebersihan, PDAM, listrik, dan air minum. Modul core keuangan/CRM ditutup otomatis.
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid var(--bg-border)" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>Asset & Fleet</td>
+                  <td style={{ padding: "12px 16px" }}><code>asset, asset_staff</code></td>
+                  <td style={{ padding: "12px 16px" }}>Seluruh Unit Armada Cabang</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ color: "#38BDF8", fontWeight: 600 }}>Biaya BBM & Servis Armada</span>
+                  </td>
+                  <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
+                    Akses khusus monitoring armada operasional (<code>/assets/fleet</code>), masa berlaku KIR/STNK, dan logbook perjalanan. Modul non-aset ditutup otomatis.
+                  </td>
+                </tr>
+                <tr style={{ borderBottom: "1px solid var(--bg-border)" }}>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>IT Support & Admin</td>
+                  <td style={{ padding: "12px 16px" }}><code>it</code></td>
+                  <td style={{ padding: "12px 16px" }}>Seluruh Cabang (Infrastruktur TI)</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    <span style={{ color: "#A855F7", fontWeight: 600 }}>Aset TI & Biaya Servis</span>
+                  </td>
+                  <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
+                    Akses inventarisasi perangkat keras, helpdesk ticketing, dan status jaringan (<code>/it</code>). Modul penjualan dan keuangan diisolasi.
                   </td>
                 </tr>
                 <tr>
-                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>Finance & Credit Control</td>
-                  <td style={{ padding: "12px 16px" }}><code>finance, margono, mery, credit_control</code></td>
-                  <td style={{ padding: "12px 16px" }}>Seluruh Cabang (Nasional)</td>
+                  <td style={{ padding: "12px 16px", fontWeight: 600, color: "var(--text-primary)" }}>HRM / Personalia</td>
+                  <td style={{ padding: "12px 16px" }}><code>hrm</code></td>
+                  <td style={{ padding: "12px 16px" }}>Seluruh Cabang (Personalia)</td>
                   <td style={{ padding: "12px 16px" }}>
-                    <span style={{ color: "var(--color-success)", fontWeight: 600 }}>Full Financial Access</span>
+                    <span style={{ color: "var(--color-success)", fontWeight: 600 }}>Data SDM Terbatas</span>
                   </td>
                   <td style={{ padding: "12px 16px", color: "var(--text-secondary)" }}>
-                    Visibilitas penuh tagihan faktur, histori pembayaran, dan umur piutang se-perusahaan.
+                    Akses manajemen karyawan, monitoring absensi harian, dan persetujuan kuota cuti staf (<code>/hrm</code>).
                   </td>
                 </tr>
               </tbody>

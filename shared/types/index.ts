@@ -10,3 +10,4 @@ export * from "./distributions";
 export * from "./customer";
 export * from "./forecast";
 export * from "./ai";
+export * from "./finance";

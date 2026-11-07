@@ -50,11 +50,19 @@ export interface DoLineItem {
 
 export interface DistributionSummary {
   total_do: number;
+  total_volume?: number;
   send?: number;
+  send_volume?: number;
   received?: number;
+  received_volume?: number;
+  return_do?: number;
+  return_volume?: number;
   invoice?: number;
+  invoice_volume?: number;
   cancel?: number;
+  cancel_volume?: number;
   draft?: number;
+  draft_volume?: number;
   delivered: number;
   in_transit: number;
   pending: number;

@@ -1,0 +1,6 @@
+Nomor DO,Tanggal DO,ID Customer,Nama Customer,Alamat Kirim,Gudang Asal,Driver,Plat Nomor,Volume (Liter),Qty Kemasan,Tanggal Kirim,Receive Date,Durasi DO ke Receive (Hari),Return Date,Selisih Hari (Return - Receive),Nomor Invoice,Tanggal Invoice,Durasi DO ke Invoice (Hari),Status,Keterangan
+081/DO/CPA/XI/2026,2026-11-04,02000990,"BINTANI MEGAHINDAH,PT","JL. Moch hatta No. 112",PALU,,,418,2,,,,,,,,,Send (Kirim),
+082/DO/CPA/XI/2026,2026-11-04,02000331,"BUMI JASA UTAMA,PT",Jl IR sutami Kalla rental Makasar,MAKASSAR,Syamsul H,DD 8904 RM,209,1,,,,,,,,,Send (Kirim),
+071/DO/CPA/XI/2026,2026-11-03,03000564,KARUNIA ILAHI BERMITRA ABADI,Fob Luwuk Bunter Sampit,SAMPIT,Maman Firmansyah,KH 8145 FS,1045,5,,2026-11-03,0,2026-11-03,0,4958/INV/CPA/XI/2026,2026-11-03,0,Invoice,
+092/DO/CPA/XI/2026,2026-11-04,02001091,ARWANSA,Palu,PALU,,,209,1,,2026-11-04,0,2026-11-04,0,,,,Return,
+074/DO/CPA/XI/2026,2026-11-04,02000756,"PUTRA PERKASA ABADI,PT",selfpiclk di WH Kdi,KENDARI,,,36,2,,2026-11-04,0,2026-11-04,0,,,,Return,

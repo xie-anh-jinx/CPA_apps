@@ -111,6 +111,8 @@ export const apiSales = {
 export const apiDistributions = {
   list: (params?: Record<string, unknown>) =>
     api.get("/api/distributions/", { params }),
+  warehouses: () =>
+    api.get("/api/distributions/warehouses"),
   pending: () => api.get("/api/distributions/pending"),
   inTransit: () => api.get("/api/distributions/in-transit"),
   summary: (params?: Record<string, unknown>) =>
@@ -128,8 +130,10 @@ export const apiDistributions = {
     api.get("/api/distributions/transfer-orders", { params }),
   transferOrderItems: (nomor: string) =>
     api.get("/api/distributions/transfer-orders/items", { params: { nomor } }),
-  exportExcel: (params: { type: "IO" | "IT" | "DO"; period?: string; date_from?: string; date_to?: string; status?: string }) =>
+  exportExcel: (params: { type: "IO" | "IT" | "DO"; period?: string; date_from?: string; date_to?: string; status?: string; id_gudang?: string }) =>
     api.get("/api/distributions/export-excel", { params, responseType: "blob" }),
+  financialFlow: (params?: Record<string, unknown>) =>
+    api.get("/api/distributions/financial-flow", { params }),
 };
 
 export const apiCustomers = {
@@ -234,6 +238,26 @@ export const apiKitaAnalytics = {
     api.get("/api/analytics/kita/key-accounts", { params }),
 };
 
+export { apiFinance } from "./finance-api";
 
-
-
+export const apiHrm = {
+  dashboard: () => api.get("/api/hrm/dashboard"),
+  employees: (params?: Record<string, unknown>) => api.get("/api/hrm/employees", { params }),
+  createEmployee: (data: Record<string, unknown>) => api.post("/api/hrm/employees", data),
+  employeeDetail: (id: number | string) => api.get(`/api/hrm/employees/${id}`),
+  updateEmployee: (id: number | string, data: Record<string, unknown>) => api.put(`/api/hrm/employees/${id}`, data),
+  orgChart: () => api.get("/api/hrm/org-chart"),
+  mutations: () => api.get("/api/hrm/mutations"),
+  createMutation: (data: Record<string, unknown>) => api.post("/api/hrm/mutations", data),
+  attendance: (params?: Record<string, unknown>) => api.get("/api/hrm/attendance", { params }),
+  clock: (data: Record<string, unknown>) => api.post("/api/hrm/attendance/clock", data),
+  shifts: () => api.get("/api/hrm/shifts"),
+  overtime: (params?: Record<string, unknown>) => api.get("/api/hrm/overtime", { params }),
+  createOvertime: (data: Record<string, unknown>) => api.post("/api/hrm/overtime", data),
+  reviewOvertime: (id: number, data: Record<string, unknown>) => api.post(`/api/hrm/overtime/${id}/review`, data),
+  leaves: (params?: Record<string, unknown>) => api.get("/api/hrm/leaves", { params }),
+  createLeave: (data: Record<string, unknown>) => api.post("/api/hrm/leaves", data),
+  reviewLeave: (id: number, data: Record<string, unknown>) => api.post(`/api/hrm/leaves/${id}/review`, data),
+  leaveBalances: () => api.get("/api/hrm/leaves/balances"),
+  masters: () => api.get("/api/hrm/masters"),
+};

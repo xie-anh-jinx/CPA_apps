@@ -1,26 +1,46 @@
 "use client";
-import React, { useState, useEffect } from 'react';
-import { Search, Eye, X, Loader2, Truck, Clock, ArrowRight, Building, MapPin, Calendar } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, Eye, X, Loader2, Truck, Clock, ArrowRight, Building, MapPin, Calendar, Filter, RotateCcw } from 'lucide-react';
 import { api, apiWarehouses } from '@/lib/api';
+import MultiSelectFilter, { MultiSelectOption } from '@/components/inventory/MultiSelectFilter';
+
+const AGING_BUCKETS = [
+  { key: '0-30', label: '0 - 30 Hari', subLabel: 'Stok baru / fast-moving', min: 0, max: 30, color: '#22c55e', badge: '🌱' },
+  { key: '31-60', label: '31 - 60 Hari', subLabel: '1 - 2 bulan', min: 31, max: 60, color: '#4ade80', badge: '⚡' },
+  { key: '61-90', label: '61 - 90 Hari', subLabel: '2 - 3 bulan', min: 61, max: 90, color: '#38bdf8', badge: '📦' },
+  { key: '91-149', label: '91 - 149 Hari', subLabel: '3 - 5 bulan (Acceptable)', min: 91, max: 149, color: '#a3e635', badge: '⏱️' },
+  { key: '150-239', label: '150 - 239 Hari', subLabel: '5 - 8 bulan (Over-stock)', min: 150, max: 239, color: '#eab308', badge: '⚠️' },
+  { key: '>=240', label: '≥ 240 Hari', subLabel: '> 8 bulan (Deadstock)', min: 240, max: Infinity, color: '#ef4444', badge: '🛑' },
+];
 
 export default function StockAgingPage() {
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [warehouses, setWarehouses] = useState<any[]>([]);
-  const [selectedGudang, setSelectedGudang] = useState('005'); // Default Makassar
+
+  // Multi-select warehouse state for Top Bar
+  const [selectedGudangs, setSelectedGudangs] = useState<string[]>(['005']); // Default Makassar
+
+  // Period filter states
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
+
+  // Table column multi-select states
   const [search, setSearch] = useState('');
-  const [filterProduk, setFilterProduk] = useState('');
-  const [filterAsal, setFilterAsal] = useState('');
-  const [filterSellIn, setFilterSellIn] = useState('');
-  const [filterKategori, setFilterKategori] = useState('');
+  const [selectedFilterProduk, setSelectedFilterProduk] = useState<string[]>([]);
+  const [selectedFilterAsal, setSelectedFilterAsal] = useState<string[]>([]);
+  const [selectedFilterSellIn, setSelectedFilterSellIn] = useState<string[]>([]);
+  const [selectedFilterStatusAging, setSelectedFilterStatusAging] = useState<string[]>([]);
+  const [selectedFilterGudang, setSelectedFilterGudang] = useState<string[]>([]);
+  const [selectedFilterLifetime, setSelectedFilterLifetime] = useState<string[]>([]);
+  const [selectedFilterCurrentLoc, setSelectedFilterCurrentLoc] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 20;
 
-  const [agingStats, setAgingStats] = useState({
-    '0-30': { skuCount: 0, unitCount: 0 },
-    '31-60': { skuCount: 0, unitCount: 0 },
-    '61-90': { skuCount: 0, unitCount: 0 },
-    '>90': { skuCount: 0, unitCount: 0 }
+  const [agingStats, setAgingStats] = useState<Record<string, { label?: string; skuCount: number; unitCount: number }>>({
+    '0-149': { label: 'Acceptable', skuCount: 0, unitCount: 0 },
+    '150-239': { label: 'Over-stock', skuCount: 0, unitCount: 0 },
+    '>=240': { label: 'Deadstock', skuCount: 0, unitCount: 0 }
   });
   const [data, setData] = useState<any[]>([]);
   const [traceData, setTraceData] = useState<any | null>(null);
@@ -34,7 +54,17 @@ export default function StockAgingPage() {
 
   useEffect(() => {
     setLoading(true);
-    api.get(`/api/inventory/aging-fifo?id_gudang=${selectedGudang}`)
+    const activeWh = selectedGudangs.filter(g => g && g !== 'ALL');
+    const params = new URLSearchParams();
+    if (activeWh.length > 0) {
+      params.append('id_gudang', activeWh.join(','));
+    } else {
+      params.append('id_gudang', 'ALL');
+    }
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+
+    api.get(`/api/inventory/aging-fifo?${params.toString()}`)
       .then((res: any) => {
         if (res.data) {
           setAgingStats(res.data.summary);
@@ -46,7 +76,171 @@ export default function StockAgingPage() {
         console.error(err);
         setLoading(false);
       });
-  }, [selectedGudang]);
+  }, [selectedGudangs, dateFrom, dateTo]);
+
+  // Preset helpers for Period Filter
+  const isAllPeriod = !dateFrom && !dateTo;
+  const isThisMonth = useMemo(() => {
+    if (!dateFrom || !dateTo) return false;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return dateFrom === `${y}-${m}-01` && dateTo === `${y}-${m}-${d}`;
+  }, [dateFrom, dateTo]);
+
+  const isLast30Days = useMemo(() => {
+    if (!dateFrom || !dateTo) return false;
+    const now = new Date();
+    const past = new Date();
+    past.setDate(past.getDate() - 30);
+    return dateFrom === past.toISOString().slice(0, 10) && dateTo === now.toISOString().slice(0, 10);
+  }, [dateFrom, dateTo]);
+
+  const isThisYear = useMemo(() => {
+    if (!dateFrom || !dateTo) return false;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return dateFrom === `${y}-01-01` && dateTo === `${y}-${m}-${d}`;
+  }, [dateFrom, dateTo]);
+
+  const handlePreset = (type: 'all' | 'this_month' | '30_days' | 'this_year') => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
+
+    if (type === 'all') {
+      setDateFrom('');
+      setDateTo('');
+    } else if (type === 'this_month') {
+      setDateFrom(`${y}-${m}-01`);
+      setDateTo(todayStr);
+    } else if (type === '30_days') {
+      const past = new Date();
+      past.setDate(past.getDate() - 30);
+      setDateFrom(past.toISOString().slice(0, 10));
+      setDateTo(todayStr);
+    } else if (type === 'this_year') {
+      setDateFrom(`${y}-01-01`);
+      setDateTo(todayStr);
+    }
+  };
+
+  // Options for Top Bar Warehouse picker
+  const warehouseOptions: MultiSelectOption[] = useMemo(() => {
+    return warehouses.map(w => ({
+      label: w.nama_gudang,
+      value: w.id_gudang,
+      subLabel: `Kode: ${w.id_gudang}`
+    }));
+  }, [warehouses]);
+
+  // Options for Table Header: Nama Barang
+  const productOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+      if (r.nama_barang) {
+        counts[r.nama_barang] = (counts[r.nama_barang] || 0) + 1;
+      }
+    });
+    return Object.keys(counts).sort().map(name => ({
+      label: name,
+      value: name,
+      count: counts[name]
+    }));
+  }, [data]);
+
+  // Options for Table Header: Asal
+  const asalOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+      if (r.asal) {
+        counts[r.asal] = (counts[r.asal] || 0) + 1;
+      }
+    });
+    return Object.keys(counts).sort().map(asal => ({
+      label: asal,
+      value: asal,
+      count: counts[asal]
+    }));
+  }, [data]);
+
+  // Options for Table Header: Sell In
+  const sellInOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+      const po = r.sell_in_po && r.sell_in_po !== '-' ? r.sell_in_po : 'Tanpa PO';
+      counts[po] = (counts[po] || 0) + 1;
+    });
+    return Object.keys(counts).sort().map(po => ({
+      label: po,
+      value: po,
+      count: counts[po]
+    }));
+  }, [data]);
+
+  // Options for Table Header: Status Aging
+  const statusAgingOptions: MultiSelectOption[] = [
+    { label: 'Acceptable (0-149 hari)', value: 'Acceptable', badge: '✅', color: '#22c55e' },
+    { label: 'Over-stock (150-239 hari)', value: 'Over-stock', badge: '⚠️', color: '#eab308' },
+    { label: 'Deadstock (>= 240 hari)', value: 'Deadstock', badge: '🛑', color: '#ef4444' }
+  ];
+
+  // Options for Table Header: Lifetime Aging
+  const lifetimeAgingOptions: MultiSelectOption[] = useMemo(() => {
+    return AGING_BUCKETS.map(b => {
+      const count = data.filter(r => {
+        const d = Number(r.aging_hari || 0);
+        return d >= b.min && d <= b.max;
+      }).length;
+      return {
+        label: b.label,
+        value: b.key,
+        subLabel: b.subLabel,
+        badge: b.badge,
+        count,
+        color: b.color,
+      };
+    });
+  }, [data]);
+
+  // Options for Table Header: Aging of Current Location
+  const currentLocAgingOptions: MultiSelectOption[] = useMemo(() => {
+    return AGING_BUCKETS.map(b => {
+      const count = data.filter(r => {
+        const d = r.umur_gudang_hari !== undefined && r.umur_gudang_hari !== null
+          ? Number(r.umur_gudang_hari)
+          : Number(r.aging_hari || 0);
+        return d >= b.min && d <= b.max;
+      }).length;
+      return {
+        label: b.label,
+        value: b.key,
+        subLabel: b.subLabel,
+        badge: b.badge,
+        count,
+        color: b.color,
+      };
+    });
+  }, [data]);
+
+  // Options for Table Header: Gudang
+  const gudangColumnOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+      const g = r.gudang || 'Gudang';
+      counts[g] = (counts[g] || 0) + 1;
+    });
+    return Object.keys(counts).sort().map(g => ({
+      label: g,
+      value: g,
+      count: counts[g]
+    }));
+  }, [data]);
 
   // Fetch trace history saat baris diklik untuk dilacak
   useEffect(() => {
@@ -55,12 +249,13 @@ export default function StockAgingPage() {
       return;
     }
     setTraceLoading(true);
+    const activeWh = selectedGudangs.filter(g => g && g !== 'ALL');
     api.get('/api/inventory/stock-trace', {
       params: {
         id_stok: selectedStock.id_stok,
         id_barang: selectedStock.material_code || selectedStock.id_barang,
         dokumen: selectedStock.dokumen,
-        id_gudang: selectedGudang,
+        id_gudang: selectedStock.id_gudang || (activeWh.length === 1 ? activeWh[0] : undefined),
       }
     }).then((res: any) => {
       setTraceData(res.data);
@@ -70,99 +265,315 @@ export default function StockAgingPage() {
       setTraceData(null);
       setTraceLoading(false);
     });
-  }, [selectedStock, selectedGudang]);
+  }, [selectedStock, selectedGudangs]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterProduk, filterAsal, filterSellIn, filterKategori]);
+  }, [search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterStatusAging, selectedFilterGudang, selectedFilterLifetime, selectedFilterCurrentLoc, dateFrom, dateTo]);
 
-  const filteredData = data.filter(row => {
-    const s = search.toLowerCase();
-    const matchSearch = 
-      !s ||
-      (row.material_code && row.material_code.toLowerCase().includes(s)) ||
-      (row.nama_barang && row.nama_barang.toLowerCase().includes(s)) ||
-      (row.produk && row.produk.toLowerCase().includes(s)) ||
-      (row.asal && row.asal.toLowerCase().includes(s)) ||
-      (row.sell_in_po && row.sell_in_po.toLowerCase().includes(s)) ||
-      (row.dokumen && row.dokumen.toLowerCase().includes(s)) ||
-      (row.kategori && row.kategori.toLowerCase().includes(s));
+  const filteredData = useMemo(() => {
+    return data.filter(row => {
+      const s = search.toLowerCase();
+      const matchSearch = 
+        !s ||
+        (row.material_code && row.material_code.toLowerCase().includes(s)) ||
+        (row.nama_barang && row.nama_barang.toLowerCase().includes(s)) ||
+        (row.produk && row.produk.toLowerCase().includes(s)) ||
+        (row.asal && row.asal.toLowerCase().includes(s)) ||
+        (row.sell_in_po && row.sell_in_po.toLowerCase().includes(s)) ||
+        (row.dokumen && row.dokumen.toLowerCase().includes(s)) ||
+        (row.kategori && row.kategori.toLowerCase().includes(s)) ||
+        (row.gudang && row.gudang.toLowerCase().includes(s));
 
-    const matchProduk = !filterProduk || 
-      (row.nama_barang && row.nama_barang.toLowerCase().includes(filterProduk.toLowerCase())) ||
-      (row.material_code && row.material_code.toLowerCase().includes(filterProduk.toLowerCase()));
+      const matchProduk = selectedFilterProduk.length === 0 || 
+        selectedFilterProduk.includes(row.nama_barang) ||
+        selectedFilterProduk.includes(row.material_code);
 
-    const matchAsal = !filterAsal || 
-      (row.asal && row.asal.toLowerCase().includes(filterAsal.toLowerCase()));
+      const matchAsal = selectedFilterAsal.length === 0 || 
+        selectedFilterAsal.includes(row.asal);
 
-    const matchSellIn = !filterSellIn || 
-      (row.sell_in_po && row.sell_in_po.toLowerCase().includes(filterSellIn.toLowerCase()));
+      const rowSellIn = row.sell_in_po && row.sell_in_po !== '-' ? row.sell_in_po : 'Tanpa PO';
+      const matchSellIn = selectedFilterSellIn.length === 0 || 
+        selectedFilterSellIn.includes(rowSellIn);
 
-    const matchKategori = !filterKategori || 
-      (row.kategori && row.kategori.toLowerCase().includes(filterKategori.toLowerCase()));
+      const matchGudang = selectedFilterGudang.length === 0 || 
+        selectedFilterGudang.includes(row.gudang) ||
+        selectedFilterGudang.includes(row.id_gudang);
 
-    return matchSearch && matchProduk && matchAsal && matchSellIn && matchKategori;
-  });
+      const matchStatusAging = selectedFilterStatusAging.length === 0 || 
+        selectedFilterStatusAging.includes(row.status_aging);
+
+      const matchLifetime = selectedFilterLifetime.length === 0 ||
+        selectedFilterLifetime.some(key => {
+          const b = AGING_BUCKETS.find(x => x.key === key);
+          const d = Number(row.aging_hari || 0);
+          return b ? d >= b.min && d <= b.max : false;
+        });
+
+      const locDays = row.umur_gudang_hari !== undefined && row.umur_gudang_hari !== null
+        ? Number(row.umur_gudang_hari)
+        : Number(row.aging_hari || 0);
+
+      const matchCurrentLoc = selectedFilterCurrentLoc.length === 0 ||
+        selectedFilterCurrentLoc.some(key => {
+          const b = AGING_BUCKETS.find(x => x.key === key);
+          return b ? locDays >= b.min && locDays <= b.max : false;
+        });
+
+      return matchSearch && matchProduk && matchAsal && matchSellIn && matchGudang && matchStatusAging && matchLifetime && matchCurrentLoc;
+    });
+  }, [data, search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterGudang, selectedFilterStatusAging, selectedFilterLifetime, selectedFilterCurrentLoc]);
+
+  const hasAnyActiveFilter = 
+    search.trim() !== '' ||
+    selectedFilterProduk.length > 0 ||
+    selectedFilterAsal.length > 0 ||
+    selectedFilterSellIn.length > 0 ||
+    selectedFilterStatusAging.length > 0 ||
+    selectedFilterGudang.length > 0 ||
+    selectedFilterLifetime.length > 0 ||
+    selectedFilterCurrentLoc.length > 0 ||
+    dateFrom !== '' ||
+    dateTo !== '' ||
+    (selectedGudangs.length > 0 && !selectedGudangs.includes('ALL'));
+
+  const handleResetAllFilters = () => {
+    setSearch('');
+    setSelectedFilterProduk([]);
+    setSelectedFilterAsal([]);
+    setSelectedFilterSellIn([]);
+    setSelectedFilterStatusAging([]);
+    setSelectedFilterGudang([]);
+    setSelectedFilterLifetime([]);
+    setSelectedFilterCurrentLoc([]);
+    setSelectedGudangs(['ALL']);
+    setDateFrom('');
+    setDateTo('');
+  };
 
   const totalPages = Math.max(Math.ceil(filteredData.length / itemsPerPage), 1);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const getAgingBadgeColor = (days: number) => {
-    if (days <= 30) return { bg: '#dcfce7', text: '#15803d', border: '#bbf7d0' };
-    if (days <= 60) return { bg: '#fef9c3', text: '#a16207', border: '#fef08a' };
-    if (days <= 90) return { bg: '#ffedd5', text: '#c2410c', border: '#fed7aa' };
-    return { bg: '#fee2e2', text: '#b91c1c', border: '#fecaca' };
+    if (days <= 149) return { bg: '#dcfce7', text: '#15803d', border: '#bbf7d0', status: 'Acceptable' };
+    if (days <= 239) return { bg: '#fef9c3', text: '#a16207', border: '#fef08a', status: 'Over-stock' };
+    return { bg: '#fee2e2', text: '#b91c1c', border: '#fecaca', status: 'Deadstock' };
+  };
+
+  const activeChipStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '5px',
+    padding: '3px 8px',
+    borderRadius: '14px',
+    background: 'rgba(56, 189, 248, 0.15)',
+    color: '#38bdf8',
+    border: '1px solid rgba(56, 189, 248, 0.3)',
+    fontSize: '0.75rem',
+    fontWeight: 600,
   };
 
   return (
     <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto', fontFamily: 'inherit' }}>
-      {/* Top Bar: Title, Warehouse Picker, Search */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary, #ffffff)' }}>
-            Stock Aging
-          </h1>
-          <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem', color: 'var(--text-muted, #828690)' }}>
-            Laporan umur persediaan barang, nomor Sell In principal, dan jejak dokumen penerimaan
-          </p>
-        </div>
+      {/* Page Header */}
+      <div style={{ marginBottom: '18px' }}>
+        <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary, #ffffff)' }}>
+          Stock Aging
+        </h1>
+        <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem', color: 'var(--text-muted, #828690)' }}>
+          Laporan umur persediaan barang, nomor Sell In principal, dan jejak dokumen penerimaan
+        </p>
+      </div>
 
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <select 
-            value={selectedGudang} 
-            onChange={e => setSelectedGudang(e.target.value)}
-            style={{ 
-              padding: '9px 14px', 
-              borderRadius: '8px', 
-              border: '1px solid var(--bg-border, #444444)', 
-              background: 'var(--bg-surface, #242424)', 
-              color: 'var(--text-primary, #ffffff)',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              cursor: 'pointer',
-              outline: 'none'
+      {/* Toolbar: Periode Filter, Warehouse Multi-Filter, Search */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "12px",
+          background: "var(--bg-surface, #242424)",
+          border: "1px solid var(--bg-border, #444444)",
+          borderRadius: "10px",
+          padding: "10px 16px",
+          marginBottom: "20px",
+        }}
+      >
+        {/* Sisi Kiri: Filter Periode Transaksi / Stok */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          <span
+            style={{
+              fontSize: "0.8rem",
+              color: "var(--text-secondary, #b6b6b6)",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "5px",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              lineHeight: 1,
             }}
           >
-            {warehouses.map(w => (
-              <option key={w.id_gudang} value={w.id_gudang}>{w.nama_gudang}</option>
-            ))}
-          </select>
+            <span>📅</span>
+            <span>Periode:</span>
+          </span>
+
+          <button
+            type="button"
+            onClick={() => handlePreset('all')}
+            style={{
+              fontSize: "0.75rem",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              border: isAllPeriod ? "1px solid #38bdf8" : "1px solid var(--bg-border, #444444)",
+              background: isAllPeriod ? "rgba(56, 189, 248, 0.15)" : "var(--bg-card, #1e1e1e)",
+              color: isAllPeriod ? "#38bdf8" : "var(--text-secondary, #b6b6b6)",
+              fontWeight: isAllPeriod ? 700 : 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title="Tampilkan semua periode stok (lifetime akumulasi)"
+          >
+            Semua
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handlePreset('this_month')}
+            style={{
+              fontSize: "0.75rem",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              border: isThisMonth ? "1px solid #38bdf8" : "1px solid var(--bg-border, #444444)",
+              background: isThisMonth ? "rgba(56, 189, 248, 0.15)" : "var(--bg-card, #1e1e1e)",
+              color: isThisMonth ? "#38bdf8" : "var(--text-secondary, #b6b6b6)",
+              fontWeight: isThisMonth ? 700 : 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title="Tampilkan stok masuk Bulan Ini"
+          >
+            Bulan Ini
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handlePreset('30_days')}
+            style={{
+              fontSize: "0.75rem",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              border: isLast30Days ? "1px solid #38bdf8" : "1px solid var(--bg-border, #444444)",
+              background: isLast30Days ? "rgba(56, 189, 248, 0.15)" : "var(--bg-card, #1e1e1e)",
+              color: isLast30Days ? "#38bdf8" : "var(--text-secondary, #b6b6b6)",
+              fontWeight: isLast30Days ? 700 : 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title="30 Hari Terakhir"
+          >
+            30 Hari
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handlePreset('this_year')}
+            style={{
+              fontSize: "0.75rem",
+              padding: "4px 10px",
+              borderRadius: "6px",
+              border: isThisYear ? "1px solid #38bdf8" : "1px solid var(--bg-border, #444444)",
+              background: isThisYear ? "rgba(56, 189, 248, 0.15)" : "var(--bg-card, #1e1e1e)",
+              color: isThisYear ? "#38bdf8" : "var(--text-secondary, #b6b6b6)",
+              fontWeight: isThisYear ? 700 : 500,
+              cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+            title="Tahun Berjalan (1 Jan s/d hari ini)"
+          >
+            Tahun Ini
+          </button>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              background: "var(--bg-card, #1e1e1e)",
+              border: "1px solid var(--bg-border, #444444)",
+              borderRadius: "6px",
+              padding: "3px 8px",
+            }}
+          >
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--text-primary, #ffffff)",
+                fontSize: "0.78rem",
+                outline: "none",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            />
+            <span style={{ color: "var(--text-muted, #828690)", fontSize: "0.75rem" }}>s/d</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "var(--text-primary, #ffffff)",
+                fontSize: "0.78rem",
+                outline: "none",
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Sisi Kanan: Warehouse Multi-Select & Search */}
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: '220px' }}>
+            <MultiSelectFilter
+              title="Warehouse"
+              placeholder={`🌐 Semua Warehouse (${warehouses.length > 0 ? `${warehouses.length} Gudang` : 'Nasional'})`}
+              searchPlaceholder="Cari gudang..."
+              options={warehouseOptions}
+              selectedValues={selectedGudangs.filter(g => g !== 'ALL')}
+              onChange={(vals) => {
+                if (vals.length === 0) {
+                  setSelectedGudangs(['ALL']);
+                } else {
+                  setSelectedGudangs(vals);
+                }
+              }}
+              popoverWidth={280}
+              icon={<Building size={15} color="#38bdf8" />}
+            />
+          </div>
 
           <div style={{ position: 'relative' }}>
-            <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted, #828690)' }} />
+            <Search size={15} style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted, #828690)' }} />
             <input 
               type="text" 
-              placeholder="Cari SKU, Sell In, dokumen..."
+              placeholder="Cari SKU, nama barang, dokumen..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={{ 
-                padding: '9px 14px 9px 38px', 
-                borderRadius: '8px', 
+                padding: '7px 12px 7px 32px', 
+                borderRadius: '6px', 
                 border: '1px solid var(--bg-border, #444444)', 
-                background: 'var(--bg-surface, #242424)', 
+                background: 'var(--bg-card, #1e1e1e)', 
                 color: 'var(--text-primary, #ffffff)',
-                fontSize: '0.875rem',
-                minWidth: '260px',
+                fontSize: '0.8rem',
+                minWidth: '220px',
                 outline: 'none'
               }}
             />
@@ -170,40 +581,251 @@ export default function StockAgingPage() {
         </div>
       </div>
 
-      {/* KPI Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {Object.entries(agingStats).map(([key, stat], idx) => {
-          const colors = ['#22c55e', '#eab308', '#f97316', '#ef4444'];
-          return (
-            <div key={key} style={{ 
-              background: 'var(--bg-surface, #242424)', 
-              padding: '18px 20px', 
-              borderRadius: '12px', 
-              border: '1px solid var(--bg-border, #444444)', 
-              borderTop: `4px solid ${colors[idx]}`,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-            }}>
-              <div style={{ color: 'var(--text-secondary, #b6b6b6)', fontSize: '0.875rem', marginBottom: '10px', fontWeight: 600 }}>
-                {key} Hari
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                <div>
-                  <div style={{ fontSize: '1.75rem', fontWeight: 700, lineHeight: 1, color: 'var(--text-primary, #ffffff)' }}>
-                    {stat.skuCount}
-                  </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted, #828690)', marginTop: '4px' }}>SKU</div>
+      {/* KPI Stats Cards - Support Multi-selection Toggle */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+        {(() => {
+          const totalVolAll = Object.values(agingStats).reduce((sum, s: any) => sum + (Number(s.unitCount) || 0), 0);
+
+          return Object.entries(agingStats).map(([key, stat]: [string, any]) => {
+            const configMap: Record<string, { color: string; label: string; badgeBg: string; badgeBorder: string; icon: string }> = {
+              '0-149': { color: '#22c55e', label: 'Acceptable', badgeBg: 'rgba(34, 197, 94, 0.15)', badgeBorder: 'rgba(34, 197, 94, 0.3)', icon: '✅' },
+              '150-239': { color: '#eab308', label: 'Over-stock', badgeBg: 'rgba(234, 179, 8, 0.15)', badgeBorder: 'rgba(234, 179, 8, 0.3)', icon: '⚠️' },
+              '>=240': { color: '#ef4444', label: 'Deadstock', badgeBg: 'rgba(239, 68, 68, 0.15)', badgeBorder: 'rgba(239, 68, 68, 0.3)', icon: '🛑' },
+              '240+': { color: '#ef4444', label: 'Deadstock', badgeBg: 'rgba(239, 68, 68, 0.15)', badgeBorder: 'rgba(239, 68, 68, 0.3)', icon: '🛑' },
+              '150-249': { color: '#eab308', label: 'Over-stock', badgeBg: 'rgba(234, 179, 8, 0.15)', badgeBorder: 'rgba(234, 179, 8, 0.3)', icon: '⚠️' },
+              '>=250': { color: '#ef4444', label: 'Deadstock', badgeBg: 'rgba(239, 68, 68, 0.15)', badgeBorder: 'rgba(239, 68, 68, 0.3)', icon: '🛑' },
+              '250+': { color: '#ef4444', label: 'Deadstock', badgeBg: 'rgba(239, 68, 68, 0.15)', badgeBorder: 'rgba(239, 68, 68, 0.3)', icon: '🛑' },
+            };
+            const cfg = configMap[key] || { color: '#38bdf8', label: stat.label || key, badgeBg: 'rgba(56, 189, 248, 0.15)', badgeBorder: 'rgba(56, 189, 248, 0.3)', icon: '📦' };
+            const isActive = selectedFilterStatusAging.includes(cfg.label);
+            const volNumber = Number(stat.unitCount || 0);
+            const volPct = totalVolAll > 0 ? ((volNumber / totalVolAll) * 100).toFixed(1) : '0.0';
+
+            return (
+              <div 
+                key={key} 
+                onClick={() => {
+                  if (isActive) {
+                    setSelectedFilterStatusAging(prev => prev.filter(s => s !== cfg.label));
+                  } else {
+                    setSelectedFilterStatusAging(prev => [...prev, cfg.label]);
+                  }
+                }}
+                style={{ 
+                  background: 'var(--bg-surface, #242424)', 
+                  padding: '18px 20px', 
+                  borderRadius: '12px', 
+                  border: isActive ? `2px solid ${cfg.color}` : '1px solid var(--bg-border, #444444)', 
+                  borderTop: `4px solid ${cfg.color}`,
+                  boxShadow: isActive ? `0 0 16px ${cfg.color}40` : '0 1px 3px rgba(0,0,0,0.2)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                }}
+                title={`Klik untuk toggle filter stok ${cfg.label} (${key} hari)`}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <span style={{ color: 'var(--text-secondary, #b6b6b6)', fontSize: '0.9rem', fontWeight: 600 }}>
+                    {key} Hari
+                  </span>
+                  <span style={{ 
+                    fontSize: '0.75rem', 
+                    fontWeight: 700, 
+                    padding: '3px 9px', 
+                    borderRadius: '10px', 
+                    background: cfg.badgeBg, 
+                    color: cfg.color, 
+                    border: `1px solid ${cfg.badgeBorder}` 
+                  }}>
+                    {cfg.icon} {cfg.label}
+                  </span>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '1.2rem', fontWeight: 600, color: colors[idx] }}>
-                    {stat.unitCount.toLocaleString()}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                  <div>
+                    <div style={{ fontSize: '1.75rem', fontWeight: 700, lineHeight: 1, color: 'var(--text-primary, #ffffff)' }}>
+                      {stat.skuCount}
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted, #828690)', marginTop: '4px' }}>SKU</div>
                   </div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted, #828690)', marginTop: '4px' }}>Total Liter</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '6px' }}>
+                      <span style={{ fontSize: '1.2rem', fontWeight: 700, color: cfg.color, fontVariantNumeric: 'tabular-nums' }}>
+                        {volNumber.toLocaleString()}
+                      </span>
+                      <span style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: '6px',
+                        background: cfg.badgeBg,
+                        color: cfg.color,
+                        border: `1px solid ${cfg.badgeBorder}`,
+                        lineHeight: 1.2
+                      }}>
+                        {volPct}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted, #828690)', marginTop: '4px' }}>
+                      Total Liter ({volPct}% vol)
+                    </div>
+                  </div>
                 </div>
+
+                {/* Progress bar visualisasi porsi volume */}
+                <div style={{
+                  marginTop: '12px',
+                  height: '4px',
+                  width: '100%',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  borderRadius: '2px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.min(Math.max(Number(volPct), 0), 100)}%`,
+                    background: cfg.color,
+                    borderRadius: '2px',
+                    transition: 'width 0.4s ease'
+                  }} />
+                </div>
+
+                {isActive && (
+                  <div style={{ marginTop: '10px', fontSize: '0.72rem', color: cfg.color, fontWeight: 600, textAlign: 'center' }}>
+                    ● Filter aktif (klik untuk lepas)
+                  </div>
+                )}
               </div>
-            </div>
-          );
-        })}
+            );
+          });
+        })()}
       </div>
+
+      {/* Active Filters Summary Bar */}
+      {hasAnyActiveFilter && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px',
+          background: 'rgba(56, 189, 248, 0.05)',
+          border: '1px solid rgba(56, 189, 248, 0.2)',
+          borderRadius: '8px',
+          padding: '10px 14px',
+          marginBottom: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Filter Aktif:
+            </span>
+
+            {/* Periode chip */}
+            {(dateFrom || dateTo) && (
+              <span style={activeChipStyle}>
+                <span>📅 Periode: {dateFrom ? dateFrom : 'Awal'} s/d {dateTo ? dateTo : 'Hari ini'}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => { setDateFrom(''); setDateTo(''); }} />
+              </span>
+            )}
+
+            {/* Warehouse chip */}
+            {selectedGudangs.length > 0 && !selectedGudangs.includes('ALL') && (
+              <span style={activeChipStyle}>
+                <span>🏢 Gudang: {selectedGudangs.length} dipilih</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedGudangs(['ALL'])} />
+              </span>
+            )}
+
+            {/* Nama Barang chip */}
+            {selectedFilterProduk.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>📦 Barang: {selectedFilterProduk.length} dipilih</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterProduk([])} />
+              </span>
+            )}
+
+            {/* Asal chip */}
+            {selectedFilterAsal.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏭 Asal: {selectedFilterAsal.length > 2 ? `${selectedFilterAsal.length} dipilih` : selectedFilterAsal.join(', ')}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterAsal([])} />
+              </span>
+            )}
+
+            {/* Sell In chip */}
+            {selectedFilterSellIn.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>📄 Sell In: {selectedFilterSellIn.length} PO</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterSellIn([])} />
+              </span>
+            )}
+
+            {/* Status Aging chip */}
+            {selectedFilterStatusAging.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>⏱️ Status: {selectedFilterStatusAging.join(', ')}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterStatusAging([])} />
+              </span>
+            )}
+
+            {/* Column Gudang chip */}
+            {selectedFilterGudang.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏢 Filter Kolom Gudang: {selectedFilterGudang.length} dipilih</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterGudang([])} />
+              </span>
+            )}
+
+            {/* Lifetime Aging chip */}
+            {selectedFilterLifetime.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>⏱️ Lifetime: {selectedFilterLifetime.map(k => AGING_BUCKETS.find(b => b.key === k)?.label || k).join(', ')}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterLifetime([])} />
+              </span>
+            )}
+
+            {/* Current Location Aging chip */}
+            {selectedFilterCurrentLoc.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>📍 Aging Lokasi: {selectedFilterCurrentLoc.map(k => AGING_BUCKETS.find(b => b.key === k)?.label || k).join(', ')}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterCurrentLoc([])} />
+              </span>
+            )}
+
+            {/* Search chip */}
+            {search && (
+              <span style={activeChipStyle}>
+                <span>🔍 "{search}"</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSearch('')} />
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary, #b6b6b6)' }}>
+              Menampilkan <strong style={{ color: 'var(--text-primary, #ffffff)' }}>{filteredData.length}</strong> dari {data.length} stok
+            </span>
+            <button
+              onClick={handleResetAllFilters}
+              style={{
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#f87171',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title="Reset semua filter"
+            >
+              <RotateCcw size={12} />
+              Reset Semua
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Main Table: Stock Aging Ultima Style */}
       <div style={{ 
@@ -211,69 +833,118 @@ export default function StockAgingPage() {
         borderRadius: '12px', 
         border: '1px solid var(--bg-border, #444444)', 
         boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-        overflow: 'hidden' 
+        overflow: 'visible' 
       }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1050px' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'visible' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1250px' }}>
             <thead style={{ background: 'var(--bg-card, #1e1e1e)', borderBottom: '1px solid var(--bg-border, #444444)' }}>
               <tr>
                 <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '50px', textAlign: 'center' }}>
                   No
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)' }}>
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '130px' }}>
                   Material Code
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '240px' }}>
-                  Nama Barang
-                  <input 
-                    type="text" 
-                    placeholder="Filter nama..." 
-                    value={filterProduk} 
-                    onChange={e => setFilterProduk(e.target.value)} 
-                    style={{ width: '100%', marginTop: '6px', padding: '5px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--bg-border, #444444)', background: 'var(--bg-base, #1e1e1e)', color: 'var(--text-primary, #ffffff)', outline: 'none' }} 
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '260px' }}>
+                  <div style={{ marginBottom: '6px' }}>Nama Barang</div>
+                  <MultiSelectFilter
+                    title="Nama Barang"
+                    placeholder="Semua Barang"
+                    searchPlaceholder="Cari barang..."
+                    options={productOptions}
+                    selectedValues={selectedFilterProduk}
+                    onChange={setSelectedFilterProduk}
+                    popoverWidth={340}
+                    compact={true}
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'right' }}>
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'right', width: '100px' }}>
                   Volume
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center' }}>
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '100px' }}>
                   Stock
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)' }}>
-                  Asal (Supplier / Gudang)
-                  <input 
-                    type="text" 
-                    placeholder="Filter asal..." 
-                    value={filterAsal} 
-                    onChange={e => setFilterAsal(e.target.value)} 
-                    style={{ width: '100%', marginTop: '6px', padding: '5px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--bg-border, #444444)', background: 'var(--bg-base, #1e1e1e)', color: 'var(--text-primary, #ffffff)', outline: 'none' }} 
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '180px' }}>
+                  <div style={{ marginBottom: '6px' }}>Asal (Supplier / Gudang)</div>
+                  <MultiSelectFilter
+                    title="Asal"
+                    placeholder="Semua Asal"
+                    searchPlaceholder="Cari asal..."
+                    options={asalOptions}
+                    selectedValues={selectedFilterAsal}
+                    onChange={setSelectedFilterAsal}
+                    popoverWidth={260}
+                    compact={true}
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center' }}>
-                  Aging
-                </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)' }}>
-                  Sell In
-                  <input 
-                    type="text" 
-                    placeholder="Filter PO..." 
-                    value={filterSellIn} 
-                    onChange={e => setFilterSellIn(e.target.value)} 
-                    style={{ width: '100%', marginTop: '6px', padding: '5px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--bg-border, #444444)', background: 'var(--bg-base, #1e1e1e)', color: 'var(--text-primary, #ffffff)', outline: 'none' }} 
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '160px' }}>
+                  <div style={{ marginBottom: '6px' }}>Lifetime Aging</div>
+                  <MultiSelectFilter
+                    title="Lifetime"
+                    placeholder="Semua Umur"
+                    searchable={false}
+                    options={lifetimeAgingOptions}
+                    selectedValues={selectedFilterLifetime}
+                    onChange={setSelectedFilterLifetime}
+                    popoverWidth={240}
+                    compact={true}
+                    align="left"
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center' }}>
-                  Segment
-                  <input 
-                    type="text" 
-                    placeholder="Filter..." 
-                    value={filterKategori} 
-                    onChange={e => setFilterKategori(e.target.value)} 
-                    style={{ width: '100%', marginTop: '6px', padding: '5px 8px', fontSize: '0.75rem', borderRadius: '4px', border: '1px solid var(--bg-border, #444444)', background: 'var(--bg-base, #1e1e1e)', color: 'var(--text-primary, #ffffff)', outline: 'none' }} 
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '185px' }}>
+                  <div style={{ marginBottom: '6px' }}>Aging of Current Location</div>
+                  <MultiSelectFilter
+                    title="Aging Gudang"
+                    placeholder="Semua Lokasi"
+                    searchable={false}
+                    options={currentLocAgingOptions}
+                    selectedValues={selectedFilterCurrentLoc}
+                    onChange={setSelectedFilterCurrentLoc}
+                    popoverWidth={250}
+                    compact={true}
+                    align="right"
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center' }}>
-                  Gudang
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '180px' }}>
+                  <div style={{ marginBottom: '6px' }}>Sell In</div>
+                  <MultiSelectFilter
+                    title="Sell In"
+                    placeholder="Semua PO"
+                    searchPlaceholder="Cari nomor PO..."
+                    options={sellInOptions}
+                    selectedValues={selectedFilterSellIn}
+                    onChange={setSelectedFilterSellIn}
+                    popoverWidth={260}
+                    compact={true}
+                  />
+                </th>
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '175px' }}>
+                  <div style={{ marginBottom: '6px' }}>Status Aging</div>
+                  <MultiSelectFilter
+                    title="Status Aging"
+                    placeholder="Semua Status"
+                    searchable={false}
+                    options={statusAgingOptions}
+                    selectedValues={selectedFilterStatusAging}
+                    onChange={setSelectedFilterStatusAging}
+                    popoverWidth={240}
+                    compact={true}
+                    align="right"
+                  />
+                </th>
+                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '165px' }}>
+                  <div style={{ marginBottom: '6px' }}>Gudang</div>
+                  <MultiSelectFilter
+                    title="Gudang"
+                    placeholder="Semua Gudang"
+                    searchPlaceholder="Cari gudang..."
+                    options={gudangColumnOptions}
+                    selectedValues={selectedFilterGudang}
+                    onChange={setSelectedFilterGudang}
+                    popoverWidth={250}
+                    compact={true}
+                    align="right"
+                  />
                 </th>
                 <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '80px' }}>
                   Action
@@ -283,14 +954,14 @@ export default function StockAgingPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
+                  <td colSpan={12} style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
                     <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 8px auto', display: 'block' }} />
                     Memuat data Stock Aging...
                   </td>
                 </tr>
               ) : paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={11} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
+                  <td colSpan={12} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
                     Tidak ada data stok barang yang cocok.
                   </td>
                 </tr>
@@ -342,9 +1013,9 @@ export default function StockAgingPage() {
                       <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                         <span style={{ 
                           display: 'inline-block',
-                          padding: '3px 10px', 
+                          padding: '4px 12px', 
                           borderRadius: '12px', 
-                          fontSize: '0.8rem', 
+                          fontSize: '0.825rem', 
                           fontWeight: 700, 
                           background: agingStyle.bg, 
                           color: agingStyle.text,
@@ -353,15 +1024,35 @@ export default function StockAgingPage() {
                         }}>
                           {row.aging_hari} hari
                         </span>
-                        {/* Breakdown Aging Gudang Saat Ini & Gudang Asal */}
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary, #b6b6b6)', marginTop: '4px', lineHeight: 1.3 }}>
-                          <div>Gudang Ini: <strong style={{ color: 'var(--text-primary, #ffffff)' }}>{row.umur_gudang_hari ?? row.umurGudang ?? '-'} hr</strong></div>
-                          {row.umur_gudang_asal_hari > 0 && (
-                            <div style={{ color: '#f59e0b', fontWeight: 600 }}>
-                              Asal: {row.umur_gudang_asal_hari} hr
-                            </div>
-                          )}
+                        {row.tgl_diterima && row.tgl_diterima !== '-' && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #828690)', marginTop: '3px' }} title={`Tanggal Penerimaan/Stok: ${row.tgl_diterima}`}>
+                            {row.tgl_diterima}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <div style={{ 
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '3px 10px',
+                          borderRadius: '8px',
+                          background: 'rgba(56, 189, 248, 0.1)',
+                          border: '1px solid rgba(56, 189, 248, 0.25)',
+                          color: 'var(--color-primary-light, #38bdf8)',
+                          fontWeight: 700,
+                          fontSize: '0.825rem'
+                        }}>
+                          <span>Gudang Ini:</span>
+                          <span style={{ color: 'var(--text-primary, #ffffff)' }}>
+                            {row.umur_gudang_hari ?? row.umurGudang ?? '-'} hr
+                          </span>
                         </div>
+                        {row.umur_gudang_asal_hari > 0 && (
+                          <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '3px', fontWeight: 600 }}>
+                            Asal: {row.umur_gudang_asal_hari} hr
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: '0.85rem', fontWeight: 600 }}>
                         {row.sell_in_po && row.sell_in_po !== '-' ? (
@@ -370,8 +1061,23 @@ export default function StockAgingPage() {
                           <span style={{ color: 'var(--text-muted, #828690)' }}>-</span>
                         )}
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.85rem', textAlign: 'center', color: 'var(--text-primary, #ffffff)' }}>
-                        {row.kategori}
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          padding: '4px 10px',
+                          borderRadius: '12px',
+                          fontSize: '0.78rem',
+                          fontWeight: 700,
+                          background: agingStyle.bg,
+                          color: agingStyle.text,
+                          border: `1px solid ${agingStyle.border}`,
+                          whiteSpace: 'nowrap'
+                        }}>
+                          <span>{agingStyle.status === 'Acceptable' ? '✅' : agingStyle.status === 'Over-stock' ? '⚠️' : '🛑'}</span>
+                          <span>{agingStyle.status}</span>
+                        </span>
                       </td>
                       <td style={{ padding: '12px 14px', fontSize: '0.85rem', textAlign: 'center', color: 'var(--text-primary, #ffffff)' }}>
                         {row.gudang}

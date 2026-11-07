@@ -38,9 +38,15 @@ MODULE_PERMISSIONS: Dict[str, Set[str]] = {
     "WAREHOUSE": {
         "admin", "manager", "warehouse", "warehouse_staff", "sales", "sales_rep", "viewer"
     },
-    # Direct PostgreSQL Analytics Engine
+    # Direct PostgreSQL Analytics Engine & Database Translation Layer
     "DB_ANALYTICS": {
-        "admin", "manager", "finance_manager"
+        "admin", "superadmin", "director", "executive", "manager", "finance_manager",
+        "sales", "sales_rep", "warehouse", "warehouse_staff", "viewer"
+    },
+    # Distribution, Delivery Orders, Surat Jalan (DO), Logistics
+    "DISTRIBUTION": {
+        "admin", "superadmin", "director", "executive", "manager", "sales", "sales_rep",
+        "warehouse", "warehouse_staff", "finance_manager", "ar_staff", "credit_control", "viewer"
     }
 }
 
@@ -54,6 +60,7 @@ TOOL_MODULE_MAP: Dict[str, str] = {
     "get_sales_summary": "SALES",
     "get_invoices": "SALES",
     "get_top_selling_products": "SALES",
+    "get_delivery_orders": "DISTRIBUTION",
     "get_customer_detail": "SALES",
     "get_ar_piutang_aging": "FINANCE_AR",
     "get_crm_activities": "CRM",
@@ -66,11 +73,14 @@ TOOL_MODULE_MAP: Dict[str, str] = {
     "get_sales_performance_intelligence": "SALES",
     "get_customer_intelligence_dashboard": "CRM",
     "get_forecast_dashboard_summary": "FORECAST",
+    "db_get_schema_overview": "DB_ANALYTICS",
     "db_list_tables": "DB_ANALYTICS",
     "db_describe_table": "DB_ANALYTICS",
     "db_execute_query": "DB_ANALYTICS",
     "db_analyze_sql": "DB_ANALYTICS",
+    "get_scm_management_review": "INVENTORY",
 }
+
 
 
 def check_tool_permission(tool_name: str, user: MCPUser) -> Tuple[bool, Optional[str]]:

@@ -33,7 +33,7 @@ async def list_warehouses(
     rows = db.execute(text(f"""
         SELECT
             w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.inisial,
-            w.parent,
+            w.parent, w.telpon, w.kontak_person, w.dsm,
             COUNT(DISTINCT ib.id_barang) AS jumlah_sku,
             SUM(ib.on_hand) AS total_on_hand,
             SUM(ib.available) AS total_available,
@@ -43,7 +43,7 @@ async def list_warehouses(
         FROM operational.warehouses w
         LEFT JOIN operational.inventory_balances ib ON w.id_gudang = ib.id_gudang
         {extra}
-        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.inisial, w.parent
+        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.inisial, w.parent, w.telpon, w.kontak_person, w.dsm
         ORDER BY w.nama_gudang
     """), params).mappings().all()
 
@@ -77,7 +77,7 @@ async def compare_warehouses(
 
     rows = db.execute(text(f"""
         SELECT
-            w.id_gudang, w.nama_gudang, w.nama_kantor,
+            w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.telpon, w.kontak_person, w.dsm,
             SUM(ib.on_hand) AS total_on_hand,
             SUM(ib.available) AS total_available,
             SUM(ib.reserved) AS stok_reserved,
@@ -101,7 +101,7 @@ async def compare_warehouses(
         FROM operational.warehouses w
         LEFT JOIN operational.inventory_balances ib ON w.id_gudang = ib.id_gudang
         {extra}
-        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor
+        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.telpon, w.kontak_person, w.dsm
         ORDER BY total_nilai DESC
     """), params).mappings().all()
 

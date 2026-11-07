@@ -15,7 +15,7 @@ from app.config import settings
 from app.routers import (
     auth, inventory, warehouses, sales,
     distributions, customers, crm, alerts, analytics, ws, export, reports, forecast,
-    kita_analytics, oauth2_ui, schema, ai_chat
+    kita_analytics, oauth2_ui, schema, ai_chat, finance, hrm, documents
 )
 from app.mcp import router as mcp_router
 
@@ -90,16 +90,19 @@ app.include_router(customers.router, prefix=f"{API_PREFIX}/customers", tags=["Cu
 app.include_router(crm.router, prefix=f"{API_PREFIX}/crm", tags=["CRM"])
 app.include_router(alerts.router, prefix=f"{API_PREFIX}/alerts", tags=["Alerts"])
 app.include_router(analytics.router, prefix=f"{API_PREFIX}/analytics", tags=["Analytics"])
+app.include_router(finance.router, prefix=f"{API_PREFIX}/finance", tags=["Finance"])
 app.include_router(kita_analytics.router)
 app.include_router(export.router, prefix=f"{API_PREFIX}/export", tags=["Export"])
 app.include_router(reports.router, prefix=f"{API_PREFIX}/reports", tags=["Reports"])
 app.include_router(forecast.router, prefix=f"{API_PREFIX}/forecast", tags=["Forecast"])
 app.include_router(forecast.router, prefix="/api/v1/forecast", tags=["Forecast"])
 app.include_router(schema.router, prefix=f"{API_PREFIX}/schema", tags=["Schema"])
+app.include_router(hrm.router, prefix=f"{API_PREFIX}/hrm", tags=["HRM"])
 app.include_router(mcp_router, prefix=f"{API_PREFIX}/mcp", tags=["MCP"])
 app.include_router(mcp_router, prefix="/mcp", tags=["MCP Root"])
 app.include_router(ai_chat.router, prefix=f"{API_PREFIX}/ai", tags=["AI Chat & MCP"])
 app.include_router(ai_chat.router, prefix="/api/v1/ai", tags=["AI Chat & MCP v1"])
+app.include_router(documents.router, prefix=f"{API_PREFIX}", tags=["Documents"])
 app.include_router(ws.router)
 
 

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func, and_, case
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 
 from app.database import get_analytics_db, get_existing_db
 from app.routers.auth import CurrentUser
@@ -451,7 +451,9 @@ async def get_inventory_aging(
 
 @router.get("/aging-fifo")
 async def get_inventory_aging_fifo(
-    id_gudang: str = Query(..., description="Wajib memilih gudang"),
+    id_gudang: Optional[str] = Query(None, description="Pilihan gudang atau 'ALL'/kosong untuk semua warehouse"),
+    date_from: Optional[str] = Query(None, description="Filter tanggal awal stok/penerimaan (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Filter tanggal akhir stok/penerimaan (YYYY-MM-DD)"),
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
@@ -468,7 +470,34 @@ async def get_inventory_aging_fifo(
     """
     today = date.today()
 
-    query = """
+    if id_gudang:
+        gudang_list = [g.strip() for g in id_gudang.split(",") if g.strip()]
+        if any(g.upper() in ("ALL", "SEMUA") for g in gudang_list) or not gudang_list:
+            is_all = True
+            gudang_list = []
+        else:
+            is_all = False
+    else:
+        is_all = True
+        gudang_list = []
+
+    if is_all:
+        cob_filter = ""
+        coi_filter = ""
+        main_filter = ""
+        params = {}
+    elif len(gudang_list) == 1:
+        cob_filter = "AND sb.id_gudang = :id_gudang"
+        coi_filter = "AND sb.id_gudang = :id_gudang"
+        main_filter = "AND sb.id_gudang = :id_gudang"
+        params = {"id_gudang": gudang_list[0]}
+    else:
+        cob_filter = "AND sb.id_gudang IN :id_gudang_tuple"
+        coi_filter = "AND sb.id_gudang IN :id_gudang_tuple"
+        main_filter = "AND sb.id_gudang IN :id_gudang_tuple"
+        params = {"id_gudang_tuple": tuple(gudang_list)}
+
+    query = f"""
         WITH cancel_origin_batch AS (
             -- Prioritas 1: Stok asal paling awal dengan batch yang sama
             SELECT 
@@ -479,11 +508,11 @@ async def get_inventory_aging_fifo(
                                  AND orig.batch = sb.batch 
                                  AND orig.reff NOT LIKE '%CANCEL%'
                                  AND orig.tanggal <= sb.tanggal
-            WHERE sb.id_gudang = :id_gudang 
-              AND sb.stok > 0 
+            WHERE sb.stok > 0 
               AND (sb.reff LIKE '%IT-CANCEL%' OR sb.reff LIKE '%CANCEL%')
               AND sb.batch IS NOT NULL 
               AND TRIM(sb.batch) != ''
+              {cob_filter}
             GROUP BY sb.id_stok
         ),
         cancel_origin_item AS (
@@ -496,14 +525,15 @@ async def get_inventory_aging_fifo(
                                  AND orig.id_gudang = sb.id_gudang
                                  AND orig.reff NOT LIKE '%CANCEL%'
                                  AND orig.tanggal <= sb.tanggal
-            WHERE sb.id_gudang = :id_gudang 
-              AND sb.stok > 0 
+            WHERE sb.stok > 0 
               AND (sb.reff LIKE '%IT-CANCEL%' OR sb.reff LIKE '%CANCEL%')
+              {coi_filter}
             GROUP BY sb.id_stok
         )
         SELECT 
             sb.id_stok,
             sb.id_barang,
+            sb.id_gudang,
             b.nama_barang,
             b.id_satuan_besar,
             b.id_satuan_kecil,
@@ -551,11 +581,11 @@ async def get_inventory_aging_fifo(
         LEFT JOIN supplier s ON pg.id_supplier = s.id
         LEFT JOIN cancel_origin_batch cob ON sb.id_stok = cob.id_stok
         LEFT JOIN cancel_origin_item coi ON sb.id_stok = coi.id_stok
-        WHERE sb.id_gudang = :id_gudang AND sb.stok > 0
+        WHERE sb.stok > 0 {main_filter}
         ORDER BY tanggal_stok ASC, sb.id_barang
     """
 
-    rows = [dict(r) for r in db.execute(text(query), {"id_gudang": id_gudang}).mappings().all()]
+    rows = [dict(r) for r in db.execute(text(query), params).mappings().all()]
 
     # Fast Sell In PO Resolution untuk stok yang berasal dari IT
     it_rows = [r for r in rows if r['id_gudang_asal'] and not r['po_direct']]
@@ -596,17 +626,33 @@ async def get_inventory_aging_fifo(
                 r['tanggal_stok'] = matching_tgl
 
     summary = {
-        "0-30": {"skuCount": 0, "unitCount": 0},
-        "31-60": {"skuCount": 0, "unitCount": 0},
-        "61-90": {"skuCount": 0, "unitCount": 0},
-        ">90": {"skuCount": 0, "unitCount": 0}
+        "0-149": {"label": "Acceptable", "skuCount": 0, "unitCount": 0},
+        "150-239": {"label": "Over-stock", "skuCount": 0, "unitCount": 0},
+        ">=240": {"label": "Deadstock", "skuCount": 0, "unitCount": 0}
     }
-    sku_set_per_cat = {"0-30": set(), "31-60": set(), "61-90": set(), ">90": set()}
+    sku_set_per_cat = {"0-149": set(), "150-239": set(), ">=240": set()}
     results = []
 
     for r in rows:
         stok_val = float(r['stok']) if r['stok'] is not None else 0.0
         tgl_stok = r['tanggal_stok'] or r['tgl_tercatat'] or today
+
+        # Filter periode tanggal penerimaan / stok
+        if date_from:
+            try:
+                d_from = datetime.strptime(date_from.strip(), "%Y-%m-%d").date()
+                if tgl_stok and tgl_stok < d_from:
+                    continue
+            except Exception:
+                pass
+        if date_to:
+            try:
+                d_to = datetime.strptime(date_to.strip(), "%Y-%m-%d").date()
+                if tgl_stok and tgl_stok > d_to:
+                    continue
+            except Exception:
+                pass
+
         aging_hari = max((today - tgl_stok).days, 0)
 
         # Umur di gudang saat ini (cut-off tepat saat barang diterima di gudang tujuan)
@@ -627,11 +673,19 @@ async def get_inventory_aging_fifo(
         volume_label = f"{stok_val:,.0f} {sat_kecil}"
         qty_detail_label = f"{stok_val:,.0f} {sat_kecil} ({stok_kemasan:.1f} {sat_besar})"
 
-        # Klasifikasi Summary berdasarkan aging resmi
-        key = ">90"
-        if aging_hari <= 30: key = "0-30"
-        elif aging_hari <= 60: key = "31-60"
-        elif aging_hari <= 90: key = "61-90"
+        # Klasifikasi Summary berdasarkan aturan:
+        # 0-149: Acceptable
+        # 150-239: Over-stock
+        # >=240: Deadstock
+        if aging_hari <= 149:
+            key = "0-149"
+            status_aging = "Acceptable"
+        elif aging_hari <= 239:
+            key = "150-239"
+            status_aging = "Over-stock"
+        else:
+            key = ">=240"
+            status_aging = "Deadstock"
 
         summary[key]["unitCount"] += stok_val
         sku_set_per_cat[key].add(r['id_barang'])
@@ -643,6 +697,7 @@ async def get_inventory_aging_fifo(
             "id": f"{r['id_barang']}-{r['id_stok']}",
             "id_stok": int(r['id_stok']) if r['id_stok'] is not None else 0,
             "id_barang": str(r['id_barang']),
+            "id_gudang": str(r.get('id_gudang') or ''),
             "material_code": str(r['id_barang']),
             "nama_barang": str(r['nama_barang']),
             "produk": f"{r['id_barang']} - {r['nama_barang']}",
@@ -656,6 +711,7 @@ async def get_inventory_aging_fifo(
             "satuan_kecil": sat_kecil,
             "isi_satuan": float(isi),
             "aging_hari": int(aging_hari),
+            "status_aging": status_aging,
             "sell_in_po": sell_in_po_val,
             "kategori": r.get('kategori') or '-',
             "gudang": r['nama_gudang_curr'] or 'Gudang',
@@ -664,6 +720,7 @@ async def get_inventory_aging_fifo(
             "batch": r['batch'] or '-',
             "nomor_po": sell_in_po_val,
             "supplier": r['nama_supplier'] or r['asal'],
+            "tanggal_stok": tgl_stok.isoformat() if hasattr(tgl_stok, 'isoformat') else str(tgl_stok),
             "diterimaDiMakassar": formatted_date,
             "tgl_diterima": formatted_date,
             "umurGudang": f"{umur_gudang} hari",
@@ -715,7 +772,8 @@ async def get_stock_trace(
             WHERE sb.id_stok = :id_stok
         """), {"id_stok": int(id_stok)}).mappings().first()
 
-    if not sb and id_barang and id_gudang:
+    clean_gudang = id_gudang.strip() if id_gudang and id_gudang.strip().upper() not in ("ALL", "SEMUA", "") else None
+    if not sb and id_barang and clean_gudang:
         sb = db.execute(text("""
             SELECT sb.*, b.nama_barang, b.id_satuan_besar, b.id_satuan_kecil, b.isi_satuan, g.gudang AS nama_gudang
             FROM stok_barang sb
@@ -725,7 +783,18 @@ async def get_stock_trace(
               AND (:dokumen IS NULL OR :dokumen = '' OR :dokumen = '-' OR sb.reff = :dokumen)
             ORDER BY sb.stok DESC
             LIMIT 1
-        """), {"id_barang": id_barang, "id_gudang": id_gudang, "dokumen": dokumen}).mappings().first()
+        """), {"id_barang": id_barang, "id_gudang": clean_gudang, "dokumen": dokumen}).mappings().first()
+    elif not sb and id_barang:
+        sb = db.execute(text("""
+            SELECT sb.*, b.nama_barang, b.id_satuan_besar, b.id_satuan_kecil, b.isi_satuan, g.gudang AS nama_gudang
+            FROM stok_barang sb
+            JOIN barang b ON sb.id_barang = b.id_barang
+            JOIN gudang g ON sb.id_gudang = g.id_gudang
+            WHERE sb.id_barang = :id_barang
+              AND (:dokumen IS NULL OR :dokumen = '' OR :dokumen = '-' OR sb.reff = :dokumen)
+            ORDER BY sb.stok DESC
+            LIMIT 1
+        """), {"id_barang": id_barang, "dokumen": dokumen}).mappings().first()
 
     if not sb:
         return {

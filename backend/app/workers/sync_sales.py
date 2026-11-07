@@ -167,10 +167,13 @@ def _sync_invoices(existing_db, analytics_db):
             c.customer AS nama_customer,
             p.id_salesman, p.id_gudang, p.no_do,
             p.total, p.total_discount, p.total_ppn, p.grandtotal,
-            p.total_bayar, p.is_lunas, p.tgl_jatuh_tempo, p.tgl_bayar,
+            COALESCE(a.bayar, p.total_bayar, 0) AS total_bayar,
+            (CASE WHEN COALESCE(a.bayar, p.total_bayar, 0) >= p.grandtotal AND p.grandtotal > 0 THEN true ELSE false END) AS is_lunas,
+            p.tgl_jatuh_tempo, p.tgl_bayar,
             p.status, p.faktur, p.create_date, p.modified_date
         FROM public.penjualan p
         LEFT JOIN public.customer c ON p.id_customer = c.id_kontak
+        LEFT JOIN public.acc_ar_faktur a ON p.no_penjualan = a.no_invoice
         WHERE COALESCE(p.modified_date, p.create_date, '1970-01-01'::timestamp) >= :last_sync
         ORDER BY COALESCE(p.modified_date, p.create_date, '1970-01-01'::timestamp)
         LIMIT 50000

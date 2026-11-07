@@ -17,6 +17,10 @@ interface WarehouseData {
   total_nilai: number | null;
   low_stock_count: number;
   zero_stock_count: number;
+  kontak_person?: string;
+  dsm?: string;
+  telpon?: string;
+  alamat?: string;
 }
 
 interface TransferRecord {
@@ -88,6 +92,8 @@ export default function WarehousePage() {
   // Multi-warehouse Overview state
   const [data, setData] = useState<WarehouseData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchWh, setSearchWh] = useState<string>("");
+  const [filterBranch, setFilterBranch] = useState<string>("all");
 
   // Transfers state
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
@@ -107,7 +113,10 @@ export default function WarehousePage() {
     try {
       setLoading(true);
       const res = await apiWarehouses.comparison();
-      setData(res.data || []);
+      setData((res.data || []).map((w: any) => ({
+        ...w,
+        lokasi: w.nama_kantor || w.lokasi || "—",
+      })));
     } catch {
       // quiet fail
     } finally {
@@ -181,6 +190,31 @@ export default function WarehousePage() {
     });
     return Object.values(map);
   }, [data, hasFinancial]);
+
+  const branchList = useMemo(() => {
+    const s = new Set<string>();
+    data.forEach(d => { if (d.nama_kantor) s.add(d.nama_kantor); });
+    return Array.from(s).sort();
+  }, [data]);
+
+  const filteredWarehouses = useMemo(() => {
+    return data.filter((row) => {
+      if (filterBranch !== "all" && row.nama_kantor !== filterBranch) {
+        return false;
+      }
+      if (!searchWh.trim()) return true;
+      const q = searchWh.toLowerCase();
+      return (
+        (row.id_gudang && row.id_gudang.toLowerCase().includes(q)) ||
+        (row.nama_gudang && row.nama_gudang.toLowerCase().includes(q)) ||
+        (row.nama_kantor && row.nama_kantor.toLowerCase().includes(q)) ||
+        (row.kontak_person && row.kontak_person.toLowerCase().includes(q)) ||
+        (row.dsm && row.dsm.toLowerCase().includes(q)) ||
+        (row.telpon && row.telpon.toLowerCase().includes(q)) ||
+        (row.alamat && row.alamat.toLowerCase().includes(q))
+      );
+    });
+  }, [data, searchWh, filterBranch]);
 
   // Transfer metrics & filter
   const transferCounts = useMemo(() => {
@@ -432,15 +466,73 @@ export default function WarehousePage() {
             )}
           </div>
 
+          {/* Warehouse Table Section with Search & Branch Filter */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem", flexWrap: "wrap", gap: "0.75rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <div style={{ position: "relative" }}>
+                <input
+                  type="text"
+                  placeholder="Cari ID, Gudang, Kontak, DSM, Telepon, Alamat..."
+                  value={searchWh}
+                  onChange={(e) => setSearchWh(e.target.value)}
+                  style={{
+                    padding: "0.55rem 0.75rem 0.55rem 2.2rem",
+                    borderRadius: "6px",
+                    border: "1px solid var(--bg-border)",
+                    background: "var(--bg-surface)",
+                    color: "var(--text-primary)",
+                    fontSize: "0.85rem",
+                    minWidth: "300px"
+                  }}
+                />
+                <span style={{ position: "absolute", left: "0.75rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                  🔍
+                </span>
+                {searchWh && (
+                  <button
+                    onClick={() => setSearchWh("")}
+                    style={{ position: "absolute", right: "0.5rem", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.9rem" }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <select
+                value={filterBranch}
+                onChange={(e) => setFilterBranch(e.target.value)}
+                style={{
+                  padding: "0.55rem 0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid var(--bg-border)",
+                  background: "var(--bg-surface)",
+                  color: "var(--text-primary)",
+                  fontSize: "0.85rem",
+                  cursor: "pointer"
+                }}
+              >
+                <option value="all">Semua Cabang ({branchList.length})</option>
+                {branchList.map((b) => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
+              Menampilkan <strong style={{ color: "var(--text-primary)" }}>{filteredWarehouses.length}</strong> dari {data.length} gudang
+            </div>
+          </div>
+
           {/* Warehouse Table */}
           <div className="card" style={{ padding: 0, overflow: "hidden" }}>
             <div style={{ overflowX: "auto" }}>
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Gudang</th>
-                    <th>Lokasi</th>
-                    <th style={{ textAlign: "right" }}>Kapasitas Max</th>
+                    <th style={{ width: "60px" }}>ID</th>
+                    <th>Nama Gudang</th>
+                    <th>Kantor / Cabang</th>
+                    <th>Kontak Person</th>
+                    <th>DSM</th>
+                    <th>Telepon</th>
                     <th style={{ textAlign: "right" }}>On Hand</th>
                     <th style={{ textAlign: "right" }}>Available</th>
                     {hasFinancial && <th style={{ textAlign: "right" }}>Nilai (Rp)</th>}
@@ -452,23 +544,80 @@ export default function WarehousePage() {
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: hasFinancial ? 8 : 7 }).map((_, j) => (
+                        {Array.from({ length: hasFinancial ? 11 : 10 }).map((_, j) => (
                           <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
                         ))}
                       </tr>
                     ))
-                  ) : data.length === 0 ? (
+                  ) : filteredWarehouses.length === 0 ? (
                     <tr>
-                      <td colSpan={hasFinancial ? 8 : 7} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
-                        Tidak ada data gudang.
+                      <td colSpan={hasFinancial ? 11 : 10} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
+                        Tidak ada data gudang yang sesuai kriteria pencarian.
                       </td>
                     </tr>
                   ) : (
-                    data.map((row) => (
+                    filteredWarehouses.map((row) => (
                       <tr key={row.id_gudang}>
-                        <td style={{ fontWeight: 600 }}>{row.nama_gudang}</td>
-                        <td style={{ color: "var(--text-secondary)" }}>{row.lokasi || "—"}</td>
-                        <td style={{ textAlign: "right" }}>{Number(row.kapasitas_max || 0).toLocaleString("id")}</td>
+                        <td>
+                          <span style={{
+                            padding: "2px 6px",
+                            borderRadius: "4px",
+                            background: "rgba(59, 130, 246, 0.12)",
+                            color: "#60a5fa",
+                            fontFamily: "monospace",
+                            fontWeight: 700,
+                            fontSize: "0.78rem"
+                          }}>
+                            {row.id_gudang}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>{row.nama_gudang}</div>
+                          {row.alamat && (
+                            <div style={{
+                              fontSize: "0.72rem",
+                              color: "var(--text-muted)",
+                              marginTop: "3px",
+                              lineHeight: "1.3"
+                            }} title={row.alamat}>
+                              📍 {row.alamat.split("\n")[0]}
+                              {row.alamat.includes("\n") ? "..." : ""}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ color: "var(--text-secondary)" }}>
+                          <span style={{
+                            padding: "2px 8px",
+                            borderRadius: "12px",
+                            background: "rgba(255, 255, 255, 0.05)",
+                            fontSize: "0.78rem",
+                            border: "1px solid var(--bg-border)",
+                            whiteSpace: "nowrap"
+                          }}>
+                            {row.nama_kantor || row.lokasi || "—"}
+                          </span>
+                        </td>
+                        <td style={{ color: "var(--text-primary)", fontSize: "0.82rem" }}>
+                          {row.kontak_person ? (
+                            <span>👤 {row.kontak_person}</span>
+                          ) : (
+                            <span style={{ color: "var(--text-muted)" }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ color: "var(--text-primary)", fontSize: "0.82rem" }}>
+                          {row.dsm ? (
+                            <span>👔 {row.dsm}</span>
+                          ) : (
+                            <span style={{ color: "var(--text-muted)" }}>—</span>
+                          )}
+                        </td>
+                        <td style={{ color: "var(--text-secondary)", fontSize: "0.82rem", whiteSpace: "nowrap" }}>
+                          {row.telpon ? (
+                            <span style={{ fontFamily: "monospace" }}>📞 {row.telpon}</span>
+                          ) : (
+                            <span style={{ color: "var(--text-muted)" }}>—</span>
+                          )}
+                        </td>
                         <td style={{ textAlign: "right" }}>{Number(row.total_on_hand || 0).toLocaleString("id")}</td>
                         <td style={{ textAlign: "right", color: "var(--color-primary)", fontWeight: 600 }}>
                           {Number(row.total_available || 0).toLocaleString("id")}

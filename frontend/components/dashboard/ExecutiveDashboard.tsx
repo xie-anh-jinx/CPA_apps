@@ -27,10 +27,12 @@ import {
   ChevronRight,
   Gauge,
   BarChart3,
+  Users2,
 } from "lucide-react";
 import Link from "next/link";
 import { apiAnalytics } from "@/lib/api";
 import MainDashboardC3 from "./MainDashboardC3";
+import HrmDashboardContent from "@/components/hrm/HrmDashboardContent";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SalesActivity {
@@ -203,7 +205,7 @@ function BarSparkline({ data, color }: { data: number[]; color: string }) {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export default function ExecutiveDashboard() {
-  const [viewMode, setViewMode] = useState<"c3" | "executive">("c3");
+  const [viewMode, setViewMode] = useState<"c3" | "executive" | "hrm">("c3");
   const [data, setData] = useState<ExecutiveData | null>(null);
   const [period, setPeriod] = useState<string>("ytd");
   const [loading, setLoading] = useState(true);
@@ -322,11 +324,32 @@ export default function ExecutiveDashboard() {
             <BarChart3 size={15} />
             <span>Executive Overview (Figma Layout)</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("hrm")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.45rem 1.15rem",
+              borderRadius: "8px",
+              border: "none",
+              fontSize: "0.82rem",
+              fontWeight: 700,
+              cursor: "pointer",
+              background: viewMode === "hrm" ? "#3AC977" : "transparent",
+              color: viewMode === "hrm" ? "#FFFFFF" : "var(--text-secondary)",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Users2 size={15} />
+            <span>Employee Dashboard (HRM)</span>
+          </button>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "1.25rem", flexWrap: "wrap" }}>
           <Link
-            href="/main-dashboard"
+            href={viewMode === "hrm" ? "/hrm" : "/main-dashboard"}
             style={{
               fontSize: "0.78rem",
               color: "var(--color-primary)",
@@ -345,6 +368,8 @@ export default function ExecutiveDashboard() {
 
       {viewMode === "c3" ? (
         <MainDashboardC3 />
+      ) : viewMode === "hrm" ? (
+        <HrmDashboardContent />
       ) : (
         <>
       {/* ─── HEADER BAR (Interoly UI Kit Style) ─── */}
@@ -449,6 +474,37 @@ export default function ExecutiveDashboard() {
           >
             <RefreshCw size={14} className={refreshing ? "animate-spin text-emerald-400" : ""} />
             <span>{refreshing ? "Memperbarui..." : `Refresh ${lastRefreshed ? `(${lastRefreshed})` : ""}`}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("open-cpa-ai-chat"));
+              }
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.45rem",
+              fontSize: "0.8rem",
+              fontWeight: 700,
+              padding: "0.45rem 0.95rem",
+              borderRadius: "10px",
+              border: "1px solid rgba(13, 153, 255, 0.3)",
+              background: "linear-gradient(135deg, rgba(13, 153, 255, 0.12), rgba(145, 71, 255, 0.12))",
+              color: "var(--text-primary)",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+            title="Buka CPA AI Assistant"
+          >
+            <img
+              src="/images/logo-padi-ai.png"
+              alt="PADI AI"
+              style={{ width: 16, height: 16, objectFit: "contain" }}
+            />
+            <span style={{ color: "var(--color-primary, #0D99FF)" }}>Tanya CPA AI</span>
           </button>
         </div>
       </div>

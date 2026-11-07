@@ -300,16 +300,74 @@ ALL_TOOLS: List[Dict[str, Any]] = [
         }
     },
     {
+        "name": "get_delivery_orders",
+        "title": "Monitoring Surat Jalan / Delivery Order (DO)",
+        "description": (
+            "Pantau dan lacak dokumen Surat Jalan / Delivery Order (DO) pengiriman barang real-time dari ERP. "
+            "Menampilkan nomor DO, tanggal, nama customer/penerima, alamat kirim, gudang asal, nama sopir, "
+            "nomor polisi armada, transporter, status pengiriman, serta total volume dalam satuan Liter."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "Filter tanggal DO ('YYYY-MM-DD', 'hari_ini', 'kemarin'). Contoh: '2026-10-27'."
+                },
+                "id_gudang": {
+                    "type": "string",
+                    "description": "Kode gudang asal pengiriman (contoh: '010', '005', '011')."
+                },
+                "search": {
+                    "type": "string",
+                    "description": "Kata kunci pencarian nomor DO, nama customer, sopir, atau nomor polisi."
+                },
+                "status": {
+                    "type": "string",
+                    "description": "Filter kode status: 'S' (Selesai/Terkirim), 'R' (Dalam Perjalanan/Released), 'I' (Diproses)."
+                },
+                "limit": {
+                    "type": "integer",
+                    "default": 35,
+                    "description": "Jumlah maksimal data DO yang dikembalikan."
+                }
+            },
+            "required": []
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string"},
+                "total_do_count": {"type": "integer"},
+                "total_volume_liter": {"type": "number"},
+                "volume_unit": {"type": "string"},
+                "date_filter": {"type": "string"},
+                "delivery_orders": {"type": "array", "items": {"type": "object"}}
+            }
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False
+        }
+    },
+    {
         "name": "get_ar_piutang_aging",
         "title": "Get Accounts Receivable Aging",
         "description": (
             "Analyze corporate Accounts Receivable aging buckets: current outstanding, "
             "overdue 1-30 days, 31-60 days, 61-90 days, and >90 days. "
+            "Can be filtered by specific customer name or customer code (optional). "
             "[Restricted to Admin, Manager, Finance, and Credit Control]."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+                "customer": {
+                    "type": "string",
+                    "description": "Nama customer atau kode customer untuk melihat aging piutang khusus customer tersebut (opsional). Jika kosong, menampilkan corporate-wide aging."
+                }
+            },
             "required": []
         },
         "outputSchema": {
@@ -612,17 +670,45 @@ ALL_TOOLS: List[Dict[str, Any]] = [
         }
     },
     {
-        "name": "db_list_tables",
-        "title": "List PostgreSQL Ultima Database Tables",
+        "name": "db_get_schema_overview",
+        "title": "Get Database Schema Overview & Business Logic",
         "description": (
-            "Explore tables and schemas in the live PostgreSQL Ultima database. "
-            "Use this tool to see available schemas (public, hr, finance), table names, and estimated row counts."
+            "Explore the high-level architecture of PADI ERP databases: business domains (Inventory, Sales, Distribution, Purchasing, Customer/CRM, Finance, HRM, Analytics), "
+            "end-to-end transaction flows (Order-to-Cash, Procure-to-Pay, Stock Aging), key table relationships (ERD), and common column meanings."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "schema": {"type": "string", "description": "Optional schema filter (e.g. 'public', 'hr', 'finance')"},
-                "search": {"type": "string", "description": "Optional table name search term"}
+                "domain": {
+                    "type": "string",
+                    "description": "Optional business domain filter: 'INVENTORY', 'SALES', 'DISTRIBUTION', 'PROCUREMENT', 'CUSTOMER_CRM', 'FINANCE', 'HRM', or 'ANALYTICS'"
+                }
+            },
+            "required": []
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False
+        }
+    },
+    {
+        "name": "db_list_tables",
+        "title": "List Database Tables & Business Meanings",
+        "description": (
+            "Explore tables across PostgreSQL databases (operational Ultima or Analytics). "
+            "Returns table names, schema, estimated row counts, domain categorization, and human-readable business descriptions."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string", "description": "Optional schema filter (e.g. 'public', 'analytics')"},
+                "search": {"type": "string", "description": "Optional table name search term (e.g. 'penjualan', 'barang', 'customer', 'do')"},
+                "target_db": {
+                    "type": "string",
+                    "enum": ["operational", "analytics"],
+                    "description": "Target database ('operational' for ERP 187 tables, 'analytics' for mart)"
+                }
             },
             "required": []
         },
@@ -634,16 +720,21 @@ ALL_TOOLS: List[Dict[str, Any]] = [
     },
     {
         "name": "db_describe_table",
-        "title": "Describe Table Schema & Columns",
+        "title": "Describe Table Schema, Columns & Sample Data",
         "description": (
-            "Inspect exact column names, data types, nullability, and 3 sample rows from any table "
-            "in the PostgreSQL Ultima database. Essential before writing custom SQL queries."
+            "Inspect exact column names, data types, nullability, primary keys, business meanings, "
+            "and 3 sample rows from any table in PostgreSQL Ultima or Analytics database. Helps users understand what data is inside."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "table_name": {"type": "string", "description": "Name of target table (e.g. 'penjualan', 'customer', 'barang')"},
-                "schema": {"type": "string", "description": "Schema name (default: 'public')"}
+                "table_name": {"type": "string", "description": "Name of target table (e.g. 'penjualan', 'customer', 'barang', 'stok_barang', 'do_tbl')"},
+                "schema": {"type": "string", "description": "Schema name (default: 'public')"},
+                "target_db": {
+                    "type": "string",
+                    "enum": ["operational", "analytics"],
+                    "description": "Target database ('operational' or 'analytics')"
+                }
             },
             "required": ["table_name"]
         },
@@ -657,7 +748,7 @@ ALL_TOOLS: List[Dict[str, Any]] = [
         "name": "db_execute_query",
         "title": "Execute Read-Only SQL Analytics Query",
         "description": (
-            "Execute custom, read-only SELECT queries directly against PostgreSQL Ultima database. "
+            "Execute custom, read-only SELECT queries directly against PostgreSQL database (Operational or Analytics). "
             "Allows full SQL aggregations, joins, filtering, and deep data analysis. "
             "[Strictly enforced: SELECT/WITH only, auto-capped limit, read-only transaction]."
         ),
@@ -665,7 +756,12 @@ ALL_TOOLS: List[Dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "sql_query": {"type": "string", "description": "The SELECT SQL query string to execute"},
-                "limit": {"type": "integer", "description": "Maximum rows to return (default: 100, max: 200)"}
+                "limit": {"type": "integer", "description": "Maximum rows to return (default: 100, max: 200)"},
+                "target_db": {
+                    "type": "string",
+                    "enum": ["operational", "analytics"],
+                    "description": "Target database ('operational' or 'analytics')"
+                }
             },
             "required": ["sql_query"]
         },
@@ -700,8 +796,36 @@ ALL_TOOLS: List[Dict[str, Any]] = [
             "openWorldHint": False,
             "destructiveHint": False
         }
+    },
+    {
+        "name": "get_scm_management_review",
+        "title": "Get Supply Chain Management Review (PADI ERP Executive Slide)",
+        "description": (
+            "Retrieve comprehensive executive Supply Chain Management Review metrics matching corporate review slides: "
+            "Stock On Hand per Area (CPA 01, CPA 02, CPA 03) & SCM Runrate ratios, "
+            "Stock Category Aging ratio (Good Stock <150 hr, Overstock 150-239 hr, Deadstock >=240 hr), "
+            "Dead Stock & Over Stock Area Contributions, Delivery OTIF YTD (On-Time 98.77% vs Late), "
+            "Outbound DO Status Volume in Liters (Invoice, Received, Send), Monthly KPI Dead Stock Trend "
+            "Apr-Sep with Achieved/Fail status, and H2 2026 Strategic Plan."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "period": {
+                    "type": "string",
+                    "description": "Period filter: 'ytd' (default), 'q3-2026', or 'closing-october'."
+                }
+            },
+            "required": []
+        },
+        "annotations": {
+            "readOnlyHint": True,
+            "openWorldHint": False,
+            "destructiveHint": False
+        }
     }
 ]
+
 
 
 def list_tools_for_user(user: MCPUser) -> List[Dict[str, Any]]:
@@ -810,9 +934,20 @@ def execute_tool(
         elif name == "get_top_selling_products":
             res = queries.query_top_selling_products(db, user, limit=arguments.get("limit", 10))
 
+        # Delivery Orders / Surat Jalan (DO)
+        elif name == "get_delivery_orders":
+            res = queries.query_get_delivery_orders(
+                db, user,
+                date=arguments.get("date"),
+                id_gudang=arguments.get("id_gudang"),
+                search=arguments.get("search"),
+                status=arguments.get("status"),
+                limit=arguments.get("limit", 35)
+            )
+
         # 5. Finance Tools
         elif name == "get_ar_piutang_aging":
-            res = queries.query_ar_piutang_aging(db, user)
+            res = queries.query_ar_piutang_aging(db, user, customer=arguments.get("customer"))
 
         elif name == "get_customer_detail":
             res = queries.query_customer_detail(db, user, query_str=arguments.get("query", ""))
@@ -877,31 +1012,41 @@ def execute_tool(
         elif name == "get_forecast_dashboard_summary":
             res = queries.query_forecast_dashboard_summary(db, user)
 
-        # 14. PostgreSQL Ultima — List Tables
+        # 14. Database Schema Overview & ERD Logic
+        elif name == "db_get_schema_overview":
+            res = queries.query_db_get_schema_overview(
+                db, user,
+                domain=arguments.get("domain")
+            )
+
+        # 15. PostgreSQL — List Tables
         elif name == "db_list_tables":
             res = queries.query_db_list_tables(
                 db, user,
                 schema=arguments.get("schema"),
-                search=arguments.get("search")
+                search=arguments.get("search"),
+                target_db=arguments.get("target_db", "operational")
             )
 
-        # 15. PostgreSQL Ultima — Describe Table
+        # 16. PostgreSQL — Describe Table
         elif name == "db_describe_table":
             res = queries.query_db_describe_table(
                 db, user,
                 table_name=arguments.get("table_name", ""),
-                schema=arguments.get("schema", "public")
+                schema=arguments.get("schema", "public"),
+                target_db=arguments.get("target_db", "operational")
             )
 
-        # 16. PostgreSQL Ultima — Execute Custom Read-Only SQL Query
+        # 17. PostgreSQL — Execute Custom Read-Only SQL Query
         elif name == "db_execute_query":
             res = queries.query_db_execute_query(
                 db, user,
                 sql_query=arguments.get("sql_query", ""),
-                limit=arguments.get("limit", 100)
+                limit=arguments.get("limit", 100),
+                target_db=arguments.get("target_db", "operational")
             )
 
-        # 17. PostgreSQL Ultima — Business Intelligence Analysis
+        # 18. PostgreSQL — Business Intelligence Analysis
         elif name == "db_analyze_sql":
             res = queries.query_db_analyze_sql(
                 db, user,
@@ -911,7 +1056,15 @@ def execute_tool(
                 top_n=arguments.get("top_n", 10)
             )
 
+        # 19. SCM — Supply Chain Management Review (Executive Slide)
+        elif name == "get_scm_management_review":
+            res = queries.query_scm_management_review(
+                db, user,
+                period=arguments.get("period", "ytd")
+            )
+
         else:
+
             return {
                 "isError": True,
                 "content": [{"type": "text", "text": f"Handler untuk tool '{name}' belum diimplementasikan."}]

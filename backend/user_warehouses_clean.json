@@ -1,0 +1,1082 @@
+[
+  {
+    "id_gudang": "000",
+    "nama_gudang": "DAMAGE",
+    "kantor": "HO - Balikpapan",
+    "kontak": "",
+    "dsm": "",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "001",
+    "nama_gudang": "BALIKPAPAN",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Rino Suhardianto",
+    "dsm": "",
+    "telpon": "",
+    "alamat": "Kawasan Industri Kariangau K.M 5,5 Jln. AMD Projakal No.77, Balikpapan 76134 Kalimantan Timur"
+  },
+  {
+    "id_gudang": "002",
+    "nama_gudang": "BPN - REGULER",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": "Jl. Sultan Hasanuddin, No. 2, RT. 5 Kel. Kariangau, Kec. Balikpapan Barat, Balikpapan 76134, Kalimantan Timur"
+  },
+  {
+    "id_gudang": "003",
+    "nama_gudang": "BPN - TCI",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": "Jl. Sultan Hasanuddin, No. 2, RT. 5 Kel. Kariangau, Kec. Balikpapan Barat, Balikpapan 76134, Kalimantan Timur"
+  },
+  {
+    "id_gudang": "004",
+    "nama_gudang": "BPN - BUMA",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "RM. Mahmood Iskandar Gufron",
+    "telpon": "",
+    "alamat": "Jl. Sultan Hasanuddin, No. 2, RT. 5 Kel. Kariangau, Kec. Balikpapan Barat, Balikpapan 76134, Kalimantan Timur"
+  },
+  {
+    "id_gudang": "005",
+    "nama_gudang": "MAKASSAR",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Kawasan Industri Parangloe Indah Natura Cluster I Blok A No. 1, Makasar 90244 Sulawesi Selatan - Indonesia"
+  },
+  {
+    "id_gudang": "007",
+    "nama_gudang": "KENDARI",
+    "kantor": "Kendari",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Jl. Patimura RT.03,RW.01 Komp.Ruko & Pergudangan Puuwuta Bizpark Blok G-9 & 10, Kelurahan Puuwatu, Kec Puuwatu (Samping Gudang PT.Alfa Midi) Kendari \u2013 Sulawesi Tenggara| Phone: 0401-3420777"
+  },
+  {
+    "id_gudang": "009",
+    "nama_gudang": "PALU",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Komplek Pergudangan Palu Indah Jl. R.E Martadinata KM. 5 Blok B-09 Kel. Layana Indah Kec. Mantikulore, Palu - Sulawesi Tengah"
+  },
+  {
+    "id_gudang": "010",
+    "nama_gudang": "SAMPIT",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia, | Tel. (0531) 2617115"
+  },
+  {
+    "id_gudang": "011",
+    "nama_gudang": "BANJARMASIN",
+    "kantor": "Banjarmasin",
+    "kontak": "Anton Yovie S",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "Banjarmasin Branch Komplek Pergudangan Central Jl. A. Yani KM 13,5 No.99 Banjarmasin"
+  },
+  {
+    "id_gudang": "012",
+    "nama_gudang": "AMBON, MALUKU & PAPUA",
+    "kantor": "Mapa",
+    "kontak": "Yan Christian Elkiopas Thyssen",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "013",
+    "nama_gudang": "BITUNG",
+    "kantor": "Manado",
+    "kontak": "Onesimus Destu Simpan",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": "Jl. Poros Manado - Bitung Desa Kauditan 2 Kec. Minahasa - Kab. Minahasa"
+  },
+  {
+    "id_gudang": "014",
+    "nama_gudang": "SURABAYA",
+    "kantor": "HO - Balikpapan",
+    "kontak": "",
+    "dsm": "",
+    "telpon": "",
+    "alamat": "PT. PANCA ADI ANEKA KIMIA ( PANADIA ) Jl. Kalianak Barat No. 59A Surabaya 60183 Jawa Timur - Indonesia"
+  },
+  {
+    "id_gudang": "016",
+    "nama_gudang": "BPN \u2013 KONSINYASI MMS MARTABE",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "024",
+    "nama_gudang": "MKSR KONSINYASI PT. ANTAM",
+    "kantor": "Kendari",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "025",
+    "nama_gudang": "KONSINYASI NHM",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "026",
+    "nama_gudang": "KONSINYASI PARAMA MURTI SITE OBI",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "027",
+    "nama_gudang": "KONSINYASI GETSEMANI SITE SEPO",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "028",
+    "nama_gudang": "KONSINYASI GETSEMANI SITE SMINGIT",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "029",
+    "nama_gudang": "KONSINYASI PARAMA MURTI SITE WAWONI",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "030",
+    "nama_gudang": "KONSINYASI TJAKRINDO",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "031",
+    "nama_gudang": "KONSINYASI ONE HOSE GORONTALO",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "032",
+    "nama_gudang": "KONSINYASI PT.HARMONIS",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "033",
+    "nama_gudang": "KONSINYASI SMA GAG",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "034",
+    "nama_gudang": "KONSINYASI BCI WAIPIRIT",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "035",
+    "nama_gudang": "KONSINYASI GETSEMANI SITE LANGKIKIMAN",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "036",
+    "nama_gudang": "KONSINYASI PT. SEMEN TONASA",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "037",
+    "nama_gudang": "KONSINYASI PARAMA GRUP SITE KETAPANG",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "038",
+    "nama_gudang": "KONSINYASI SMA WEDA",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "039",
+    "nama_gudang": "BPN - CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "Jl. Sultan Hasanuddin, No. 2, RT. 5 Kel. Kariangau, Kec. Balikpapan Barat, Balikpapan 76134, Kalimantan Timur"
+  },
+  {
+    "id_gudang": "040",
+    "nama_gudang": "BITUNG-DAMAGE",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "041",
+    "nama_gudang": "KENDARI-CPA01",
+    "kantor": "Manado",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "042",
+    "nama_gudang": "KONSINYASI STM MOROWALI",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "043",
+    "nama_gudang": "KONSINYASI STM WEDA",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "044",
+    "nama_gudang": "KONSINYASI SKM GEBE",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "045",
+    "nama_gudang": "MAKASSAR-DAMAGE",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "046",
+    "nama_gudang": "BPN \u2013 KONSINYASI MMS DOMPU (STM)",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Toar T. Toloh",
+    "telpon": "+625427588275",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "047",
+    "nama_gudang": "BITUNG - CPA 02",
+    "kantor": "Makasar",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "048",
+    "nama_gudang": "BITUNG - CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "049",
+    "nama_gudang": "SAMPIT - CPA 01",
+    "kantor": "Manado",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "050",
+    "nama_gudang": "BPN - CPA02",
+    "kantor": "Makasar",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "051",
+    "nama_gudang": "WORKSHOP - BPN",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "052",
+    "nama_gudang": "PINJAMAN SHELL - BPN",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "053",
+    "nama_gudang": "WORKSHOP - MKS",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "054",
+    "nama_gudang": "PINJAMAN SHELL - MKS",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "055",
+    "nama_gudang": "WORKSHOP - KENDARI",
+    "kantor": "Kendari",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "056",
+    "nama_gudang": "PINJAMAN SHELL - KENDARI",
+    "kantor": "Kendari",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "057",
+    "nama_gudang": "WORKSHOP - BITUNG",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "058",
+    "nama_gudang": "PINJAMAN SHELL - BITUNG",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "059",
+    "nama_gudang": "WORKSHOP - PALU",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "060",
+    "nama_gudang": "PINJAMAN SHELL - PALU",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "061",
+    "nama_gudang": "WORKSHOP - SAMPIT",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "062",
+    "nama_gudang": "PINJAMAN SHELL - SAMPIT",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "063",
+    "nama_gudang": "WORKSHOP - BANJARMASIN",
+    "kantor": "Banjarmasin",
+    "kontak": "Anton Yovie S",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "064",
+    "nama_gudang": "PINJAMAN SHELL - BANJARMASIN",
+    "kantor": "Banjarmasin",
+    "kontak": "Anton Yovie S",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "065",
+    "nama_gudang": "WORKSHOP - AMBON",
+    "kantor": "Mapa",
+    "kontak": "Yan Christian Elkiopas Thyssen",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "066",
+    "nama_gudang": "PINJAMAN SHELL - AMBON",
+    "kantor": "Mapa",
+    "kontak": "Yan Christian Elkiopas Thyssen",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "067",
+    "nama_gudang": "KIMU JKT",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "068",
+    "nama_gudang": "KONSINYASI PT BORNEO PRIMA - CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "Sampit"
+  },
+  {
+    "id_gudang": "069",
+    "nama_gudang": "SAMPIT-DAMAGE",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "070",
+    "nama_gudang": "GUDANG KONSINYASI TRACON INDUSTRY",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "071",
+    "nama_gudang": "KONSINYASI PT. SMA BAKAN",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "072",
+    "nama_gudang": "KONSINYASI ANAGA JAYA SARANA - TUHUP",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "073",
+    "nama_gudang": "PALU - CPA 01",
+    "kantor": "Manado",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "074",
+    "nama_gudang": "PINJAMAN CRA - BITUNG",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "075",
+    "nama_gudang": "KONSINYASI TSINGSHAN KENDARI",
+    "kantor": "Palu",
+    "kontak": "Rispan Dahlan",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "076",
+    "nama_gudang": "KENDARI-CPA03",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0401-3420777",
+    "alamat": "Jl. Pattimura RT.03 RW.01 Komp.Ruko & Pergudangan Puuwuta Bizpark Blok G-9 & 10, Kelurahan Puuwatu, Kec Puuwatu (Samping Gudang PT.Alfa Midi) Kendari \u2013 Sulawesi Tenggara"
+  },
+  {
+    "id_gudang": "077",
+    "nama_gudang": "KONSINYASI MACMAHON - PALU",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": "Komplek Pergudangan Palu Indah. Jl. R.E Martadinata KM. 5 Blok B-09, Palu 94111 Sulawesi Tengah \u2013 Indonesia | Phone: 0451-487167 | Fax. 0451-487166"
+  },
+  {
+    "id_gudang": "078",
+    "nama_gudang": "KONSINYASI AIN PUTERI TERATAI",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "079",
+    "nama_gudang": "KONSINYASI PANCA BINA PERSADA - BTG",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": "Jl. Poros Bitung Desa Tontalete Ling. IV Kec. Kema Kab. Minahasa Utara Sulawesi Utara \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "080",
+    "nama_gudang": "KONSINYASI BULAWAN DAYA LESTARI",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "081",
+    "nama_gudang": "KONSINYASI PANCA BINA PERSADA - MKS",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Jl. Perintis Kemerdekaan, Tamalanrea Indah, Kompleks Ruko Puri Kencana, Sari, Blok D. No. 8, Tamalanrea Indah, Kec. Tamalanrea, Kota Makassar, Sulawesi Selatan 90245"
+  },
+  {
+    "id_gudang": "082",
+    "nama_gudang": "KENDARI - CPA PALU",
+    "kantor": "Palu",
+    "kontak": "Rispan Dahlan",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "083",
+    "nama_gudang": "MAKASSAR - CPA 01",
+    "kantor": "Manado",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "084",
+    "nama_gudang": "KONSINYASI TSH GROUP - CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "085",
+    "nama_gudang": "KONSINYASI PT MARUWAI COAL - CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "086",
+    "nama_gudang": "SURABAYA \u2013 CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "087",
+    "nama_gudang": "KONSINYASI HARITA-OBI",
+    "kantor": "Manado",
+    "kontak": "Zaid Abdul Aziz Zuhri",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "088",
+    "nama_gudang": "KONSINYASI MACMAHON - TOKA",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Emy Yuliati",
+    "telpon": "",
+    "alamat": "Jl. Poros Manado - Bitung Desa Kauditan 2 Kec. Minahasa - Kab. Minahasa"
+  },
+  {
+    "id_gudang": "089",
+    "nama_gudang": "KONSINYASI PSM - WAHAU",
+    "kantor": "Sampit",
+    "kontak": "",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "090",
+    "nama_gudang": "KONSINYASI PSM - DMP",
+    "kantor": "Sampit",
+    "kontak": "",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "091",
+    "nama_gudang": "KONSINYASI PSM - BUHUT",
+    "kantor": "Sampit",
+    "kontak": "",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "092",
+    "nama_gudang": "KONSINYASI PSM - JAKARTA",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "093",
+    "nama_gudang": "KONSINYASI PSM - TERNATE",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "094",
+    "nama_gudang": "KONSINYASI PSM - MMP",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "095",
+    "nama_gudang": "KONSINYASI PSM - KALBAR",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "096",
+    "nama_gudang": "HORIZON CONSTRUCTION INDONESIA - BPN",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0542-7588276",
+    "alamat": "Jl. Sultan Hasanuddin, No. 2, RT. 5 Kel. Kariangau, Kec. Balikpapan Barat, Balikpapan 76134, Kalimantan Timur"
+  },
+  {
+    "id_gudang": "097",
+    "nama_gudang": "HORIZON CONSTRUCTION INDONESIA - BERAU",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0542-7588276",
+    "alamat": "Kawasan Industri Kariangau KM. 5,5. Jl. AMD Projakal RT. 68 No. 77, Balikpapan 76134. Kalimantan Timur"
+  },
+  {
+    "id_gudang": "098",
+    "nama_gudang": "JAKARTA - CPA02",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Komplek Pergudangan Palu Indah Jl. R.E Martadinata KM. 5 Blok B-09 Kel. Layana Indah Kec. Mantikulore Palu - Sulawesi Tengah"
+  },
+  {
+    "id_gudang": "099",
+    "nama_gudang": "BERAU - CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "JL GN Panjang Kec.TJ Redep Kabupaten Berau, Kalimantan Timur 77315"
+  },
+  {
+    "id_gudang": "100",
+    "nama_gudang": "KENDARI - CPA MKS",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "0401-3420777",
+    "alamat": "Jl. Patimura RT.03,RW.01 Komp.Ruko & Pergudangan Puuwuta Bizpark Blok G-9 & 10, Kelurahan Puuwatu, Kec Puuwatu (Samping Gudang PT.Alfa Midi) Kendari \u2013 Sulawesi Tenggara"
+  },
+  {
+    "id_gudang": "101",
+    "nama_gudang": "PALU - CPA MKS",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Komplek Pergudangan Palu Indah Jl. R.E Martadinata KM. 5 Blok B-09 Kel. Layana Indah Kec. Mantikulore"
+  },
+  {
+    "id_gudang": "102",
+    "nama_gudang": "KONSINYASI STM MBMA",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "103",
+    "nama_gudang": "HORIZON CONSTRUCTION INDONESIA - KENDARI",
+    "kantor": "Kendari",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "0401-3420777",
+    "alamat": "Jl. Patimura RT.03,RW.01 Komp.Ruko & Pergudangan Puuwuta Bizpark Blok G-9 & 10, Kelurahan Puuwatu, Kec Puuwatu (Samping Gudang PT.Alfa Midi) Kendari \u2013 Sulawesi Tenggara"
+  },
+  {
+    "id_gudang": "104",
+    "nama_gudang": "HORIZON CONSTRUCTION INDONESIA - SAMPIT",
+    "kantor": "Sampit",
+    "kontak": "Slamet Mulyadi",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "0531-2617115",
+    "alamat": "Jl. Jendral Sudirman KM. 2,1. Samping SPBU KM 2. Sampit, Kalimantan Tengah \u2013 Indonesia"
+  },
+  {
+    "id_gudang": "105",
+    "nama_gudang": "KONSINYASI TEMPOPRESS SITE BUNTA",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "106",
+    "nama_gudang": "KONSINYASI MACMAHON - LUWU",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Joyce Nardi Aru Sumomba",
+    "dsm": "Emy Yuliati",
+    "telpon": "0542-5461800",
+    "alamat": "Jl. Sultan Hasanuddin, No. 2, RT. 5 Kel. Kariangau, Kec. Balikpapan Barat, Balikpapan 76134. Kalimantan Timur"
+  },
+  {
+    "id_gudang": "107",
+    "nama_gudang": "KONSINYASI TEMPOPRESS SITE SUBAIM",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "108",
+    "nama_gudang": "KONSINYASI TEMPOPRESS SITE SAGEA",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "109",
+    "nama_gudang": "PROMO - BITUNG",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": "Id Gudang\tNama Gudang Kantor/Cabang Kontak Person DSM Telpon\tAlamat Id Gudang Nama Gudang Kantor/Cabang Kontak Person DSM Telpon Alamat"
+  },
+  {
+    "id_gudang": "110",
+    "nama_gudang": "PROMO-AMBON",
+    "kantor": "Manado",
+    "kontak": "Yan Christian Elkiopas Thyssen",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "111",
+    "nama_gudang": "VHS HTE Site HSM",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "112",
+    "nama_gudang": "BANJARMASIN-DAMAGE",
+    "kantor": "Banjarmasin",
+    "kontak": "Anton Yovie S",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "Banjarmasin Branch Komplek Pergudangan Central Jl. A. Yani KM 13,5 No.99 Banjarmasin"
+  },
+  {
+    "id_gudang": "113",
+    "nama_gudang": "KENDARI-DAMAGE",
+    "kantor": "Kendari",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Jl. Patimura RT.03,RW.01 Komp.Ruko & Pergudangan Puuwuta Bizpark Blok G-9 & 10, Kelurahan Puuwatu, Kec Puuwatu (Samping Gudang PT.Alfa Midi) Kendari \u2013 Sulawesi Tenggara| Phone: 0401-3420777"
+  },
+  {
+    "id_gudang": "114",
+    "nama_gudang": "JAKARTA - CPA 03",
+    "kantor": "Sampit",
+    "kontak": "Yan Yan Yandiana",
+    "dsm": "I Putu Yudhi Ariartha",
+    "telpon": "",
+    "alamat": "DKI JAKARTA"
+  },
+  {
+    "id_gudang": "115",
+    "nama_gudang": "SOFIFI - HALMAHERA",
+    "kantor": "Manado",
+    "kontak": "Yohanes Montolalu",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "116",
+    "nama_gudang": "KONSINYASI PT. MMI - SITE PANI",
+    "kantor": "Manado",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "117",
+    "nama_gudang": "KENDARI - PALU RETAIL",
+    "kantor": "Palu",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "118",
+    "nama_gudang": "KENDARI - SMELTER",
+    "kantor": "Kendari",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Jl. Patimura RT.03,RW.01 Komp.Ruko & Pergudangan Puuwuta Bizpark Blok G-9 & 10, Kelurahan Puuwatu, Kec Puuwatu (Samping Gudang PT.Alfa Midi) Kendari \u2013 Sulawesi Tenggara| Phone: 0401-3420777"
+  },
+  {
+    "id_gudang": "119",
+    "nama_gudang": "MACMAHON - PALU",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Alexander Sugiman",
+    "dsm": "RM. Mahmood Iskandar Gufron",
+    "telpon": "",
+    "alamat": "Komplek Pergudangan Palu Indah. Jl. R.E Martadinata KM. 5 Blok B-09, Palu 94111 Sulawesi Tengah \u2013 Indonesia | Phone: 0451-487167 | Fax. 0451-487166"
+  },
+  {
+    "id_gudang": "120",
+    "nama_gudang": "MACMAHON - BITUNG",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Daniel Rainier Edward Selanno",
+    "dsm": "RM. Mahmood Iskandar Gufron",
+    "telpon": "",
+    "alamat": "Jl. Poros Manado - Bitung Desa Kauditan 2 Kec. Minahasa - Kab. Minahasa"
+  },
+  {
+    "id_gudang": "121",
+    "nama_gudang": "MACMAHON - MAKASSAR",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Ratih Yulianti",
+    "dsm": "RM. Mahmood Iskandar Gufron",
+    "telpon": "",
+    "alamat": "Kawasan Industri Parangloe Indah Natura Cluster I Blok A No. 1, Makasar 90244 Sulawesi Selatan - Indonesia"
+  },
+  {
+    "id_gudang": "122",
+    "nama_gudang": "PALU - LABUHA INTERNUSA",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Komplek Pergudangan Palu Indah Jl. R.E Martadinata KM. 5 Blok B-09 Kel. Layana Indah Kec. Mantikulore, Palu - Sulawesi Tengah"
+  },
+  {
+    "id_gudang": "123",
+    "nama_gudang": "PALU - TEMPOPRESS GROUP",
+    "kantor": "Palu",
+    "kontak": "Alexander Sugiman",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Komplek Pergudangan Palu Indah Jl. R.E Martadinata KM. 5 Blok B-09 Kel. Layana Indah Kec. Mantikulore, Palu - Sulawesi Tengah"
+  },
+  {
+    "id_gudang": "124",
+    "nama_gudang": "MAKASSAR - PALU",
+    "kantor": "Palu",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Kawasan Industri Parangloe Indah Natura Cluster I Blok A No. 1, Makasar 90244 Sulawesi Selatan - Indonesia"
+  },
+  {
+    "id_gudang": "125",
+    "nama_gudang": "MACMAHON - BALIKPAPAN",
+    "kantor": "HO - Balikpapan",
+    "kontak": "Andi Sakti M. Actaviano",
+    "dsm": "RM. Mahmood Iskandar Gufron",
+    "telpon": "",
+    "alamat": "Jl. Sultan Hasanuddin, No. 2, RT. 5 Kel. Kariangau, Kec. Balikpapan Barat, Balikpapan 76134, Kalimantan Timur"
+  },
+  {
+    "id_gudang": "126",
+    "nama_gudang": "KONSINYASI MAKKURAGA - MOROWALI",
+    "kantor": "Makasar",
+    "kontak": "Hermanto Tambing",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Ganda - ganda, Kec Petasia, Kabupaten Morowali, Sulawesi Tengah 94971"
+  },
+  {
+    "id_gudang": "127",
+    "nama_gudang": "KONSINYASI MAKKURAGA - PATTENE",
+    "kantor": "Makasar",
+    "kontak": "Ratih Yulianti",
+    "dsm": "Andi Sakti M. Actaviano",
+    "telpon": "",
+    "alamat": "Pabbentengang, Kec. Marusu, Kab Maros Sulawesi Selatan 90552"
+  },
+  {
+    "id_gudang": "128",
+    "nama_gudang": "PROMO - SOFIFI",
+    "kantor": "Manado",
+    "kontak": "Yohanes Montolalu",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": ""
+  },
+  {
+    "id_gudang": "129",
+    "nama_gudang": "SOFIFI - CPA02",
+    "kantor": "Palu",
+    "kontak": "Yohanes Montolalu",
+    "dsm": "Toar T. Toloh",
+    "telpon": "",
+    "alamat": "</USER_REQUEST> <ADDITIONAL_METADATA> The current local time is: 2026-11-04T12:49:15+01:00. The user's current state is as follows: Other open documents: - /root/CPA_analytics/frontend/app/main-dashboard/page.tsx (LANGUAGE_UNSPECIFIED) - /root/CPA_analytics/frontend/components/dashboard/MainDashboardC3.tsx (LANGUAGE_UNSPECIFIED) - /root/CPA_analytics/frontend/components/charts/c3/C3QuadrantChart.tsx (LANGUAGE_UNSPECIFIED) - /root/CPA_analytics/frontend/components/charts/c3/C3DonutChart.tsx (LANGUAGE_UNSPECIFIED) - /root/CPA_analytics/frontend/components/charts/c3/C3HorizontalBarChart.tsx (LANGUAGE_UNSPECIFIED) </ADDITIONAL_METADATA>"
+  }
+]

@@ -1,8 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { apiAuth } from "@/lib/api";
-import Head from "next/head";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -10,6 +9,29 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    try {
+      const token = localStorage.getItem("cpa_token");
+      const userRaw = localStorage.getItem("cpa_user");
+      if (token && userRaw) {
+        const u = JSON.parse(userRaw);
+        if (u.role === "sales_rep" || u.role === "sales") {
+          router.push("/sales/orders");
+        } else if (u.role === "warehouse_staff" || u.role === "warehouse") {
+          router.push("/inventory");
+        } else if (u.role === "ga") {
+          router.push("/ga");
+        } else if (u.role === "it") {
+          router.push("/it");
+        } else if (u.role === "asset_staff" || u.role === "asset") {
+          router.push("/assets/fleet");
+        } else {
+          router.push("/");
+        }
+      }
+    } catch {}
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,6 +48,12 @@ export default function LoginPage() {
         router.push("/sales/orders");
       } else if (res.data.user?.role === "warehouse_staff" || res.data.user?.role === "warehouse") {
         router.push("/inventory");
+      } else if (res.data.user?.role === "ga") {
+        router.push("/ga");
+      } else if (res.data.user?.role === "it") {
+        router.push("/it");
+      } else if (res.data.user?.role === "asset_staff" || res.data.user?.role === "asset") {
+        router.push("/assets/fleet");
       } else {
         router.push("/");
       }
@@ -37,12 +65,8 @@ export default function LoginPage() {
   };
 
   return (
-    <>
-      <Head>
-        <title>Login - CPA Platform</title>
-      </Head>
-      <div style={{
-        position: "relative",
+    <div style={{
+      position: "relative",
         minHeight: "100vh",
         display: "flex",
         alignItems: "center",
@@ -224,6 +248,5 @@ export default function LoginPage() {
           </form>
         </div>
       </div>
-    </>
   );
 }

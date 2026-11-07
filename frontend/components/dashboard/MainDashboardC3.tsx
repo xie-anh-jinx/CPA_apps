@@ -277,6 +277,37 @@ export default function MainDashboardC3() {
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
             <span>Sync</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window !== "undefined") {
+                window.dispatchEvent(new CustomEvent("open-cpa-ai-chat"));
+              }
+            }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.45rem",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              padding: "0.45rem 0.95rem",
+              borderRadius: "8px",
+              border: "1px solid rgba(13, 153, 255, 0.3)",
+              background: "linear-gradient(135deg, rgba(13, 153, 255, 0.12), rgba(145, 71, 255, 0.12))",
+              color: "var(--text-primary)",
+              cursor: "pointer",
+              transition: "all 0.2s ease",
+            }}
+            title="Buka CPA AI Assistant"
+          >
+            <img
+              src="/images/logo-padi-ai.png"
+              alt="PADI AI"
+              style={{ width: 16, height: 16, objectFit: "contain" }}
+            />
+            <span style={{ color: "var(--color-primary, #0D99FF)" }}>Tanya CPA AI</span>
+          </button>
         </div>
       </div>
 

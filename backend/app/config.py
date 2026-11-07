@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     alert_overstock_enabled: bool = True
     alert_expiry_days_threshold: int = 30
 
+    # AI / LLM
+    llm_provider: str = "deepseek"
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
+    gemini_api_key: str = ""
+
     @property
     def existing_db_url(self) -> str:
         return (

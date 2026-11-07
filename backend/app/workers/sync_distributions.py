@@ -58,13 +58,16 @@ def _sync_deliveries(existing_db, analytics_db):
         SELECT
             d.nomor, d.tanggal, d.id_customer,
             c.customer AS nama_customer,
-            d.id_salesman, d.id_gudang, d.alamat,
+            d.id_salesman, d.id_gudang,
+            COALESCE(g.gudang, d.id_gudang) AS nama_gudang,
+            d.alamat,
             d.tgl_keluar, d.driver, d.lic_plate, d.transporter,
             d.shippingcosts, d.received_date, d.received_name,
             d.tgl_sampai, d.origin, d.destination, d.leadtime,
             d.status, d.create_date, d.modified_date, d.kode_user
         FROM public.do_tbl d
         LEFT JOIN public.customer c ON d.id_customer = c.id_kontak
+        LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
         WHERE COALESCE(d.modified_date, d.create_date, '1970-01-01'::timestamp) >= :last_sync
         ORDER BY COALESCE(d.modified_date, d.create_date, '1970-01-01'::timestamp)
         LIMIT 50000
@@ -90,6 +93,7 @@ def _sync_deliveries(existing_db, analytics_db):
             nama_customer=row["nama_customer"],
             id_salesman=row["id_salesman"],
             id_gudang=row["id_gudang"],
+            nama_gudang=row["nama_gudang"],
             alamat=row["alamat"],
             tgl_keluar=row["tgl_keluar"],
             driver=row["driver"],
@@ -135,21 +139,36 @@ def _sync_deliveries(existing_db, analytics_db):
 
 
 def _sync_warehouse_transfers(existing_db, analytics_db):
-    """Sync transfer_barang → warehouse_transfers."""
+    """Sync internal_transfer → warehouse_transfers."""
     query = text("""
         SELECT
-            tb.id_transfer, tb.id_gudang_asal,
-            ga.gudang AS nama_gudang_asal,
-            tb.id_gudang_tujuan,
-            gt.gudang AS nama_gudang_tujuan,
-            tb.tanggal, tb.uraian, tb.status,
-            COUNT(tbd.id_tranfer_detil) AS total_item
-        FROM public.transfer_barang tb
-        LEFT JOIN public.gudang ga ON tb.id_gudang_asal = ga.id_gudang
-        LEFT JOIN public.gudang gt ON tb.id_gudang_tujuan = gt.id_gudang
-        LEFT JOIN public.transfer_barang_detil tbd ON tb.id_transfer = tbd.id_transfer
-        GROUP BY tb.id_transfer, tb.id_gudang_asal, ga.gudang,
-                 tb.id_gudang_tujuan, gt.gudang, tb.tanggal, tb.uraian, tb.status
+            it.nomor,
+            it.id_gudang_asal,
+            COALESCE(ga.gudang, it.id_gudang_asal) AS nama_gudang_asal,
+            it.id_gudang_tujuan,
+            COALESCE(gt.gudang, it.id_gudang_tujuan) AS nama_gudang_tujuan,
+            it.tanggal,
+            COALESCE(it.keterangan, it.nomor_io, '') AS uraian,
+            it.status,
+            CASE 
+                WHEN it.status = 'C' THEN 'Completed'
+                WHEN it.status = 'R' THEN 'Receipt'
+                WHEN it.status = 'S' THEN 'Send'
+                WHEN it.status = 'D' THEN 'Draft'
+                WHEN it.status = 'X' THEN 'Cancel'
+                ELSE 'Unknown'
+            END AS status_label,
+            COALESCE(cnt.total_item, 0) AS total_item
+        FROM public.internal_transfer it
+        LEFT JOIN public.gudang ga ON it.id_gudang_asal = ga.id_gudang
+        LEFT JOIN public.gudang gt ON it.id_gudang_tujuan = gt.id_gudang
+        LEFT JOIN (
+            SELECT nomor, COUNT(*) AS total_item
+            FROM public.internal_transfer_detail
+            GROUP BY nomor
+        ) cnt ON it.nomor = cnt.nomor
+        ORDER BY it.tanggal DESC
+        LIMIT 50000
     """)
 
     rows = existing_db.execute(query).mappings().all()
@@ -158,7 +177,7 @@ def _sync_warehouse_transfers(existing_db, analytics_db):
     for row in rows:
         status_code = (row["status"] or "").strip()
         stmt = insert(WarehouseTransfer).values(
-            id_transfer=row["id_transfer"],
+            nomor=row["nomor"],
             id_gudang_asal=row["id_gudang_asal"],
             nama_gudang_asal=row["nama_gudang_asal"],
             id_gudang_tujuan=row["id_gudang_tujuan"],
@@ -166,13 +185,19 @@ def _sync_warehouse_transfers(existing_db, analytics_db):
             tanggal=row["tanggal"],
             uraian=row["uraian"],
             status=status_code,
-            status_label=TRANSFER_STATUS_MAP.get(status_code, "unknown"),
+            status_label=row["status_label"],
             total_item=row["total_item"] or 0,
         ).on_conflict_do_update(
-            index_elements=["id_transfer"],
+            index_elements=["nomor"],
             set_={
+                "id_gudang_asal": row["id_gudang_asal"],
+                "nama_gudang_asal": row["nama_gudang_asal"],
+                "id_gudang_tujuan": row["id_gudang_tujuan"],
+                "nama_gudang_tujuan": row["nama_gudang_tujuan"],
+                "tanggal": row["tanggal"],
+                "uraian": row["uraian"],
                 "status": status_code,
-                "status_label": TRANSFER_STATUS_MAP.get(status_code, "unknown"),
+                "status_label": row["status_label"],
                 "total_item": row["total_item"] or 0,
                 "synced_at": datetime.now(),
             }

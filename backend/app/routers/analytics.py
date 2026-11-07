@@ -886,7 +886,7 @@ async def get_main_dashboard_data(
     try:
         sales_rows = db_existing.execute(text("""
             SELECT
-                COALESCE(p.id_salesman, 'Unknown') AS salesman,
+                COALESCE(peg.nama, p.id_salesman, 'Unknown') AS salesman,
                 SUM(CASE WHEN p.tanggal BETWEEN :date_from AND :date_to
                           THEN p.grandtotal ELSE 0 END) AS curr_omzet,
                 SUM(CASE WHEN p.tanggal BETWEEN :prev_from AND :prev_to
@@ -894,9 +894,10 @@ async def get_main_dashboard_data(
                 COUNT(DISTINCT CASE WHEN p.tanggal BETWEEN :date_from AND :date_to
                                     THEN p.id_customer END) AS active_cust_count
             FROM public.penjualan p
+            LEFT JOIN public.pegawai peg ON p.id_salesman = peg.id_pegawai
             WHERE p.tanggal >= :prev_from
               AND p.id_salesman IS NOT NULL AND p.id_salesman != ''
-            GROUP BY p.id_salesman
+            GROUP BY COALESCE(peg.nama, p.id_salesman, 'Unknown')
             HAVING SUM(CASE WHEN p.tanggal BETWEEN :date_from AND :date_to
                             THEN p.grandtotal ELSE 0 END) > 0
             ORDER BY curr_omzet DESC

@@ -50,6 +50,8 @@ class Warehouse(AnalyticsBase):
     alamat = Column(Text)
     telpon = Column(String(20))
     inisial = Column(String(15))
+    kontak_person = Column(String(100))
+    dsm = Column(String(100))
     is_active = Column(Boolean, default=True)
     synced_at = Column(DateTime, server_default=func.now())
 
@@ -199,6 +201,7 @@ class Delivery(AnalyticsBase):
     nama_customer = Column(String(150))
     id_salesman = Column(String(10))
     id_gudang = Column(String(3))
+    nama_gudang = Column(String(100))
     alamat = Column(Text)
     tgl_keluar = Column(Date)
     driver = Column(String(30))
@@ -246,6 +249,7 @@ class WarehouseTransfer(AnalyticsBase):
     __table_args__ = {"schema": "operational"}
 
     id_transfer = Column(Integer, primary_key=True)
+    nomor = Column(String(50), unique=True)
     id_gudang_asal = Column(String(3))
     nama_gudang_asal = Column(String(100))
     id_gudang_tujuan = Column(String(3))
@@ -496,6 +500,134 @@ class AppUser(AnalyticsBase):
     role = Column(String(20), default="viewer")  # admin, manager, sales, warehouse, viewer
     id_pegawai = Column(String(10))  # relasi ke hr_pegawai di DB lama
     id_gudang_access = Column(String(500))  # Comma-separated list of gudang IDs
+    cabang = Column(String(255))  # Wilayah / Cabang penugasan
     is_active = Column(Boolean, default=True)
     last_login = Column(DateTime)
     created_at = Column(DateTime, server_default=func.now())
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHEMA: analytics — Document RAG & Structured Upload Cache
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class UploadedDocument(AnalyticsBase):
+    """Dokumen file yang diunggah (PDF/Excel) dengan SHA256 deduplication."""
+    __tablename__ = "uploaded_documents"
+    __table_args__ = {"schema": "analytics"}
+
+    id = Column(String(64), primary_key=True)
+    file_hash = Column(String(64), unique=True, nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    file_type = Column(String(32), nullable=False)
+    file_size = Column(Integer, nullable=False)
+    page_count = Column(Integer, default=0)
+    sheet_count = Column(Integer, default=0)
+    summary = Column(Text)
+    metadata_json = Column(JSON)
+    created_at = Column(DateTime, server_default=func.now())
+    last_accessed_at = Column(DateTime, server_default=func.now())
+
+    chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
+    excel_tables = relationship("DocumentExcelTable", back_populates="document", cascade="all, delete-orphan")
+
+
+class DocumentChunk(AnalyticsBase):
+    """Potongan (chunk) teks dokumen PDF dengan metadata & vector term."""
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        Index("idx_doc_chunks_doc_idx", "document_id", "chunk_index"),
+        {"schema": "analytics"}
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    document_id = Column(String(64), ForeignKey("analytics.uploaded_documents.id", ondelete="CASCADE"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    page_number = Column(Integer, default=1)
+    title = Column(String(255))
+    content = Column(Text, nullable=False)
+    token_count = Column(Integer, default=0)
+    keywords = Column(Text)
+    vector_json = Column(JSON)
+    metadata_json = Column(JSON)
+
+    document = relationship("UploadedDocument", back_populates="chunks")
+
+
+class DocumentExcelTable(AnalyticsBase):
+    """Metadata tabel dan ringkasan terstruktur dari file Excel."""
+    __tablename__ = "document_excel_tables"
+    __table_args__ = {"schema": "analytics"}
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    document_id = Column(String(64), ForeignKey("analytics.uploaded_documents.id", ondelete="CASCADE"), nullable=False)
+    sheet_name = Column(String(128), nullable=False)
+    table_name = Column(String(128))
+    row_count = Column(Integer, default=0)
+    column_names = Column(JSON)
+    numerical_stats = Column(JSON)
+    sample_rows = Column(JSON)
+    created_at = Column(DateTime, server_default=func.now())
+
+    document = relationship("UploadedDocument", back_populates="excel_tables")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# SCHEMA: analytics — AR Collection Confirmations & ICU (Customer Incentives)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ARCollectionConfirmation(AnalyticsBase):
+    """Konfirmasi janji bayar (Promise to Pay) customer per invoice untuk Collection Projection."""
+    __tablename__ = "ar_collection_confirmations"
+    __table_args__ = {"schema": "analytics"}
+
+    no_penjualan = Column(String(50), primary_key=True)
+    id_customer = Column(String(20), index=True)
+    confirm_status = Column(String(30), default="CONFIRMED")  # CONFIRMED, PROMISED, FOLLOW_UP, DISPUTED
+    promised_date = Column(Date)
+    confirmed_amount = Column(Numeric(18, 2))
+    pic_collection = Column(String(100))
+    notes = Column(Text)
+    updated_by = Column(String(50))
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class ARCustomerIncentive(AnalyticsBase):
+    """Pengajuan Insentif Customer (ICU) yang membutuhkan approval berjenjang & tindak lanjut."""
+    __tablename__ = "ar_customer_incentives"
+    __table_args__ = {"schema": "analytics"}
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nomor_icu = Column(String(50), unique=True, nullable=False, index=True)
+    tanggal_pengajuan = Column(Date, nullable=False)
+    id_customer = Column(String(20), nullable=False, index=True)
+    nama_customer = Column(String(150), nullable=False)
+    no_invoice = Column(String(50), nullable=False)
+    tanggal_invoice = Column(Date)
+    tanggal_payment = Column(Date)
+    umur_piutang_hari = Column(Integer, default=0)
+    id_salesman = Column(String(20))
+    nama_salesman = Column(String(100))
+    id_barang = Column(String(30))
+    nama_barang = Column(String(150))
+    qty = Column(Numeric(14, 2), default=0)
+    bottom_price = Column(Numeric(18, 2), default=0)
+    harga_invoice = Column(Numeric(18, 2), default=0)
+    tarif_icu_per_unit = Column(Numeric(18, 2), default=0)
+    ongkos_kirim = Column(Numeric(18, 2), default=0)
+    potongan_pph = Column(Numeric(18, 2), default=0)
+    total_insentif_net = Column(Numeric(18, 2), default=0)
+    penerima_insentif = Column(String(100))
+    bank_penerima = Column(String(50))
+    nomor_rekening = Column(String(50))
+    nama_rekening = Column(String(100))
+    status_approval = Column(String(30), default="PENDING_MANAGER")  # PENDING_MANAGER, PENDING_FINANCE, APPROVED, REJECTED, PAID
+    current_approver_role = Column(String(50), default="Sales Manager")
+    approved_by = Column(String(100))
+    approved_at = Column(DateTime)
+    catatan_pengajuan = Column(Text)
+    catatan_approval = Column(Text)
+    tindak_lanjut = Column(String(200))
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+

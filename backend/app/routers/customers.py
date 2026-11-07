@@ -545,20 +545,38 @@ async def get_customers_credit_health(
 
     where_clause = " AND ".join(conditions)
 
-    # Base query for all customers having AR or Credit Limit
+    # Base query for all customers having AR or Credit Limit (Derived directly from live penjualan & customer)
     sql = f"""
         WITH ar_summary AS (
             SELECT 
-                customer_code,
+                p.id_customer AS customer_code,
                 COUNT(*) AS open_invoices,
-                SUM(total - COALESCE(bayar, 0)) AS total_piutang,
-                SUM(CASE WHEN due_date < CURRENT_DATE THEN (total - COALESCE(bayar, 0)) ELSE 0 END) AS overdue_amount,
-                SUM(CASE WHEN due_date >= CURRENT_DATE THEN (total - COALESCE(bayar, 0)) ELSE 0 END) AS current_amount,
-                COUNT(CASE WHEN due_date < CURRENT_DATE THEN 1 END) AS overdue_count,
-                MAX(CASE WHEN due_date < CURRENT_DATE THEN (CURRENT_DATE - due_date) ELSE 0 END) AS max_days_overdue
-            FROM acc_ar_faktur
-            WHERE (total - COALESCE(bayar, 0)) > 0
-            GROUP BY customer_code
+                SUM(p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS total_piutang,
+                SUM(CASE 
+                    WHEN COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')) < CURRENT_DATE 
+                    THEN (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) 
+                    ELSE 0 
+                END) AS overdue_amount,
+                SUM(CASE 
+                    WHEN COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')) >= CURRENT_DATE 
+                    THEN (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) 
+                    ELSE 0 
+                END) AS current_amount,
+                COUNT(CASE 
+                    WHEN COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')) < CURRENT_DATE 
+                    THEN 1 
+                END) AS overdue_count,
+                MAX(CASE 
+                    WHEN COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day')) < CURRENT_DATE 
+                    THEN (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date) 
+                    ELSE 0 
+                END) AS max_days_overdue
+            FROM penjualan p
+            LEFT JOIN customer c ON p.id_customer = c.id_kontak
+            LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
+            WHERE p.status IN ('P', 'A') 
+              AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
+            GROUP BY p.id_customer
         )
         SELECT 
             c.id_kontak,
@@ -738,19 +756,23 @@ async def get_customer_open_invoices(
 
     sql = """
         SELECT 
-            a.ar_number,
-            COALESCE(a.no_invoice, a.ar_number) AS no_invoice,
-            a.invoice_date,
-            a.due_date,
-            COALESCE(a.top, 0) AS top_days,
-            a.total AS total_amount,
-            COALESCE(a.bayar, 0) AS paid_amount,
-            (a.total - COALESCE(a.bayar, 0)) AS outstanding_amount,
-            (CURRENT_DATE - a.due_date) AS days_overdue,
-            a.status
-        FROM acc_ar_faktur a
-        WHERE a.customer_code = :id_customer AND (a.total - COALESCE(a.bayar, 0)) > 0
-        ORDER BY (CURRENT_DATE - a.due_date) DESC, a.invoice_date ASC
+            p.no_penjualan AS ar_number,
+            COALESCE(p.faktur, p.no_penjualan) AS no_invoice,
+            p.tanggal AS invoice_date,
+            COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date AS due_date,
+            COALESCE(p.top, c.top, 30) AS top_days,
+            p.grandtotal AS total_amount,
+            COALESCE(a.bayar, p.total_bayar, 0) AS paid_amount,
+            (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) AS outstanding_amount,
+            (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date) AS days_overdue,
+            p.status
+        FROM penjualan p
+        LEFT JOIN customer c ON p.id_customer = c.id_kontak
+        LEFT JOIN acc_ar_faktur a ON p.no_penjualan = a.no_invoice
+        WHERE p.id_customer = :id_customer 
+          AND p.status IN ('P', 'A') 
+          AND (p.grandtotal - COALESCE(a.bayar, p.total_bayar, 0)) > 100
+        ORDER BY (CURRENT_DATE - COALESCE(p.tgl_jatuh_tempo, p.tgl_terimainvoice + (COALESCE(p.top, c.top, 30) * interval '1 day'), p.tanggal + (COALESCE(p.top, c.top, 30) * interval '1 day'))::date) DESC, p.tanggal ASC
     """
     rows = db_existing.execute(text(sql), {"id_customer": id_customer}).mappings().all()
     invoices = []

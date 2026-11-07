@@ -20,7 +20,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="id" data-scroll-behavior="smooth" suppressHydrationWarning>
-      <head>
+      <body suppressHydrationWarning>
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -33,8 +33,6 @@ export default function RootLayout({
             `,
           }}
         />
-      </head>
-      <body>
         <ThemeProvider>
           <AppShell>{children}</AppShell>
         </ThemeProvider>

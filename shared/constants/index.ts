@@ -30,6 +30,7 @@ export const API_ENDPOINTS = {
     TREND: "/api/sales/trend",
     BY_PRODUCT: "/api/sales/by-product",
     BY_CUSTOMER: "/api/sales/by-customer",
+    BY_SALESPERSON: "/api/sales/by-salesperson",
     ORDERS: "/api/sales/orders",
     ORDERS_KPI: "/api/sales/orders/summary-kpi",
     ORDER_DETAIL: (nomor: string) => `/api/sales/orders/${encodeURIComponent(nomor)}/detail`,
@@ -37,16 +38,22 @@ export const API_ENDPOINTS = {
   },
   DISTRIBUTIONS: {
     LIST: "/api/distributions/",
+    PENDING: "/api/distributions/pending",
+    IN_TRANSIT: "/api/distributions/in-transit",
     SUMMARY: "/api/distributions/summary",
+    MAP_DATA: "/api/distributions/map-data",
+    DETAIL: (nomor: string) => `/api/distributions/${nomor}`,
     RECEIPT: "/api/distributions/delivery-order/receipt",
     INTERNAL_ORDERS: "/api/distributions/internal-orders",
     TRANSFER_ORDERS: "/api/distributions/transfer-orders",
+    FINANCIAL_FLOW: "/api/distributions/financial-flow",
   },
   CUSTOMERS: {
     LIST: "/api/customers/",
     VIEW_360: (id: string) => `/api/customers/${id}/360`,
     CREDIT_HEALTH: "/api/customers/credit-health",
     SEGMENTATION: "/api/customers/segmentation",
+    SALES_RELATIONS: "/api/customers/sales-relations",
   },
   CRM: {
     ACTIVITIES: "/api/crm/activities",
@@ -59,11 +66,35 @@ export const API_ENDPOINTS = {
     PRODUCTS: "/api/forecast/products",
     PRODUCT_DETAIL: (id: string) => `/api/forecast/products/${id}`,
   },
+  FINANCE: {
+    META: "/api/finance/meta",
+    EXECUTIVE: "/api/finance/executive",
+    JOURNEY: "/api/finance/journey",
+    VARIANCE: "/api/finance/variance",
+    SHIPPING: "/api/finance/shipping",
+    BUDGET_REQUEST: "/api/finance/budget-request",
+    SALES_VS_SUPPLY: "/api/finance/sales-vs-supply",
+    VENDOR_PERFORMANCE: "/api/finance/vendor-performance",
+    PENDING_VERIFICATION: "/api/finance/pending-verification",
+    ANALYTICS: "/api/finance/analytics",
+  },
+  INTELLIGENCE: {
+    OVERVIEW: "/api/analytics/kita/overview",
+    MONTHLY_TRENDS: "/api/analytics/kita/monthly-trends",
+    SALES_PERFORMANCE: "/api/analytics/kita/sales-performance",
+    CUSTOMERS: "/api/analytics/kita/customers",
+    SECTOR_MIX: "/api/analytics/kita/sector-mix",
+    PIPELINE_STRENGTH: "/api/analytics/kita/pipeline-strength",
+    FOCUS_TABLES: "/api/analytics/kita/focus-tables",
+    CUSTOMER_GRAPHIC: "/api/analytics/kita/customer-graphic",
+    KEY_ACCOUNTS: "/api/analytics/kita/key-accounts",
+  },
   ANALYTICS: {
     KPI: "/api/analytics/kpi",
     EXECUTIVE: "/api/analytics/executive-summary",
     MAIN_DASHBOARD: "/api/analytics/main-dashboard",
     RECENT_TRANSACTIONS: "/api/analytics/recent-transactions",
+    SYNC_STATUS: "/api/analytics/sync-status",
   },
   AI: {
     CHAT: "/api/ai/chat",
@@ -71,6 +102,11 @@ export const API_ENDPOINTS = {
   },
   REPORTS: {
     AR_AGING: "/api/reports/ar-aging",
+  },
+  ALERTS: {
+    LIST: "/api/alerts/",
+    COUNTS: "/api/alerts/counts",
+    RESOLVE: (id: number) => `/api/alerts/${id}/resolve`,
   },
 } as const;
 

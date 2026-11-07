@@ -185,6 +185,7 @@ async def login(
             "full_name": user.full_name,
             "role": user.role,
             "email": user.email or f"{user.username}@pengajaran.com",
+            "cabang": user.cabang or user.id_gudang_access or "",
         },
     )
 
