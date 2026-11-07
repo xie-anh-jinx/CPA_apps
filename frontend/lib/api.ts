@@ -260,4 +260,7 @@ export const apiHrm = {
   reviewLeave: (id: number, data: Record<string, unknown>) => api.post(`/api/hrm/leaves/${id}/review`, data),
   leaveBalances: () => api.get("/api/hrm/leaves/balances"),
   masters: () => api.get("/api/hrm/masters"),
+  hrLegal: () => api.get("/api/hrm/hr-legal"),
+  updateHrLegalTopic: (topicId: number, data: Record<string, unknown>) =>
+    api.patch(`/api/hrm/hr-legal/topics/${topicId}`, data),
 };
