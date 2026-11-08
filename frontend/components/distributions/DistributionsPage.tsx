@@ -861,8 +861,9 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
     ];
   }, [items]);
 
-  // Filtered Delivery Order (DO) List
-  const filteredDoItems = useMemo(() => {
+  // Base DO Items matching warehouse, search, customer, driver, and date filters (WITHOUT status filter)
+  // Single Source of Truth for computing responsive DO KPI cards when filters are active
+  const baseDoItems = useMemo(() => {
     return items.filter((row) => {
       // 1. Text Search Input
       if (searchTerm.trim()) {
@@ -891,36 +892,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
         if (!row.tanggal || !selectedDoDates.includes(row.tanggal)) return false;
       }
 
-      // 3. Status DO Selection
-      if (selectedDoStatuses.length > 0) {
-        const isRowInvoice = row.status === "I" || row.status_label === "invoice" || Boolean(row.tgl_invoice);
-        const isRowReturn = !isRowInvoice && (row.status === "R" || row.status_label === "Received") && Boolean(row.return_date);
-        const isRowReceived = !isRowInvoice && !isRowReturn && (row.status === "R" || row.status_label === "Received");
-        const isRowSend = row.status === "S" || row.status_label === "Send" || row.status_label === "in_transit";
-        const isRowDraft = row.status === "D" || row.status_label === "Draft";
-        const isRowCancel = row.status === "C" || row.status_label === "Cancel";
-
-        const matches = selectedDoStatuses.some((st) => {
-          if (st === "invoice") return isRowInvoice;
-          if (st === "return") return isRowReturn;
-          if (st === "received") return isRowReceived;
-          if (st === "send") return isRowSend;
-          if (st === "draft") return isRowDraft;
-          if (st === "cancel") return isRowCancel;
-          return false;
-        });
-        if (!matches) return false;
-      } else if (activeTab !== "all") {
-        const isRowInvoice = row.status === "I" || row.status_label === "invoice" || Boolean(row.tgl_invoice);
-        const isRowReturn = !isRowInvoice && (row.status === "R" || row.status_label === "Received") && Boolean(row.return_date);
-        if (activeTab === "invoice" && !isRowInvoice) return false;
-        if (activeTab === "return" && !isRowReturn) return false;
-        if (activeTab === "received" && (isRowInvoice || isRowReturn || !(row.status === "R" || row.status_label === "Received"))) return false;
-        if (activeTab === "send" && !(row.status === "S" || row.status_label === "Send")) return false;
-        if (activeTab === "cancel" && !(row.status === "C" || row.status_label === "Cancel")) return false;
-      }
-
-      // 3. Origin Warehouse Selection
+      // 3. Origin Warehouse Selection (Mendukung 1 atau beberapa gudang)
       if (selectedOriginWarehouses.length > 0) {
         const matches = selectedOriginWarehouses.some((wh) => {
           const target = wh.toLowerCase().trim();
@@ -950,7 +922,150 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
 
       return true;
     });
-  }, [items, searchTerm, selectedDoNumbers, selectedDoDates, selectedDoStatuses, activeTab, selectedOriginWarehouses, selectedCustomers, selectedDrivers]);
+  }, [items, searchTerm, selectedDoNumbers, selectedDoDates, selectedOriginWarehouses, selectedCustomers, selectedDrivers]);
+
+  // Filtered Delivery Order (DO) List (Base DO Items + Status Filter / Active Tab)
+  const filteredDoItems = useMemo(() => {
+    if (selectedDoStatuses.length === 0 && activeTab === "all") {
+      return baseDoItems;
+    }
+    return baseDoItems.filter((row) => {
+      const isRowInvoice = row.status === "I" || row.status_label === "invoice" || Boolean(row.tgl_invoice);
+      const isRowReturn = !isRowInvoice && (row.status === "R" || row.status_label === "Received") && Boolean(row.return_date);
+      const isRowReceived = !isRowInvoice && !isRowReturn && (row.status === "R" || row.status_label === "Received");
+      const isRowSend = row.status === "S" || row.status_label === "Send" || row.status_label === "in_transit";
+      const isRowDraft = row.status === "D" || row.status_label === "Draft";
+      const isRowCancel = row.status === "C" || row.status_label === "Cancel";
+
+      if (selectedDoStatuses.length > 0) {
+        return selectedDoStatuses.some((st) => {
+          if (st === "invoice") return isRowInvoice;
+          if (st === "return") return isRowReturn;
+          if (st === "received") return isRowReceived;
+          if (st === "send") return isRowSend;
+          if (st === "draft") return isRowDraft;
+          if (st === "cancel") return isRowCancel;
+          return false;
+        });
+      }
+
+      if (activeTab === "invoice") return isRowInvoice;
+      if (activeTab === "return") return isRowReturn;
+      if (activeTab === "received") return isRowReceived;
+      if (activeTab === "send") return isRowSend;
+      if (activeTab === "cancel") return isRowCancel;
+      return true;
+    });
+  }, [baseDoItems, selectedDoStatuses, activeTab]);
+
+  // Dynamic KPI Metrics for DO:
+  // Menyesuaikan total DO, DO send, DO received, return, invoice, cancel, volume & qty saat user memilih gudang atau filter aktif
+  const isDoWarehouseOrFilterActive =
+    selectedOriginWarehouses.length > 0 ||
+    selectedCustomers.length > 0 ||
+    selectedDrivers.length > 0 ||
+    selectedDoNumbers.length > 0 ||
+    selectedDoDates.length > 0 ||
+    Boolean(searchTerm.trim());
+
+  const doKpiMetrics = useMemo(() => {
+    if (!isDoWarehouseOrFilterActive && summary) {
+      return {
+        totalDo: summary.total_do ?? 0,
+        totalVol: summary.total_volume ?? 0,
+        totalQty: summary.total_qty ?? 0,
+        sendCount: summary.send ?? summary.in_transit ?? 0,
+        sendVol: summary.send_volume ?? 0,
+        sendQty: summary.send_qty ?? 0,
+        recvCount: summary.received ?? summary.delivered ?? 0,
+        recvVol: summary.received_volume ?? 0,
+        recvQty: summary.received_qty ?? 0,
+        returnCount: summary.return_do ?? 0,
+        returnVol: summary.return_volume ?? 0,
+        returnQty: summary.return_qty ?? 0,
+        invCount: summary.invoice ?? 0,
+        invVol: summary.invoice_volume ?? 0,
+        invQty: summary.invoice_qty ?? 0,
+        cancelCount: summary.cancel ?? 0,
+        cancelVol: summary.cancel_volume ?? 0,
+        cancelQty: summary.cancel_qty ?? 0,
+      };
+    }
+
+    let totalVol = 0;
+    let totalQty = 0;
+    let sendCount = 0;
+    let sendVol = 0;
+    let sendQty = 0;
+    let recvCount = 0;
+    let recvVol = 0;
+    let recvQty = 0;
+    let returnCount = 0;
+    let returnVol = 0;
+    let returnQty = 0;
+    let invCount = 0;
+    let invVol = 0;
+    let invQty = 0;
+    let cancelCount = 0;
+    let cancelVol = 0;
+    let cancelQty = 0;
+
+    baseDoItems.forEach((r) => {
+      const vol = Number(r.total_volume_liter) || 0;
+      const qty = Number(r.total_qty) || 0;
+      totalVol += vol;
+      totalQty += qty;
+
+      const isRowInvoice = r.status === "I" || r.status_label === "invoice" || Boolean(r.tgl_invoice);
+      const isRowReturn = !isRowInvoice && (r.status === "R" || r.status_label === "Received") && Boolean(r.return_date);
+      const isRowReceived = !isRowInvoice && !isRowReturn && (r.status === "R" || r.status_label === "Received");
+      const isRowSend = r.status === "S" || r.status_label === "Send" || r.status_label === "in_transit";
+      const isRowCancel = r.status === "C" || r.status === "X" || r.status_label === "Cancel";
+
+      if (isRowInvoice) {
+        invCount++;
+        invVol += vol;
+        invQty += qty;
+      } else if (isRowReturn) {
+        returnCount++;
+        returnVol += vol;
+        returnQty += qty;
+      } else if (isRowReceived) {
+        recvCount++;
+        recvVol += vol;
+        recvQty += qty;
+      } else if (isRowSend) {
+        sendCount++;
+        sendVol += vol;
+        sendQty += qty;
+      } else if (isRowCancel) {
+        cancelCount++;
+        cancelVol += vol;
+        cancelQty += qty;
+      }
+    });
+
+    return {
+      totalDo: baseDoItems.length,
+      totalVol,
+      totalQty,
+      sendCount,
+      sendVol,
+      sendQty,
+      recvCount,
+      recvVol,
+      recvQty,
+      returnCount,
+      returnVol,
+      returnQty,
+      invCount,
+      invVol,
+      invQty,
+      cancelCount,
+      cancelVol,
+      cancelQty,
+    };
+  }, [isDoWarehouseOrFilterActive, summary, baseDoItems]);
 
   // Filtered Internal Order (IO) List
   const filteredIoItems = useMemo(() => {
@@ -2986,7 +3101,19 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
   const handleDownloadExcel = async (type: "IO" | "IT" | "DO") => {
     try {
       setIsDownloading(true);
-      const whParam = type === "DO" && selectedDoWarehouse !== "ALL" ? selectedDoWarehouse : undefined;
+      let whParam: string | undefined = undefined;
+      if (type === "DO") {
+        if (selectedOriginWarehouses.length > 0) {
+          whParam = selectedOriginWarehouses.join(",");
+        } else if (selectedDoWarehouse !== "ALL") {
+          whParam = selectedDoWarehouse;
+        }
+      } else if (type === "IO" || type === "IT") {
+        if (selectedOriginWarehouses.length > 0) {
+          whParam = selectedOriginWarehouses.join(",");
+        }
+      }
+
       const res = await apiDistributions.exportExcel({
         type,
         date_from: calendarDateFrom || undefined,
@@ -3002,7 +3129,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
       let label = "Delivery_Order";
       if (type === "IO") label = "Internal_Order";
       else if (type === "IT") label = "Internal_Transfer";
-      const whSuffix = whParam ? `_${whParam}` : "";
+      const whSuffix = whParam ? `_${whParam.replace(/,/g, "_")}` : "";
       const dateSuffix = `${calendarDateFrom || "all"}_sd_${calendarDateTo || "all"}`.replace(/-/g, "");
       a.download = `${label}${whSuffix}_${dateSuffix}.xlsx`;
       document.body.appendChild(a);
@@ -3027,8 +3154,8 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
       
       if (mainTab === "DO") {
         const whParam =
-          selectedOriginWarehouses.length === 1
-            ? selectedOriginWarehouses[0]
+          selectedOriginWarehouses.length > 0
+            ? selectedOriginWarehouses.join(",")
             : selectedDoWarehouse !== "ALL"
             ? selectedDoWarehouse
             : undefined;
@@ -3053,8 +3180,8 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
         if (sumRes.status === "fulfilled") setSummary(sumRes.value.data);
         if (itemsRes.status === "fulfilled") setItems(itemsRes.value.data.data || []);
       } else if (mainTab === "IO") {
-        const whAsalParam = selectedOriginWarehouses.length === 1 ? selectedOriginWarehouses[0] : undefined;
-        const whTujuanParam = selectedDestinationWarehouses.length === 1 ? selectedDestinationWarehouses[0] : undefined;
+        const whAsalParam = selectedOriginWarehouses.length > 0 ? selectedOriginWarehouses.join(",") : undefined;
+        const whTujuanParam = selectedDestinationWarehouses.length > 0 ? selectedDestinationWarehouses.join(",") : undefined;
         const ioStatusParam =
           selectedIoStatuses.length > 0
             ? selectedIoStatuses.join(",")
@@ -3073,8 +3200,8 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
         });
         setIoItems(res.data.data || []);
       } else if (mainTab === "IT") {
-        const whAsalParam = selectedOriginWarehouses.length === 1 ? selectedOriginWarehouses[0] : undefined;
-        const whTujuanParam = selectedDestinationWarehouses.length === 1 ? selectedDestinationWarehouses[0] : undefined;
+        const whAsalParam = selectedOriginWarehouses.length > 0 ? selectedOriginWarehouses.join(",") : undefined;
+        const whTujuanParam = selectedDestinationWarehouses.length > 0 ? selectedDestinationWarehouses.join(",") : undefined;
         const itStatusParam =
           selectedItStatuses.length > 0
             ? selectedItStatuses.join(",")
@@ -3531,38 +3658,40 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
       {mainTab === "DO" && (
         <>
           {(() => {
-            const totalDo = summary?.total_do ?? items.length ?? 0;
-            const totalVol = summary?.total_volume ?? 0;
-            const totalQty = summary?.total_qty ?? 0;
+            const {
+              totalDo,
+              totalVol,
+              totalQty,
+              sendCount,
+              sendVol,
+              sendQty,
+              recvCount,
+              recvVol,
+              recvQty,
+              returnCount,
+              returnVol,
+              returnQty,
+              invCount,
+              invVol,
+              invQty,
+              cancelCount,
+              cancelVol,
+              cancelQty,
+            } = doKpiMetrics;
 
-            const sendCount = summary?.send ?? summary?.in_transit ?? 0;
             const sendPct = totalDo > 0 ? ((sendCount / totalDo) * 100).toFixed(1) : "0.0";
-            const sendVol = summary?.send_volume ?? 0;
-            const sendQty = summary?.send_qty ?? 0;
             const sendVolPct = totalVol > 0 ? ((sendVol / totalVol) * 100).toFixed(1) : "0.0";
 
-            const recvCount = summary?.received ?? summary?.delivered ?? 0;
             const recvPct = totalDo > 0 ? ((recvCount / totalDo) * 100).toFixed(1) : "0.0";
-            const recvVol = summary?.received_volume ?? 0;
-            const recvQty = summary?.received_qty ?? 0;
             const recvVolPct = totalVol > 0 ? ((recvVol / totalVol) * 100).toFixed(1) : "0.0";
 
-            const returnCount = summary?.return_do ?? 0;
             const returnPct = totalDo > 0 ? ((returnCount / totalDo) * 100).toFixed(1) : "0.0";
-            const returnVol = summary?.return_volume ?? 0;
-            const returnQty = summary?.return_qty ?? 0;
             const returnVolPct = totalVol > 0 ? ((returnVol / totalVol) * 100).toFixed(1) : "0.0";
 
-            const invCount = summary?.invoice ?? 0;
             const invPct = totalDo > 0 ? ((invCount / totalDo) * 100).toFixed(1) : "0.0";
-            const invVol = summary?.invoice_volume ?? 0;
-            const invQty = summary?.invoice_qty ?? 0;
             const invVolPct = totalVol > 0 ? ((invVol / totalVol) * 100).toFixed(1) : "0.0";
 
-            const cancelCount = summary?.cancel ?? 0;
             const cancelPct = totalDo > 0 ? ((cancelCount / totalDo) * 100).toFixed(1) : "0.0";
-            const cancelVol = summary?.cancel_volume ?? 0;
-            const cancelQty = summary?.cancel_qty ?? 0;
             const cancelVolPct = totalVol > 0 ? ((cancelVol / totalVol) * 100).toFixed(1) : "0.0";
 
             const formatVol = (val?: number | null) => {

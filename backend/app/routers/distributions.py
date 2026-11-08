@@ -257,6 +257,66 @@ def _apply_io_status_filter(
         conditions.append(f"{alias}.status IN ({', '.join(code_params)})")
 
 
+def _apply_do_warehouse_filter(
+    id_gudang_param: Optional[str],
+    conditions: List[str],
+    params: Dict[str, Any],
+    alias: str = "d",
+    gudang_alias: str = "g",
+) -> None:
+    """Single Source of Truth filter gudang DO (mendukung 1 atau multi-gudang dipisah koma, ID maupun Nama Gudang)."""
+    if not id_gudang_param or id_gudang_param.strip().upper() == "ALL":
+        return
+    items = [w.strip() for w in id_gudang_param.split(",") if w.strip() and w.strip().upper() != "ALL"]
+    if not items:
+        return
+    if len(items) == 1:
+        conditions.append(f"({alias}.id_gudang = :wh_single OR LOWER({gudang_alias}.gudang) = LOWER(:wh_single))")
+        params["wh_single"] = items[0]
+    else:
+        clause_parts = []
+        for i, val in enumerate(items):
+            param_key = f"wh_item_{i}"
+            param_lower_key = f"wh_lower_{i}"
+            params[param_key] = val
+            params[param_lower_key] = val.lower()
+            clause_parts.append(f"({alias}.id_gudang = :{param_key} OR LOWER({gudang_alias}.gudang) = :{param_lower_key})")
+        conditions.append(f"({' OR '.join(clause_parts)})")
+
+
+def _apply_io_it_warehouse_filter(
+    id_gudang_param: Optional[str],
+    conditions: List[str],
+    params: Dict[str, Any],
+    alias: str = "t",
+    ga_alias: str = "ga",
+    gt_alias: str = "gt",
+    mode: str = "any",
+) -> None:
+    """Single Source of Truth filter gudang IO / IT (mendukung 1 atau multi-gudang dipisah koma)."""
+    if not id_gudang_param or id_gudang_param.strip().upper() == "ALL":
+        return
+    items = [w.strip() for w in id_gudang_param.split(",") if w.strip() and w.strip().upper() != "ALL"]
+    if not items:
+        return
+    clause_parts = []
+    for i, val in enumerate(items):
+        k = f"wh_io_{mode}_{i}"
+        kl = f"wh_io_l_{mode}_{i}"
+        params[k] = val
+        params[kl] = val.lower()
+        if mode == "asal":
+            clause_parts.append(f"({alias}.id_gudang_asal = :{k} OR LOWER({ga_alias}.gudang) = :{kl})")
+        elif mode == "tujuan":
+            clause_parts.append(f"({alias}.id_gudang_tujuan = :{k} OR LOWER({gt_alias}.gudang) = :{kl})")
+        else:
+            clause_parts.append(
+                f"({alias}.id_gudang_asal = :{k} OR LOWER({ga_alias}.gudang) = :{kl} "
+                f"OR {alias}.id_gudang_tujuan = :{k} OR LOWER({gt_alias}.gudang) = :{kl})"
+            )
+    conditions.append(f"({' OR '.join(clause_parts)})")
+
+
 def _apply_it_status_filter(
     status: Optional[str],
     conditions: List[str],
@@ -332,9 +392,7 @@ async def list_deliveries(
     if id_customer:
         conditions.append("d.id_customer = :id_customer")
         params["id_customer"] = id_customer
-    if id_gudang and id_gudang.upper() != "ALL":
-        conditions.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
-        params["id_gudang"] = id_gudang
+    _apply_do_warehouse_filter(id_gudang, conditions, params, alias="d", gudang_alias="g")
     if date_from:
         conditions.append("d.tanggal >= :date_from")
         params["date_from"] = date_from
@@ -533,9 +591,7 @@ async def get_distribution_summary(
 
     conditions = ["d.tanggal BETWEEN :date_from AND :date_to"]
     params: Dict[str, Any] = {"date_from": date_from, "date_to": date_to}
-    if id_gudang and id_gudang.upper() != "ALL":
-        conditions.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
-        params["id_gudang"] = id_gudang
+    _apply_do_warehouse_filter(id_gudang, conditions, params, alias="d", gudang_alias="g")
 
     _apply_do_rls(conditions, params, current_user, alias="d")
     where_clause = " AND ".join(conditions)
@@ -628,9 +684,7 @@ async def get_map_data(
     """Data untuk peta distribusi (origin-destination) dari database cpa_existing."""
     conditions = ["d.origin IS NOT NULL", "d.destination IS NOT NULL"]
     params: Dict[str, Any] = {}
-    if id_gudang and id_gudang.upper() != "ALL":
-        conditions.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
-        params["id_gudang"] = id_gudang
+    _apply_do_warehouse_filter(id_gudang, conditions, params, alias="d", gudang_alias="g")
 
     _apply_do_status_filter(status, conditions, params, alias="d")
 
@@ -704,13 +758,8 @@ async def get_internal_orders(
         params["date_to"] = date_to
 
     _apply_io_status_filter(status, where_clauses, params, alias="t")
-
-    if id_gudang_asal and id_gudang_asal.upper() != "ALL":
-        where_clauses.append("(t.id_gudang_asal = :id_gudang_asal OR LOWER(ga.gudang) = LOWER(:id_gudang_asal))")
-        params["id_gudang_asal"] = id_gudang_asal
-    if id_gudang_tujuan and id_gudang_tujuan.upper() != "ALL":
-        where_clauses.append("(t.id_gudang_tujuan = :id_gudang_tujuan OR LOWER(gt.gudang) = LOWER(:id_gudang_tujuan))")
-        params["id_gudang_tujuan"] = id_gudang_tujuan
+    _apply_io_it_warehouse_filter(id_gudang_asal, where_clauses, params, alias="t", ga_alias="ga", gt_alias="gt", mode="asal")
+    _apply_io_it_warehouse_filter(id_gudang_tujuan, where_clauses, params, alias="t", ga_alias="ga", gt_alias="gt", mode="tujuan")
 
     if q and q.strip():
         q_clean = f"%{q.strip().lower()}%"
@@ -1081,13 +1130,8 @@ async def get_transfer_orders(
         params["date_to"] = date_to
 
     _apply_it_status_filter(status, conditions, params, alias="it")
-
-    if id_gudang_asal and id_gudang_asal.upper() != "ALL":
-        conditions.append("(it.id_gudang_asal = :id_gudang_asal OR LOWER(ga.gudang) = LOWER(:id_gudang_asal))")
-        params["id_gudang_asal"] = id_gudang_asal
-    if id_gudang_tujuan and id_gudang_tujuan.upper() != "ALL":
-        conditions.append("(it.id_gudang_tujuan = :id_gudang_tujuan OR LOWER(gt.gudang) = LOWER(:id_gudang_tujuan))")
-        params["id_gudang_tujuan"] = id_gudang_tujuan
+    _apply_io_it_warehouse_filter(id_gudang_asal, conditions, params, alias="it", ga_alias="ga", gt_alias="gt", mode="asal")
+    _apply_io_it_warehouse_filter(id_gudang_tujuan, conditions, params, alias="it", ga_alias="ga", gt_alias="gt", mode="tujuan")
 
     if q and q.strip():
         q_clean = f"%{q.strip().lower()}%"
@@ -1216,12 +1260,10 @@ async def export_distribution_excel(
     else:
         _apply_do_status_filter(status, where_clauses, params, alias="t")
 
-    if id_gudang and id_gudang.upper() != "ALL":
-        if type_upper in ["IO", "IT"]:
-            where_clauses.append("(t.id_gudang_asal = :id_gudang OR LOWER(ga.gudang) = LOWER(:id_gudang) OR t.id_gudang_tujuan = :id_gudang OR LOWER(gt.gudang) = LOWER(:id_gudang))")
-        else:
-            where_clauses.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
-        params["id_gudang"] = id_gudang
+    if type_upper in ["IO", "IT"]:
+        _apply_io_it_warehouse_filter(id_gudang, where_clauses, params, alias="t", ga_alias="ga", gt_alias="gt", mode="any")
+    else:
+        _apply_do_warehouse_filter(id_gudang, where_clauses, params, alias="d", gudang_alias="g")
 
     if type_upper in ["IO", "IT"]:
         _apply_io_it_rls(where_clauses, params, current_user, alias="t")
