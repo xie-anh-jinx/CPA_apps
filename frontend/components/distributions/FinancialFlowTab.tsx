@@ -59,7 +59,7 @@ export interface FinancialFlowItem {
   variance_pct: number;
   status: "COMPLETE" | "OUTSTANDING" | "NEED_REVIEW";
   status_label: "Complete" | "Outstanding" | "Need Review";
-  waiting_reason?: "Waiting Invoice" | "Waiting FRDO" | "Waiting Payment" | null;
+  waiting_reason?: string | null;
 }
 
 export interface FinancialFlowKpi {
@@ -68,8 +68,10 @@ export interface FinancialFlowKpi {
   total_frdo: number;
   total_invoice: number;
   total_transfer: number;
+  complete_count?: number;
   outstanding_count: number;
   outstanding_amount: number;
+  need_review_count?: number;
 }
 
 // ─── 2. HELPER STATUS BADGE ───────────────────────────────────────────────────
@@ -79,7 +81,7 @@ function StatusBadge({
   waitingReason,
 }: {
   status: "COMPLETE" | "OUTSTANDING" | "NEED_REVIEW";
-  waitingReason?: "Waiting Invoice" | "Waiting FRDO" | "Waiting Payment" | null;
+  waitingReason?: string | null;
 }) {
   if (status === "COMPLETE") {
     return (
@@ -154,6 +156,7 @@ function StatusBadge({
 export default function FinancialFlowTab() {
   const [data, setData] = useState<FinancialFlowItem[]>([]);
   const [kpi, setKpi] = useState<FinancialFlowKpi | null>(null);
+  const [dataNote, setDataNote] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -208,6 +211,9 @@ export default function FinancialFlowTab() {
       setData(resData.items || []);
       if (resData.kpi) {
         setKpi(resData.kpi);
+      }
+      if (resData.data_note) {
+        setDataNote(resData.data_note);
       }
       if (resData.pagination) {
         setTotalPages(resData.pagination.total_pages || 1);
@@ -572,8 +578,13 @@ export default function FinancialFlowTab() {
               Financial Flow: Monitoring Alur Dokumen Keuangan DO
             </div>
             <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "1px" }}>
-              Tracking sekuensial: Permintaan Dana → Travel Request → DO → FRDO → Invoice Ekspedisi → Bukti Transfer (Live Database: {formatNumber(kpi?.total_do ?? 15042)} DO)
+              Tracking sekuensial: Biaya Pengiriman DO (PL) → Penugasan Ekspedisi → DO → FRDO (Return Date) → Faktur Penjualan → Bukti Pelunasan (Live Database: {kpi ? formatNumber(kpi.total_do) : "..."} DO)
             </div>
+            {dataNote && (
+              <div style={{ fontSize: "0.7rem", color: "#38bdf8", marginTop: "4px" }}>
+                ℹ️ {dataNote}
+              </div>
+            )}
           </div>
         </div>
 
@@ -694,7 +705,7 @@ export default function FinancialFlowTab() {
             },
             {
               key: "COMPLETE",
-              label: `✓ Complete (${kpi ? formatNumber(Math.max(0, kpi.total_do - kpi.outstanding_count)) : "..."})`,
+              label: `✓ Complete (${kpi ? formatNumber(kpi.complete_count ?? Math.max(0, kpi.total_do - kpi.outstanding_count - (kpi.need_review_count ?? 0))) : "..."})`,
             },
             {
               key: "OUTSTANDING",
@@ -702,7 +713,7 @@ export default function FinancialFlowTab() {
             },
             {
               key: "NEED_REVIEW",
-              label: `⚠️ Need Review`,
+              label: `⚠️ Need Review (${kpi?.need_review_count !== undefined ? formatNumber(kpi.need_review_count) : "..."})`,
             },
           ].map((tab) => (
             <button

@@ -169,7 +169,7 @@ const NAV_GROUPS: SidebarGroup[] = [
               { href: "/finance/ar-summary/credit-utilization", icon: <Gauge size={13} strokeWidth={1.5} />, label: "CREDIT LIMIT UTILIZATION" },
               { href: "/finance/ar-summary/customer-performance", icon: <UserCheck size={13} strokeWidth={1.5} />, label: "CUSTOMER PERFORMANCE" },
               { href: "/finance/ar-summary/collection-projection", icon: <CalendarClock size={13} strokeWidth={1.5} />, label: "COLLECTION PROJECTION" },
-              { href: "/finance/ar-summary/icu", icon: <Gift size={13} strokeWidth={1.5} />, label: "ICU", badge: 9 },
+              { href: "/finance/ar-summary/icu", icon: <Gift size={13} strokeWidth={1.5} />, label: "ICU" },
             ],
           },
         ]
@@ -334,7 +334,7 @@ const SALES_NAV_GROUPS: SidebarGroup[] = [
               { href: "/finance/ar-summary/credit-utilization", icon: <Gauge size={13} strokeWidth={1.5} />, label: "CREDIT LIMIT UTILIZATION" },
               { href: "/finance/ar-summary/customer-performance", icon: <UserCheck size={13} strokeWidth={1.5} />, label: "CUSTOMER PERFORMANCE" },
               { href: "/finance/ar-summary/collection-projection", icon: <CalendarClock size={13} strokeWidth={1.5} />, label: "COLLECTION PROJECTION" },
-              { href: "/finance/ar-summary/icu", icon: <Gift size={13} strokeWidth={1.5} />, label: "ICU", badge: 9 },
+              { href: "/finance/ar-summary/icu", icon: <Gift size={13} strokeWidth={1.5} />, label: "ICU" },
             ],
           },
         ]
@@ -439,7 +439,7 @@ const FINANCE_NAV_GROUPS: SidebarGroup[] = [
               { href: "/finance/ar-summary/credit-utilization", icon: <Gauge size={13} strokeWidth={1.5} />, label: "CREDIT LIMIT UTILIZATION" },
               { href: "/finance/ar-summary/customer-performance", icon: <UserCheck size={13} strokeWidth={1.5} />, label: "CUSTOMER PERFORMANCE" },
               { href: "/finance/ar-summary/collection-projection", icon: <CalendarClock size={13} strokeWidth={1.5} />, label: "COLLECTION PROJECTION" },
-              { href: "/finance/ar-summary/icu", icon: <Gift size={13} strokeWidth={1.5} />, label: "ICU", badge: 9 },
+              { href: "/finance/ar-summary/icu", icon: <Gift size={13} strokeWidth={1.5} />, label: "ICU" },
             ],
           },
         ]

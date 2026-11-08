@@ -1,22 +1,276 @@
 """
-Router — Distributions Monitoring
-DO tracking, status pengiriman, peta distribusi
+Router — Distributions Monitoring (Single Source of Truth: cpa_existing)
+DO tracking, Internal Order (IO), Internal Transfer (IT), dan Financial Flow DO.
+Seluruh endpoint menggunakan 100% Real Data dari database produksi (cpa_existing)
+tanpa duplikasi SQL atau fabrikasi nomor dokumen.
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import Optional
+from typing import Optional, Dict, Any, List, Set
 from datetime import date
 
-from app.database import get_analytics_db, get_existing_db
+from app.database import get_existing_db
 from app.routers.auth import CurrentUser
 
 router = APIRouter()
 
+# ==============================================================================
+# SINGLE SOURCE OF TRUTH: STATUS MAPS & SQL HELPERS (cpa_existing)
+# ==============================================================================
+
+DO_STATUS_MAP: Dict[str, str] = {
+    "D": "Draft",
+    "S": "Send",
+    "R": "Received",
+    "I": "Invoice",
+    "C": "Cancel",
+}
+
+IO_STATUS_MAP: Dict[str, str] = {
+    "D": "Draft",
+    "S": "Checked DSM",
+    "A": "Approve",
+    "P": "IT Process",
+    "Z": "Partial",
+    "C": "IT Completed",
+    "K": "Reject DSM",
+    "Y": "Reject ST",
+    "X": "Cancel",
+    "R": "Cancel",
+}
+
+IT_STATUS_MAP: Dict[str, str] = {
+    "D": "Draft",
+    "S": "Send",
+    "R": "Receipt",
+    "C": "Receipt",
+    "X": "Cancel",
+}
+
+# CTE Single Source of Truth untuk resolusi kode user / id_pegawai ke nama & jabatan asli
+_USER_LOOKUP_CTE = """
+user_lookup AS (
+    SELECT DISTINCT ON (key_code)
+        key_code,
+        nama,
+        jabatan
+    FROM (
+        SELECT
+            p.id_pegawai AS key_code,
+            p.nama,
+            j.jabatan,
+            1 AS priority
+        FROM public.pegawai p
+        LEFT JOIN public.master_jabatan j ON p.id_jabatan = j.id_jabatan
+        WHERE p.id_pegawai IS NOT NULL AND p.id_pegawai <> ''
+        UNION ALL
+        SELECT
+            u.usernamenya AS key_code,
+            p.nama,
+            j.jabatan,
+            2 AS priority
+        FROM public.pengguna u
+        JOIN public.pegawai p ON u.id_pegawai = p.id_pegawai
+        LEFT JOIN public.master_jabatan j ON p.id_jabatan = j.id_jabatan
+        WHERE u.usernamenya IS NOT NULL AND u.usernamenya <> ''
+    ) sub
+    ORDER BY key_code, priority ASC
+)
+"""
+
+# Lateral join Single Source of Truth untuk faktur penjualan terkait DO via penjualando
+_DO_INVOICE_LATERAL_SQL = """
+LEFT JOIN LATERAL (
+    SELECT
+        p.tanggal AS tgl_invoice,
+        p.no_penjualan AS no_invoice
+    FROM public.penjualando pd
+    JOIN public.penjualan p ON pd.no_penjualan = p.no_penjualan
+    WHERE pd.no_do = d.nomor AND COALESCE(p.status, '') <> 'C'
+    ORDER BY p.tanggal ASC
+    LIMIT 1
+) inv ON true
+"""
+
+
+def _apply_do_rls(
+    conditions: List[str],
+    params: Dict[str, Any],
+    current_user: Optional[CurrentUser],
+    alias: str = "d",
+) -> None:
+    """Single Source of Truth Row-Level Security untuk tabel DO / Gudang."""
+    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
+        if current_user.id_gudang_access:
+            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(",") if g.strip())
+            conditions.append(f"{alias}.id_gudang IN :gudangs")
+            params["gudangs"] = gudangs
+        elif current_user.id_pegawai:
+            conditions.append(f"{alias}.id_gudang = :user_gudang")
+            params["user_gudang"] = current_user.id_pegawai
+
+
+def _apply_io_it_rls(
+    conditions: List[str],
+    params: Dict[str, Any],
+    current_user: Optional[CurrentUser],
+    alias: str = "t",
+    direction: Optional[str] = None,
+) -> Set[str]:
+    """Single Source of Truth Row-Level Security untuk tabel Internal Order & Internal Transfer."""
+    user_gudangs: Set[str] = set()
+    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
+        if current_user.id_gudang_access:
+            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(",") if g.strip())
+            user_gudangs = set(gudangs)
+            if direction == "in":
+                conditions.append(f"{alias}.id_gudang_tujuan IN :gudangs")
+            elif direction == "out":
+                conditions.append(f"{alias}.id_gudang_asal IN :gudangs")
+            else:
+                conditions.append(f"({alias}.id_gudang_asal IN :gudangs OR {alias}.id_gudang_tujuan IN :gudangs)")
+            params["gudangs"] = gudangs
+        elif current_user.id_pegawai:
+            user_gudangs = {current_user.id_pegawai}
+            if direction == "in":
+                conditions.append(f"{alias}.id_gudang_tujuan = :user_gudang")
+            elif direction == "out":
+                conditions.append(f"{alias}.id_gudang_asal = :user_gudang")
+            else:
+                conditions.append(f"({alias}.id_gudang_asal = :user_gudang OR {alias}.id_gudang_tujuan = :user_gudang)")
+            params["user_gudang"] = current_user.id_pegawai
+    return user_gudangs
+
+
+def _apply_do_status_filter(
+    status: Optional[str],
+    conditions: List[str],
+    params: Dict[str, Any],
+    alias: str = "d",
+) -> None:
+    """Single Source of Truth filter status DO (mendukung kode 1-huruf maupun label UI)."""
+    if not status or status.lower() == "all":
+        return
+    status_items = [s.strip().lower() for s in status.split(",") if s.strip()]
+    status_conds: List[str] = []
+    status_map_filter = {
+        "send": "S",
+        "in_transit": "S",
+        "s": "S",
+        "invoice": "I",
+        "i": "I",
+        "cancel": "C",
+        "cancelled": "C",
+        "void": "C",
+        "c": "C",
+        "draft": "D",
+        "d": "D",
+    }
+    target_codes: List[str] = []
+    for s_item in status_items:
+        if s_item in ("return", "returned", "frdo"):
+            status_conds.append(f"({alias}.status = 'R' AND {alias}.return_date IS NOT NULL)")
+        elif s_item in ("received", "delivered", "r"):
+            status_conds.append(f"({alias}.status = 'R' AND {alias}.return_date IS NULL)")
+        else:
+            code = status_map_filter.get(s_item, s_item.upper())
+            target_codes.append(code)
+    if target_codes:
+        code_params = [f":do_st_{idx}" for idx in range(len(target_codes))]
+        for idx, c in enumerate(target_codes):
+            params[f"do_st_{idx}"] = c
+        status_conds.append(f"{alias}.status IN ({', '.join(code_params)})")
+    if status_conds:
+        conditions.append(f"({' OR '.join(status_conds)})")
+
+
+def _apply_io_status_filter(
+    status: Optional[str],
+    conditions: List[str],
+    params: Dict[str, Any],
+    alias: str = "t",
+) -> None:
+    """Single Source of Truth filter status IO (mendukung label UI dan kode 1-huruf)."""
+    if not status or status.lower() == "all":
+        return
+    key_map = {
+        "draft": ["D"],
+        "dsm": ["S"],
+        "checked dsm": ["S"],
+        "approve": ["A"],
+        "approved": ["A"],
+        "it_process": ["P"],
+        "process it": ["P"],
+        "it process": ["P"],
+        "partial": ["Z"],
+        "partial complete": ["Z"],
+        "it_complete": ["C"],
+        "it completed": ["C"],
+        "it complete": ["C"],
+        "cancel": ["X", "R", "K", "Y"],
+        "cancelled": ["X", "R", "K", "Y"],
+        "reject dsm": ["K"],
+        "reject st": ["Y"],
+    }
+    target_codes: List[str] = []
+    for raw in status.split(","):
+        s_clean = raw.strip().lower()
+        if not s_clean:
+            continue
+        if s_clean in key_map:
+            target_codes.extend(key_map[s_clean])
+        else:
+            target_codes.append(raw.strip().upper())
+    if target_codes:
+        unique_codes = list(dict.fromkeys(target_codes))
+        code_params = [f":io_st_{idx}" for idx in range(len(unique_codes))]
+        for idx, c in enumerate(unique_codes):
+            params[f"io_st_{idx}"] = c
+        conditions.append(f"{alias}.status IN ({', '.join(code_params)})")
+
+
+def _apply_it_status_filter(
+    status: Optional[str],
+    conditions: List[str],
+    params: Dict[str, Any],
+    alias: str = "it",
+) -> None:
+    """Single Source of Truth filter status IT (mendukung label UI dan kode 1-huruf)."""
+    if not status or status.lower() == "all":
+        return
+    key_map = {
+        "draft": ["D"],
+        "send": ["S"],
+        "receipt": ["R", "C"],
+        "received": ["R", "C"],
+        "cancel": ["X"],
+        "cancelled": ["X"],
+    }
+    target_codes: List[str] = []
+    for raw in status.split(","):
+        s_clean = raw.strip().lower()
+        if not s_clean:
+            continue
+        if s_clean in key_map:
+            target_codes.extend(key_map[s_clean])
+        else:
+            target_codes.append(raw.strip().upper())
+    if target_codes:
+        unique_codes = list(dict.fromkeys(target_codes))
+        code_params = [f":it_st_{idx}" for idx in range(len(unique_codes))]
+        for idx, c in enumerate(unique_codes):
+            params[f"it_st_{idx}"] = c
+        conditions.append(f"{alias}.status IN ({', '.join(code_params)})")
+
+
+# ==============================================================================
+# 1. DELIVERY ORDER (DO) LIST, PENDING, IN-TRANSIT, SUMMARY, MAP
+# ==============================================================================
 
 @router.get("/")
 async def list_deliveries(
-    status: Optional[str] = Query(None, description="all|send|received|invoice|cancel|draft|S|R|I|C|D or comma-separated"),
+    status: Optional[str] = Query(None, description="all|send|received|return|invoice|cancel|draft|S|R|I|C|D or comma-separated"),
     q: Optional[str] = Query(None, description="Search query across DO, Customer, Driver, Plate, PO, Invoice, etc."),
     id_customer: Optional[str] = None,
     id_gudang: Optional[str] = None,
@@ -27,41 +281,11 @@ async def list_deliveries(
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Daftar delivery order dengan status tracking langsung dari live database cpa_existing."""
+    """Daftar Delivery Order (DO) langsung dari database produksi cpa_existing."""
     conditions = ["1=1"]
-    params = {"limit": limit, "offset": (page - 1) * limit}
+    params: Dict[str, Any] = {"limit": limit, "offset": (page - 1) * limit}
 
-    if status and status != "all":
-        status_items = [s.strip().lower() for s in status.split(",") if s.strip()]
-        status_conds = []
-        status_map_filter = {
-            "send": "S",
-            "in_transit": "S",
-            "s": "S",
-            "invoice": "I",
-            "i": "I",
-            "cancel": "C",
-            "void": "C",
-            "c": "C",
-            "draft": "D",
-            "d": "D",
-        }
-        target_codes = []
-        for s_item in status_items:
-            if s_item in ("return", "returned", "frdo"):
-                status_conds.append("(d.status = 'R' AND d.return_date IS NOT NULL)")
-            elif s_item in ("received", "delivered", "r"):
-                status_conds.append("(d.status = 'R' AND d.return_date IS NULL)")
-            else:
-                code = status_map_filter.get(s_item, s_item.upper())
-                target_codes.append(code)
-        if target_codes:
-            code_params = [f":st_{idx}" for idx in range(len(target_codes))]
-            for idx, c in enumerate(target_codes):
-                params[f"st_{idx}"] = c
-            status_conds.append(f"d.status IN ({', '.join(code_params)})")
-        if status_conds:
-            conditions.append(f"({' OR '.join(status_conds)})")
+    _apply_do_status_filter(status, conditions, params, alias="d")
 
     if q and q.strip():
         q_clean = f"%{q.strip().lower()}%"
@@ -91,16 +315,7 @@ async def list_deliveries(
         conditions.append("d.tanggal <= :date_to")
         params["date_to"] = date_to
 
-    # Role-based Row-Level Security
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            conditions.append("d.id_gudang IN :gudangs")
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            conditions.append("d.id_gudang = :user_gudang")
-            params["user_gudang"] = current_user.id_pegawai
-
+    _apply_do_rls(conditions, params, current_user, alias="d")
     where_clause = " AND ".join(conditions)
 
     rows = db.execute(text(f"""
@@ -122,10 +337,10 @@ async def list_deliveries(
             d.received_name,
             d.shippingcosts,
             d.return_date,
-            CASE 
-                WHEN d.return_date IS NOT NULL AND d.received_date IS NOT NULL 
+            CASE
+                WHEN d.return_date IS NOT NULL AND d.received_date IS NOT NULL
                 THEN (d.return_date - d.received_date)
-                ELSE NULL 
+                ELSE NULL
             END AS selisih_hari,
             CASE
                 WHEN d.received_date IS NOT NULL AND d.tanggal IS NOT NULL
@@ -164,21 +379,14 @@ async def list_deliveries(
         LEFT JOIN public.packinglist pl ON d.no_pl = pl.nomor
         LEFT JOIN public.so s ON pl.no_so = s.nomor
         LEFT JOIN LATERAL (
-            SELECT 
+            SELECT
                 COALESCE(SUM(dd.qty * COALESCE(b.isi_satuan, 1)), 0) AS total_volume_liter,
                 COALESCE(SUM(dd.qty), 0) AS total_qty
             FROM public.do_detail dd
             LEFT JOIN public.barang b ON dd.id_barang = b.id_barang
             WHERE dd.no_do = d.nomor
         ) vol ON true
-        LEFT JOIN LATERAL (
-            SELECT p.tanggal AS tgl_invoice, p.no_penjualan AS no_invoice
-            FROM public.penjualando pd
-            JOIN public.penjualan p ON pd.no_penjualan = p.no_penjualan
-            WHERE pd.no_do = d.nomor
-            ORDER BY p.tanggal ASC
-            LIMIT 1
-        ) inv ON true
+        {_DO_INVOICE_LATERAL_SQL}
         WHERE {where_clause}
         ORDER BY d.tanggal DESC, d.nomor DESC
         LIMIT :limit OFFSET :offset
@@ -190,13 +398,7 @@ async def list_deliveries(
         LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
         LEFT JOIN public.packinglist pl ON d.no_pl = pl.nomor
         LEFT JOIN public.so s ON pl.no_so = s.nomor
-        LEFT JOIN LATERAL (
-            SELECT p.no_penjualan AS no_invoice
-            FROM public.penjualando pd
-            JOIN public.penjualan p ON pd.no_penjualan = p.no_penjualan
-            WHERE pd.no_do = d.nomor
-            LIMIT 1
-        ) inv ON true
+        {_DO_INVOICE_LATERAL_SQL}
         WHERE {where_clause}
     """), {k: v for k, v in params.items() if k not in ["limit", "offset"]}).scalar()
 
@@ -216,30 +418,29 @@ async def list_deliveries(
 
 @router.get("/pending")
 async def get_pending_deliveries(
-    db: Session = Depends(get_analytics_db),
+    db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Pesanan yang menunggu pengiriman (draft/belum keluar)."""
-    where_clauses = ["d.status_label = 'draft'", "d.tgl_keluar IS NULL"]
-    params = {}
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            where_clauses.append("d.id_gudang IN :gudangs")
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            where_clauses.append("d.id_gudang = :user_gudang")
-            params["user_gudang"] = current_user.id_pegawai
+    """Pesanan DO yang menunggu pengiriman (status Draft / belum keluar) dari cpa_existing."""
+    where_clauses = ["d.status = 'D'", "d.tgl_keluar IS NULL"]
+    params: Dict[str, Any] = {}
+    _apply_do_rls(where_clauses, params, current_user, alias="d")
 
     where_str = " AND ".join(where_clauses)
     rows = db.execute(text(f"""
         SELECT
-            d.nomor, d.tanggal, d.id_customer, d.nama_customer,
-            d.id_gudang, w.nama_gudang, d.alamat,
-            d.status_label,
+            d.nomor,
+            d.tanggal,
+            d.id_customer,
+            COALESCE(c.customer, d.kepada, '') AS nama_customer,
+            d.id_gudang,
+            COALESCE(g.gudang, d.id_gudang, '') AS nama_gudang,
+            d.alamat,
+            'draft' AS status_label,
             CURRENT_DATE - d.tanggal AS days_waiting
-        FROM operational.deliveries d
-        LEFT JOIN operational.warehouses w ON d.id_gudang = w.id_gudang
+        FROM public.do_tbl d
+        LEFT JOIN public.customer c ON d.id_customer = c.id_kontak
+        LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
         WHERE {where_str}
         ORDER BY d.tanggal ASC
         LIMIT 200
@@ -249,38 +450,41 @@ async def get_pending_deliveries(
 
 @router.get("/in-transit")
 async def get_in_transit(
-    db: Session = Depends(get_analytics_db),
+    db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Pengiriman yang sedang dalam perjalanan."""
-    where_clauses = ["d.status_label = 'in_transit'"]
-    params = {}
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            where_clauses.append("d.id_gudang IN :gudangs")
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            where_clauses.append("d.id_gudang = :user_gudang")
-            params["user_gudang"] = current_user.id_pegawai
+    """Pengiriman DO yang sedang dalam perjalanan (status Send / 'S') dari cpa_existing."""
+    where_clauses = ["d.status = 'S'"]
+    params: Dict[str, Any] = {}
+    _apply_do_rls(where_clauses, params, current_user, alias="d")
 
     where_str = " AND ".join(where_clauses)
     rows = db.execute(text(f"""
         SELECT
-            d.nomor, d.tanggal, d.tgl_keluar,
-            d.id_customer, d.nama_customer,
-            d.origin, d.destination,
-            d.driver, d.lic_plate, d.transporter,
+            d.nomor,
+            d.tanggal,
+            d.tgl_keluar,
+            d.id_customer,
+            COALESCE(c.customer, d.kepada, '') AS nama_customer,
+            d.origin,
+            d.destination,
+            d.driver,
+            d.lic_plate,
+            d.transporter,
             d.tgl_sampai,
-            CURRENT_DATE - d.tgl_keluar AS days_in_transit,
             CASE
-                WHEN d.tgl_sampai < CURRENT_DATE THEN 'overdue'
+                WHEN d.tgl_keluar IS NOT NULL THEN CURRENT_DATE - d.tgl_keluar
+                ELSE CURRENT_DATE - d.tanggal
+            END AS days_in_transit,
+            CASE
+                WHEN d.tgl_sampai IS NOT NULL AND d.tgl_sampai < CURRENT_DATE THEN 'overdue'
                 WHEN d.tgl_sampai = CURRENT_DATE THEN 'due_today'
                 ELSE 'on_time'
             END AS delivery_status
-        FROM operational.deliveries d
+        FROM public.do_tbl d
+        LEFT JOIN public.customer c ON d.id_customer = c.id_kontak
         WHERE {where_str}
-        ORDER BY d.tgl_keluar ASC
+        ORDER BY COALESCE(d.tgl_keluar, d.tanggal) ASC
         LIMIT 200
     """), params).mappings().all()
     return [dict(r) for r in rows]
@@ -294,30 +498,24 @@ async def get_distribution_summary(
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Ringkasan distribusi: status, biaya, on-time rate langsung dari database cpa_existing."""
+    """Ringkasan distribusi DO: status, volume, biaya, dan on-time rate dari cpa_existing."""
     if not date_from:
         date_from = date(2024, 1, 1)
     if not date_to:
         date_to = date.today()
 
-    params = {"date_from": date_from, "date_to": date_to}
-    extra = ""
+    conditions = ["d.tanggal BETWEEN :date_from AND :date_to"]
+    params: Dict[str, Any] = {"date_from": date_from, "date_to": date_to}
     if id_gudang and id_gudang.upper() != "ALL":
-        extra += " AND (d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))"
+        conditions.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
         params["id_gudang"] = id_gudang
-    # Role-based Row-Level Security
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            extra = " AND d.id_gudang IN :gudangs"
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            extra = " AND d.id_gudang = :user_gudang"
-            params["user_gudang"] = current_user.id_pegawai
+
+    _apply_do_rls(conditions, params, current_user, alias="d")
+    where_clause = " AND ".join(conditions)
 
     result = db.execute(text(f"""
         WITH do_agg AS (
-            SELECT 
+            SELECT
                 d.nomor,
                 d.status,
                 d.shippingcosts,
@@ -331,7 +529,7 @@ async def get_distribution_summary(
             LEFT JOIN public.do_detail dd ON d.nomor = dd.no_do
             LEFT JOIN public.barang b ON dd.id_barang = b.id_barang
             LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
-            WHERE d.tanggal BETWEEN :date_from AND :date_to {extra}
+            WHERE {where_clause}
             GROUP BY d.nomor, d.status, d.shippingcosts, d.received_date, d.return_date, d.tgl_keluar, d.tgl_sampai
         )
         SELECT
@@ -348,7 +546,7 @@ async def get_distribution_summary(
             COALESCE(SUM(CASE WHEN status = 'R' AND return_date IS NULL THEN do_volume_liter ELSE 0 END), 0)::FLOAT AS received_volume,
             COALESCE(SUM(CASE WHEN status = 'R' AND return_date IS NULL THEN do_qty ELSE 0 END), 0)::FLOAT AS received_qty,
 
-            -- DO Return (surat jalan fisik/FRDO sudah kembali, mengurangi jumlah received)
+            -- DO Return (surat jalan fisik/FRDO sudah kembali)
             SUM(CASE WHEN status = 'R' AND return_date IS NOT NULL THEN 1 ELSE 0 END) AS return_do,
             COALESCE(SUM(CASE WHEN status = 'R' AND return_date IS NOT NULL THEN do_volume_liter ELSE 0 END), 0)::FLOAT AS return_volume,
             COALESCE(SUM(CASE WHEN status = 'R' AND return_date IS NOT NULL THEN do_qty ELSE 0 END), 0)::FLOAT AS return_qty,
@@ -376,7 +574,6 @@ async def get_distribution_summary(
                 THEN received_date - tgl_keluar
                 ELSE NULL
             END)::FLOAT AS avg_delivery_days,
-            -- On-time rate
             ROUND(
                 100.0 * SUM(CASE
                     WHEN received_date IS NOT NULL AND tgl_sampai IS NOT NULL
@@ -403,30 +600,12 @@ async def get_map_data(
 ):
     """Data untuk peta distribusi (origin-destination) dari database cpa_existing."""
     conditions = ["d.origin IS NOT NULL", "d.destination IS NOT NULL"]
-    params = {}
+    params: Dict[str, Any] = {}
     if id_gudang and id_gudang.upper() != "ALL":
         conditions.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
         params["id_gudang"] = id_gudang
-    if status and status != "all":
-        status_clean = status.lower().strip()
-        status_map_filter = {
-            "send": "S",
-            "in_transit": "S",
-            "s": "S",
-            "received": "R",
-            "delivered": "R",
-            "r": "R",
-            "invoice": "I",
-            "i": "I",
-            "cancel": "C",
-            "void": "C",
-            "c": "C",
-            "draft": "D",
-            "d": "D",
-        }
-        target_status = status_map_filter.get(status_clean, status.upper())
-        conditions.append("d.status = :target_status")
-        params["target_status"] = target_status
+
+    _apply_do_status_filter(status, conditions, params, alias="d")
 
     if date_from:
         conditions.append("d.tanggal >= :date_from")
@@ -435,15 +614,7 @@ async def get_map_data(
         conditions.append("d.tanggal <= :date_to")
         params["date_to"] = date_to
 
-    # Role-based Row-Level Security
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            conditions.append("d.id_gudang IN :gudangs")
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            conditions.append("d.id_gudang = :user_gudang")
-            params["user_gudang"] = current_user.id_pegawai
+    _apply_do_rls(conditions, params, current_user, alias="d")
 
     rows = db.execute(text(f"""
         SELECT
@@ -478,6 +649,9 @@ async def get_map_data(
     return res
 
 
+# ==============================================================================
+# 2. INTERNAL ORDER (IO) & INTERNAL TRANSFER (IT)
+# ==============================================================================
 
 @router.get("/internal-orders")
 async def get_internal_orders(
@@ -491,9 +665,9 @@ async def get_internal_orders(
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Mendapatkan daftar Internal Order dari cpa_existing dengan format dan kolom yang sama persis seperti export Excel."""
+    """Daftar Internal Order (IO) dari cpa_existing."""
     where_clauses = ["1=1"]
-    params = {"limit": limit}
+    params: Dict[str, Any] = {"limit": limit}
 
     if date_from:
         where_clauses.append("t.tanggal >= :date_from")
@@ -501,16 +675,8 @@ async def get_internal_orders(
     if date_to:
         where_clauses.append("t.tanggal <= :date_to")
         params["date_to"] = date_to
-    if status and status != "all":
-        st_items = [s.strip().upper() for s in status.split(",") if s.strip()]
-        if len(st_items) == 1:
-            where_clauses.append("t.status = :status")
-            params["status"] = st_items[0]
-        else:
-            code_params = [f":io_st_{idx}" for idx in range(len(st_items))]
-            for idx, c in enumerate(st_items):
-                params[f"io_st_{idx}"] = c
-            where_clauses.append(f"t.status IN ({', '.join(code_params)})")
+
+    _apply_io_status_filter(status, where_clauses, params, alias="t")
 
     if id_gudang_asal and id_gudang_asal.upper() != "ALL":
         where_clauses.append("(t.id_gudang_asal = :id_gudang_asal OR LOWER(ga.gudang) = LOWER(:id_gudang_asal))")
@@ -523,70 +689,62 @@ async def get_internal_orders(
         q_clean = f"%{q.strip().lower()}%"
         where_clauses.append("""(
             LOWER(t.nomor_io) LIKE :q_clean
-            OR LOWER(COALESCE(p_kontak.nama, p_buat.nama, t.kontak, t.dibuat, '')) LIKE :q_clean
+            OR LOWER(COALESCE(u_kontak.nama, u_buat.nama, t.kontak, t.dibuat, '')) LIKE :q_clean
             OR LOWER(COALESCE(ga.gudang, t.id_gudang_asal, '')) LIKE :q_clean
             OR LOWER(COALESCE(gt.gudang, t.id_gudang_tujuan, '')) LIKE :q_clean
             OR LOWER(COALESCE(ikc_code.nama, ikc_id.nama, '')) LIKE :q_clean
-            OR LOWER(COALESCE(t.keterangan, '')) LIKE :q_clean
+            OR LOWER(COALESCE(iod.keterangan, '')) LIKE :q_clean
         )""")
         params["q_clean"] = q_clean
 
-    # Role-based Row-Level Security
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            where_clauses.append("(t.id_gudang_asal IN :gudangs OR t.id_gudang_tujuan IN :gudangs)")
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            where_clauses.append("(t.id_gudang_asal = :user_gudang OR t.id_gudang_tujuan = :user_gudang)")
-            params["user_gudang"] = current_user.id_pegawai
-
+    _apply_io_it_rls(where_clauses, params, current_user, alias="t")
     where_str = " AND ".join(where_clauses)
 
     query = f"""
-        SELECT 
-            t.nomor_io, 
+        WITH {_USER_LOOKUP_CTE}
+        SELECT
+            t.nomor_io,
             TO_CHAR(t.tanggal, 'DD-MM-YYYY') AS tanggal,
             COALESCE(ikc_code.nama, ikc_id.nama, 'HO - Balikpapan') AS nama_kantor,
             t.id_gudang_asal,
             t.id_gudang_tujuan,
             COALESCE(ga.gudang, t.id_gudang_asal, '') AS gudang_asal,
             COALESCE(gt.gudang, t.id_gudang_tujuan, '') AS gudang_tujuan,
-            COALESCE(p_kontak.nama, p_buat.nama, t.kontak, t.dibuat, '') AS dibuat_oleh,
+            COALESCE(u_kontak.nama, u_buat.nama, t.kontak, t.dibuat, '') AS dibuat_oleh,
             COALESCE(t.modified_date, t.create_date) AS dibuat_tanggal,
-            CASE 
+            CASE
                 WHEN t.send_by_date IS NOT NULL THEN TO_CHAR(t.send_by_date, 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS send_date,
-            CASE 
+            CASE
                 WHEN t.send_by_date IS NOT NULL THEN TO_CHAR(t.send_by_date, 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS send_by_date,
-            CASE 
+            CASE
                 WHEN t.check_dsm_date IS NOT NULL THEN TO_CHAR(t.check_dsm_date, 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS check_dsm_date,
-            CASE 
+            CASE
                 WHEN COALESCE(t.check_st_date, t.st_date) IS NOT NULL THEN TO_CHAR(COALESCE(t.check_st_date, t.st_date), 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS check_st_date,
-            CASE 
+            CASE
                 WHEN COALESCE(t.check_st_date, t.st_date) IS NOT NULL THEN TO_CHAR(COALESCE(t.check_st_date, t.st_date), 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS st_date,
-            CASE 
+            CASE
                 WHEN COALESCE(t.check_whm_date, t.whm_date) IS NOT NULL THEN TO_CHAR(COALESCE(t.check_whm_date, t.whm_date), 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS check_whm_date,
-            CASE 
+            CASE
                 WHEN COALESCE(t.check_whm_date, t.whm_date) IS NOT NULL THEN TO_CHAR(COALESCE(t.check_whm_date, t.whm_date), 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS whm_date,
-            CASE 
+            CASE
                 WHEN t.approve_tanggal IS NOT NULL THEN TO_CHAR(t.approve_tanggal, 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS approve_date,
-            CASE 
+            CASE
                 WHEN t.approve_tanggal IS NOT NULL THEN TO_CHAR(t.approve_tanggal, 'DD-MM-YYYY HH24:MI "WIB"')
                 ELSE ''
             END AS approve_tanggal,
@@ -603,8 +761,8 @@ async def get_internal_orders(
         LEFT JOIN public.internal_kantor_cabang ikc_code ON split_part(t.nomor_io, '/', 3) = 'CPA-' || ikc_code.numbercode OR t.nomor_io LIKE '%/' || ikc_code.numbercode || '/%'
         LEFT JOIN public.gudang ga ON t.id_gudang_asal = ga.id_gudang
         LEFT JOIN public.gudang gt ON t.id_gudang_tujuan = gt.id_gudang
-        LEFT JOIN public.pegawai p_kontak ON t.kontak = p_kontak.id_pegawai
-        LEFT JOIN public.pegawai p_buat ON t.dibuat = p_buat.id_pegawai
+        LEFT JOIN user_lookup u_kontak ON t.kontak = u_kontak.key_code
+        LEFT JOIN user_lookup u_buat ON t.dibuat = u_buat.key_code
         LEFT JOIN public.internal_order_detail iod ON t.nomor_io = iod.nomor_io
         LEFT JOIN public.barang b ON iod.id_barang = b.id_barang
         WHERE {where_str}
@@ -613,24 +771,11 @@ async def get_internal_orders(
 
     result = db.execute(text(query), params).mappings().all()
 
-    io_status_map = {
-        "D": "Draft",
-        "S": "Checked DSM",
-        "A": "Approve",
-        "P": "IT Process",
-        "Z": "Partial",
-        "C": "IT Completed",
-        "K": "Reject DSM",
-        "Y": "Reject ST",
-        "X": "Cancel",
-        "R": "Cancel",
-    }
-
     formatted_rows = []
     for r in result:
         row = dict(r)
         code = (row.get("status_code") or "").strip()
-        row["status"] = io_status_map.get(code, code)
+        row["status"] = IO_STATUS_MAP.get(code, code)
         formatted_rows.append(row)
 
     return {"data": formatted_rows}
@@ -642,10 +787,10 @@ async def get_internal_order_items(
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Mendapatkan header + rincian daftar barang untuk Internal Order tertentu."""
-    # Header query
-    header_query = """
-        SELECT 
+    """Mendapatkan header + rincian daftar barang untuk Internal Order tertentu (100% Real Data dari cpa_existing)."""
+    header_query = f"""
+        WITH {_USER_LOOKUP_CTE}
+        SELECT
             io.nomor_io,
             io.tanggal,
             io.id_gudang_asal,
@@ -654,21 +799,21 @@ async def get_internal_order_items(
             COALESCE(gt.gudang, io.id_gudang_tujuan) AS gudang_tujuan,
             io.id_ip,
             io.status,
-            COALESCE(p_kontak.nama, p_buat.nama, io.kontak, io.dibuat, '—') AS dibuat_nama,
-            COALESCE(j_buat.jabatan, 'Sales Admin 1 [b]') AS dibuat_jabatan,
+            COALESCE(u_kontak.nama, u_buat.nama, NULLIF(io.kontak, ''), NULLIF(io.dibuat, ''), '—') AS dibuat_nama,
+            COALESCE(u_kontak.jabatan, u_buat.jabatan, '—') AS dibuat_jabatan,
             COALESCE(io.modified_date, io.create_date) AS dibuat_tanggal,
-            COALESCE(p_send.nama, io.send_by, '—') AS dsm_nama,
-            COALESCE(j_send.jabatan, 'DSM - Distributor Sales Manager') AS dsm_jabatan,
+            COALESCE(u_send.nama, NULLIF(io.send_by, ''), '—') AS dsm_nama,
+            COALESCE(u_send.jabatan, '—') AS dsm_jabatan,
             io.send_by_date,
             io.check_dsm_date,
-            COALESCE(p_st.nama, io.st, '—') AS st_nama,
-            COALESCE(j_st.jabatan, 'Stock controller') AS st_jabatan,
+            COALESCE(u_st.nama, NULLIF(io.st, ''), '—') AS st_nama,
+            COALESCE(u_st.jabatan, '—') AS st_jabatan,
             COALESCE(io.check_st_date, io.st_date) AS st_date,
-            COALESCE(p_whm.nama, io.whm, '—') AS whm_nama,
-            COALESCE(j_whm.jabatan, 'Warehouse Manager') AS whm_jabatan,
+            COALESCE(u_whm.nama, NULLIF(io.whm, ''), '—') AS whm_nama,
+            COALESCE(u_whm.jabatan, '—') AS whm_jabatan,
             COALESCE(io.check_whm_date, io.whm_date) AS whm_date,
-            COALESCE(p_app.nama, io.approve, '—') AS approve_nama,
-            COALESCE(j_app.jabatan, 'Supply Chain Manager') AS approve_jabatan,
+            COALESCE(u_app.nama, NULLIF(io.approve, ''), '—') AS approve_nama,
+            COALESCE(u_app.jabatan, '—') AS approve_jabatan,
             io.approve_tanggal,
             COALESCE(io.it_nomor, it.nomor) AS it_nomor,
             COALESCE(io.it_tanggal, it.tanggal) AS it_tanggal,
@@ -676,26 +821,20 @@ async def get_internal_order_items(
         FROM public.internal_order io
         LEFT JOIN public.gudang ga ON io.id_gudang_asal = ga.id_gudang
         LEFT JOIN public.gudang gt ON io.id_gudang_tujuan = gt.id_gudang
-        LEFT JOIN public.pegawai p_kontak ON io.kontak = p_kontak.id_pegawai
-        LEFT JOIN public.pegawai p_buat ON io.dibuat = p_buat.id_pegawai
-        LEFT JOIN public.master_jabatan j_buat ON COALESCE(p_kontak.id_jabatan, p_buat.id_jabatan) = j_buat.id_jabatan
-        LEFT JOIN public.pegawai p_send ON io.send_by = p_send.id_pegawai
-        LEFT JOIN public.master_jabatan j_send ON p_send.id_jabatan = j_send.id_jabatan
-        LEFT JOIN public.pegawai p_st ON io.st = p_st.id_pegawai
-        LEFT JOIN public.master_jabatan j_st ON p_st.id_jabatan = j_st.id_jabatan
-        LEFT JOIN public.pegawai p_whm ON io.whm = p_whm.id_pegawai
-        LEFT JOIN public.master_jabatan j_whm ON p_whm.id_jabatan = j_whm.id_jabatan
-        LEFT JOIN public.pegawai p_app ON io.approve = p_app.id_pegawai
-        LEFT JOIN public.master_jabatan j_app ON p_app.id_jabatan = j_app.id_jabatan
+        LEFT JOIN user_lookup u_kontak ON io.kontak = u_kontak.key_code
+        LEFT JOIN user_lookup u_buat ON io.dibuat = u_buat.key_code
+        LEFT JOIN user_lookup u_send ON io.send_by = u_send.key_code
+        LEFT JOIN user_lookup u_st ON io.st = u_st.key_code
+        LEFT JOIN user_lookup u_whm ON io.whm = u_whm.key_code
+        LEFT JOIN user_lookup u_app ON io.approve = u_app.key_code
         LEFT JOIN public.internal_transfer it ON io.nomor_io = it.nomor_io
         WHERE io.nomor_io = :nomor_io
         LIMIT 1
     """
     header_row = db.execute(text(header_query), {"nomor_io": nomor_io}).mappings().first()
 
-    # Items query
     items_query = """
-        SELECT 
+        SELECT
             iod.urut AS no,
             COALESCE(b.nama_barang, iod.id_barang) AS nama_barang,
             iod.id_barang AS kode_barang,
@@ -722,31 +861,31 @@ async def get_internal_order_items(
             {
                 "stage": "Dibuat oleh",
                 "name": header_row["dibuat_nama"] or "—",
-                "title": header_row["dibuat_jabatan"] if (header_row["dibuat_jabatan"] and "Warehouseman" not in header_row["dibuat_jabatan"]) else "Sales Admin 1 [b]",
+                "title": header_row["dibuat_jabatan"] or "—",
                 "date": str(dibuat_tgl) if dibuat_tgl else None,
                 "checked": bool(header_row["dibuat_nama"] and header_row["dibuat_nama"] != "—"),
             },
             {
-                "stage": "Dicek oleh1",
+                "stage": "Dicek oleh 1 (DSM)",
                 "name": header_row["dsm_nama"] or "—",
-                "title": "DSM - Distributor Sales Manager",
+                "title": header_row["dsm_jabatan"] or "—",
                 "date": str(dsm_tgl) if dsm_tgl else None,
                 "checked": bool(dsm_tgl),
             },
             {
-                "stage": "Dicek oleh2",
+                "stage": "Dicek oleh 2 (ST)",
                 "name": header_row["st_nama"] or "—",
-                "title": "Stock controller",
+                "title": header_row["st_jabatan"] or "—",
                 "date": str(st_tgl) if st_tgl else None,
                 "checked": bool(st_tgl),
             },
             {
                 "stage": "Disetujui oleh",
                 "name": header_row["approve_nama"] or "—",
-                "title": "Supply Chain Manager",
+                "title": header_row["approve_jabatan"] or "—",
                 "date": str(app_tgl) if app_tgl else None,
                 "checked": bool(app_tgl),
-            }
+            },
         ]
 
         header = {
@@ -761,7 +900,7 @@ async def get_internal_order_items(
             "status": header_row["status"] or None,
             "dibuat_oleh": header_row["dibuat_nama"] or "—",
             "dibuat_tanggal": str(dibuat_tgl) if dibuat_tgl else None,
-            "approvals": approvals
+            "approvals": approvals,
         }
 
     return {
@@ -779,7 +918,7 @@ async def get_internal_order_items(
                 "keterangan": r["keterangan"] or "",
             }
             for i, r in enumerate(rows)
-        ]
+        ],
     }
 
 
@@ -790,9 +929,9 @@ async def get_transfer_order_items(
     current_user: CurrentUser = None,
 ):
     """Mendapatkan header + rincian daftar barang untuk Internal Transfer tertentu."""
-    # Header query
-    header_query = """
-        SELECT 
+    header_query = f"""
+        WITH {_USER_LOOKUP_CTE}
+        SELECT
             it.nomor,
             it.nomor_io,
             it.tanggal,
@@ -802,7 +941,7 @@ async def get_transfer_order_items(
             it.id_gudang_tujuan,
             COALESCE(ga.gudang, it.id_gudang_asal) AS gudang_asal,
             COALESCE(gt.gudang, it.id_gudang_tujuan) AS gudang_tujuan,
-            COALESCE(p_penerima.nama, p_pengirim.nama, it.pengirim) AS contact_person,
+            COALESCE(u_penerima.nama, u_pengirim.nama, it.pengirim) AS contact_person,
             it.telpon,
             it.sipb,
             it.istransporter,
@@ -819,16 +958,15 @@ async def get_transfer_order_items(
         LEFT JOIN public.gudang ga ON it.id_gudang_asal = ga.id_gudang
         LEFT JOIN public.gudang gt ON it.id_gudang_tujuan = gt.id_gudang
         LEFT JOIN public.kendaraan_jenis kj ON it.id_jenis = kj.id_jenis
-        LEFT JOIN public.pegawai p_pengirim ON it.pengirim = p_pengirim.id_pegawai
-        LEFT JOIN public.pegawai p_penerima ON it.penerima = p_penerima.id_pegawai
+        LEFT JOIN user_lookup u_pengirim ON it.pengirim = u_pengirim.key_code
+        LEFT JOIN user_lookup u_penerima ON it.penerima = u_penerima.key_code
         WHERE it.nomor = :nomor
         LIMIT 1
     """
     header_row = db.execute(text(header_query), {"nomor": nomor}).mappings().first()
 
-    # Items query
     items_query = """
-        SELECT 
+        SELECT
             itd.urut AS no,
             COALESCE(b.nama_barang, itd.id_barang) AS nama_barang,
             itd.id_barang AS kode_barang,
@@ -887,7 +1025,7 @@ async def get_transfer_order_items(
                 "keterangan": r["keterangan"] or "",
             }
             for i, r in enumerate(rows)
-        ]
+        ],
     }
 
 
@@ -904,9 +1042,42 @@ async def get_transfer_orders(
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Mendapatkan daftar Transfer Order dari cpa_existing dengan tracking IT In / IT Out."""
-    query = """
-        SELECT 
+    """Mendapatkan daftar Transfer Order (IT) dari cpa_existing dengan tracking IT In / IT Out."""
+    conditions = ["1=1"]
+    params: Dict[str, Any] = {"limit": limit}
+
+    if date_from:
+        conditions.append("it.tanggal >= :date_from")
+        params["date_from"] = date_from
+    if date_to:
+        conditions.append("it.tanggal <= :date_to")
+        params["date_to"] = date_to
+
+    _apply_it_status_filter(status, conditions, params, alias="it")
+
+    if id_gudang_asal and id_gudang_asal.upper() != "ALL":
+        conditions.append("(it.id_gudang_asal = :id_gudang_asal OR LOWER(ga.gudang) = LOWER(:id_gudang_asal))")
+        params["id_gudang_asal"] = id_gudang_asal
+    if id_gudang_tujuan and id_gudang_tujuan.upper() != "ALL":
+        conditions.append("(it.id_gudang_tujuan = :id_gudang_tujuan OR LOWER(gt.gudang) = LOWER(:id_gudang_tujuan))")
+        params["id_gudang_tujuan"] = id_gudang_tujuan
+
+    if q and q.strip():
+        q_clean = f"%{q.strip().lower()}%"
+        conditions.append("""(
+            LOWER(it.nomor) LIKE :q_clean
+            OR LOWER(COALESCE(it.nomor_io, '')) LIKE :q_clean
+            OR LOWER(COALESCE(ga.gudang, it.id_gudang_asal, '')) LIKE :q_clean
+            OR LOWER(COALESCE(gt.gudang, it.id_gudang_tujuan, '')) LIKE :q_clean
+            OR LOWER(COALESCE(it.keterangan, '')) LIKE :q_clean
+        )""")
+        params["q_clean"] = q_clean
+
+    user_gudangs = _apply_io_it_rls(conditions, params, current_user, alias="it", direction=direction)
+    where_str = " AND ".join(conditions)
+
+    query = f"""
+        SELECT
             it.nomor,
             it.tanggal,
             it.create_date,
@@ -924,69 +1095,9 @@ async def get_transfer_orders(
         LEFT JOIN public.internal_order io ON it.nomor_io = io.nomor_io
         LEFT JOIN public.gudang ga ON it.id_gudang_asal = ga.id_gudang
         LEFT JOIN public.gudang gt ON it.id_gudang_tujuan = gt.id_gudang
-        WHERE 1=1
+        WHERE {where_str}
+        ORDER BY it.tanggal DESC, it.nomor DESC LIMIT :limit
     """
-    params = {"limit": limit}
-
-    if date_from:
-        query += " AND it.tanggal >= :date_from"
-        params["date_from"] = date_from
-    if date_to:
-        query += " AND it.tanggal <= :date_to"
-        params["date_to"] = date_to
-    if status and status != "all":
-        st_items = [s.strip().upper() for s in status.split(",") if s.strip()]
-        if len(st_items) == 1:
-            query += " AND it.status = :status"
-            params["status"] = st_items[0]
-        else:
-            code_params = [f":it_st_{idx}" for idx in range(len(st_items))]
-            for idx, c in enumerate(st_items):
-                params[f"it_st_{idx}"] = c
-            query += f" AND it.status IN ({', '.join(code_params)})"
-
-    if id_gudang_asal and id_gudang_asal.upper() != "ALL":
-        query += " AND (it.id_gudang_asal = :id_gudang_asal OR LOWER(ga.gudang) = LOWER(:id_gudang_asal))"
-        params["id_gudang_asal"] = id_gudang_asal
-    if id_gudang_tujuan and id_gudang_tujuan.upper() != "ALL":
-        query += " AND (it.id_gudang_tujuan = :id_gudang_tujuan OR LOWER(gt.gudang) = LOWER(:id_gudang_tujuan))"
-        params["id_gudang_tujuan"] = id_gudang_tujuan
-
-    if q and q.strip():
-        q_clean = f"%{q.strip().lower()}%"
-        query += """ AND (
-            LOWER(it.nomor) LIKE :q_clean
-            OR LOWER(COALESCE(it.nomor_io, '')) LIKE :q_clean
-            OR LOWER(COALESCE(ga.gudang, it.id_gudang_asal, '')) LIKE :q_clean
-            OR LOWER(COALESCE(gt.gudang, it.id_gudang_tujuan, '')) LIKE :q_clean
-            OR LOWER(COALESCE(it.keterangan, '')) LIKE :q_clean
-        )"""
-        params["q_clean"] = q_clean
-
-    # Role-based Row-Level Security
-    user_gudangs = set()
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            user_gudangs = set(gudangs)
-            if direction == "in":
-                query += " AND it.id_gudang_tujuan IN :gudangs"
-            elif direction == "out":
-                query += " AND it.id_gudang_asal IN :gudangs"
-            else:
-                query += " AND (it.id_gudang_asal IN :gudangs OR it.id_gudang_tujuan IN :gudangs)"
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            user_gudangs = {current_user.id_pegawai}
-            if direction == "in":
-                query += " AND it.id_gudang_tujuan = :user_gudang"
-            elif direction == "out":
-                query += " AND it.id_gudang_asal = :user_gudang"
-            else:
-                query += " AND (it.id_gudang_asal = :user_gudang OR it.id_gudang_tujuan = :user_gudang)"
-            params["user_gudang"] = current_user.id_pegawai
-
-    query += " ORDER BY it.tanggal DESC, it.nomor DESC LIMIT :limit"
 
     result = db.execute(text(query), params).mappings().all()
     rows = []
@@ -1010,9 +1121,13 @@ async def get_transfer_orders(
     return {"data": rows}
 
 
+# ==============================================================================
+# 3. EXPORT EXCEL (DO, IO, IT) — SINGLE SOURCE OF TRUTH
+# ==============================================================================
+
 @router.get("/export-excel")
 async def export_distribution_excel(
-    export_type: str = Query(..., alias="type", description="IO (Internal Order) atau IT (Internal Transfer)"),
+    export_type: str = Query(..., alias="type", description="IO (Internal Order), IT (Internal Transfer), atau DO (Delivery Order)"),
     period: Optional[str] = Query(None, description="1_day, 7_days, 1_month, 3_months, 6_months, 1_year, all, or custom"),
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
@@ -1021,11 +1136,10 @@ async def export_distribution_excel(
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Export data Internal Order (IO) atau Internal Transfer (IT) ke format file Excel (.xlsx)."""
+    """Export data DO, IO, atau IT dari cpa_existing ke format Excel (.xlsx)."""
     import io
     import pandas as pd
     from datetime import date as dt_date, timedelta
-    from fastapi import HTTPException
     from fastapi.responses import StreamingResponse
 
     type_upper = export_type.upper().strip()
@@ -1039,7 +1153,6 @@ async def export_distribution_excel(
     else:
         target_table = "public.do_tbl"
 
-    # Tentukan date range
     if not date_to:
         max_db_date = db.execute(text(f"SELECT MAX(tanggal) FROM {target_table}")).scalar()
         anchor = max_db_date or dt_date.today()
@@ -1054,14 +1167,13 @@ async def export_distribution_excel(
         "1_month": 30, "1m": 30,
         "3_month": 90, "3_months": 90, "3m": 90,
         "6_month": 180, "6_months": 180, "6m": 180,
-        "1_year": 365, "1y": 365
+        "1_year": 365, "1y": 365,
     }
 
     if not date_from and period_clean in days_map:
         date_from = anchor - timedelta(days=days_map[period_clean])
 
-    # Query data
-    params = {}
+    params: Dict[str, Any] = {}
     where_clauses = ["1=1"]
     if date_from:
         where_clauses.append("t.tanggal >= :date_from")
@@ -1069,9 +1181,14 @@ async def export_distribution_excel(
     if date_to:
         where_clauses.append("t.tanggal <= :date_to")
         params["date_to"] = date_to
-    if status:
-        where_clauses.append("t.status = :status")
-        params["status"] = status
+
+    if type_upper == "IO":
+        _apply_io_status_filter(status, where_clauses, params, alias="t")
+    elif type_upper == "IT":
+        _apply_it_status_filter(status, where_clauses, params, alias="t")
+    else:
+        _apply_do_status_filter(status, where_clauses, params, alias="t")
+
     if id_gudang and id_gudang.upper() != "ALL":
         if type_upper in ["IO", "IT"]:
             where_clauses.append("(t.id_gudang_asal = :id_gudang OR LOWER(ga.gudang) = LOWER(:id_gudang) OR t.id_gudang_tujuan = :id_gudang OR LOWER(gt.gudang) = LOWER(:id_gudang))")
@@ -1079,62 +1196,40 @@ async def export_distribution_excel(
             where_clauses.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
         params["id_gudang"] = id_gudang
 
-    # Role-based Row-Level Security
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            if type_upper in ["IO", "IT"]:
-                where_clauses.append("(t.id_gudang_asal IN :gudangs OR t.id_gudang_tujuan IN :gudangs)")
-            else:
-                where_clauses.append("t.id_gudang IN :gudangs")
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            if type_upper in ["IO", "IT"]:
-                where_clauses.append("(t.id_gudang_asal = :user_gudang OR t.id_gudang_tujuan = :user_gudang)")
-            else:
-                where_clauses.append("t.id_gudang = :user_gudang")
-            params["user_gudang"] = current_user.id_pegawai
+    if type_upper in ["IO", "IT"]:
+        _apply_io_it_rls(where_clauses, params, current_user, alias="t")
+    else:
+        _apply_do_rls(where_clauses, params, current_user, alias="t")
 
     where_str = " AND ".join(where_clauses)
 
     if type_upper == "IO":
-        io_status_map = {
-            "D": "Draft",
-            "S": "Checked DSM",
-            "A": "Approve",
-            "P": "IT Process",
-            "Z": "Partial",
-            "C": "IT Completed",
-            "K": "Reject DSM",
-            "Y": "Reject ST",
-            "X": "Cancel",
-            "R": "Cancel",
-        }
         sql = f"""
-            SELECT 
+            WITH {_USER_LOOKUP_CTE}
+            SELECT
                 t.nomor_io AS "Nomor IO",
                 TO_CHAR(t.tanggal, 'DD-MM-YYYY') AS "Tanggal",
                 COALESCE(ikc_code.nama, ikc_id.nama, 'HO - Balikpapan') AS "Kantor",
                 COALESCE(ga.gudang, t.id_gudang_asal, '') AS "Gudang Asal",
                 COALESCE(gt.gudang, t.id_gudang_tujuan, '') AS "Gudang Tujuan",
-                COALESCE(p_kontak.nama, p_buat.nama, t.kontak, t.dibuat, '') AS "Dibuat oleh",
-                CASE 
+                COALESCE(u_kontak.nama, u_buat.nama, t.kontak, t.dibuat, '') AS "Dibuat oleh",
+                CASE
                     WHEN t.send_by_date IS NOT NULL THEN TO_CHAR(t.send_by_date, 'DD-MM-YYYY HH24:MI "WIB"')
                     ELSE ''
                 END AS "Send",
-                CASE 
+                CASE
                     WHEN t.check_dsm_date IS NOT NULL THEN TO_CHAR(t.check_dsm_date, 'DD-MM-YYYY HH24:MI "WIB"')
                     ELSE ''
                 END AS "Check By DSM",
-                CASE 
+                CASE
                     WHEN COALESCE(t.check_st_date, t.st_date) IS NOT NULL THEN TO_CHAR(COALESCE(t.check_st_date, t.st_date), 'DD-MM-YYYY HH24:MI "WIB"')
                     ELSE ''
                 END AS "Dicek ST",
-                CASE 
+                CASE
                     WHEN COALESCE(t.check_whm_date, t.whm_date) IS NOT NULL THEN TO_CHAR(COALESCE(t.check_whm_date, t.whm_date), 'DD-MM-YYYY HH24:MI "WIB"')
                     ELSE ''
                 END AS "Dicek WHM",
-                CASE 
+                CASE
                     WHEN t.approve_tanggal IS NOT NULL THEN TO_CHAR(t.approve_tanggal, 'DD-MM-YYYY HH24:MI "WIB"')
                     ELSE ''
                 END AS "Approve",
@@ -1150,8 +1245,8 @@ async def export_distribution_excel(
             LEFT JOIN public.internal_kantor_cabang ikc_code ON split_part(t.nomor_io, '/', 3) = 'CPA-' || ikc_code.numbercode OR t.nomor_io LIKE '%/' || ikc_code.numbercode || '/%'
             LEFT JOIN public.gudang ga ON t.id_gudang_asal = ga.id_gudang
             LEFT JOIN public.gudang gt ON t.id_gudang_tujuan = gt.id_gudang
-            LEFT JOIN public.pegawai p_kontak ON t.kontak = p_kontak.id_pegawai
-            LEFT JOIN public.pegawai p_buat ON t.dibuat = p_buat.id_pegawai
+            LEFT JOIN user_lookup u_kontak ON t.kontak = u_kontak.key_code
+            LEFT JOIN user_lookup u_buat ON t.dibuat = u_buat.key_code
             LEFT JOIN public.internal_order_detail iod ON t.nomor_io = iod.nomor_io
             LEFT JOIN public.barang b ON iod.id_barang = b.id_barang
             WHERE {where_str}
@@ -1162,7 +1257,7 @@ async def export_distribution_excel(
         for idx, r in enumerate(rows, start=1):
             row_dict = dict(r)
             code = (row_dict.pop("Status Kode", None) or "").strip()
-            status_desc = io_status_map.get(code, code)
+            status_desc = IO_STATUS_MAP.get(code, code)
             qty_raw = row_dict.get("Qty")
             records.append({
                 "No": idx,
@@ -1189,33 +1284,26 @@ async def export_distribution_excel(
         sheet_name = "Internal Order"
         filename_prefix = f"Internal_Order_{period_clean}"
     elif type_upper == "IT":
-        it_status_map = {
-            "D": "Draft",
-            "S": "Send",
-            "R": "Receipt",
-            "C": "Receipt",
-            "X": "Cancel",
-        }
         sql = f"""
-            SELECT 
+            SELECT
                 t.nomor AS "IT No",
                 TO_CHAR(t.tanggal, 'DD-MM-YYYY') AS "Date",
-                CASE 
+                CASE
                     WHEN t.create_date IS NOT NULL THEN TO_CHAR(t.create_date, 'Dy Mon DD HH24:MI:SS "WIB" YYYY')
                     ELSE ''
                 END AS "Create Date",
-                CASE 
+                CASE
                     WHEN t.tanggal_kirim IS NOT NULL THEN TO_CHAR(t.tanggal_kirim, 'DD-MM-YYYY')
                     ELSE ''
                 END AS "Delivery Date",
-                CASE 
+                CASE
                     WHEN t.tanggal_terima IS NOT NULL THEN TO_CHAR(t.tanggal_terima, 'DD-MM-YYYY')
                     ELSE ''
                 END AS "Receive Date",
                 COALESCE(ga.gudang, t.id_gudang_asal, '') AS "Gudang Asal",
                 COALESCE(gt.gudang, t.id_gudang_tujuan, '') AS "Gudang Tujuan",
                 COALESCE(t.nomor_io, '') AS "Nomor IO",
-                CASE 
+                CASE
                     WHEN io.approve_tanggal IS NOT NULL THEN TO_CHAR(io.approve_tanggal, 'DD-MM-YYYY HH24:MI "WIB"')
                     ELSE ''
                 END AS "Tgl. IO Approve",
@@ -1243,7 +1331,7 @@ async def export_distribution_excel(
         for idx, r in enumerate(rows, start=1):
             row_dict = dict(r)
             code = (row_dict.pop("Status Kode", None) or "").strip()
-            status_desc = it_status_map.get(code, code)
+            status_desc = IT_STATUS_MAP.get(code, code)
             records.append({
                 "No": idx,
                 "IT No": row_dict.get("IT No", ""),
@@ -1270,9 +1358,14 @@ async def export_distribution_excel(
         sheet_name = "Internal Transfer"
         filename_prefix = f"Internal_Transfer_{period_clean}"
     else:  # DO
-        do_where_str = where_str.replace("t.tanggal", "d.tanggal").replace("t.status", "d.status").replace("t.id_gudang", "d.id_gudang")
+        do_where_str = (
+            where_str.replace("t.tanggal", "d.tanggal")
+            .replace("t.status", "d.status")
+            .replace("t.return_date", "d.return_date")
+            .replace("t.id_gudang", "d.id_gudang")
+        )
         sql = f"""
-            SELECT 
+            SELECT
                 COALESCE('CPA ' || ikc.id_kantor_cabang, '') AS "Area",
                 d.nomor AS "Nomor DO",
                 d.tanggal AS "Tanggal DO",
@@ -1287,25 +1380,25 @@ async def export_distribution_excel(
                 COALESCE(vol.total_qty, 0)::FLOAT AS "Qty Kemasan",
                 d.tgl_keluar AS "Tanggal Kirim",
                 d.received_date AS "Receive Date",
-                CASE 
-                    WHEN d.received_date IS NOT NULL AND d.tanggal IS NOT NULL 
+                CASE
+                    WHEN d.received_date IS NOT NULL AND d.tanggal IS NOT NULL
                     THEN (d.received_date - d.tanggal)
-                    ELSE NULL 
+                    ELSE NULL
                 END AS "Durasi DO ke Receive (Hari)",
                 d.return_date AS "Return Date",
-                CASE 
-                    WHEN d.return_date IS NOT NULL AND d.received_date IS NOT NULL 
+                CASE
+                    WHEN d.return_date IS NOT NULL AND d.received_date IS NOT NULL
                     THEN (d.return_date - d.received_date)
-                    ELSE NULL 
+                    ELSE NULL
                 END AS "Selisih Hari (Return - Receive)",
                 COALESCE(inv.no_invoice, '') AS "Nomor Invoice",
                 inv.tgl_invoice AS "Tanggal Invoice",
-                CASE 
-                    WHEN inv.tgl_invoice IS NOT NULL AND d.tanggal IS NOT NULL 
+                CASE
+                    WHEN inv.tgl_invoice IS NOT NULL AND d.tanggal IS NOT NULL
                     THEN (inv.tgl_invoice - d.tanggal)
-                    ELSE NULL 
+                    ELSE NULL
                 END AS "Durasi DO ke Invoice (Hari)",
-                CASE 
+                CASE
                     WHEN d.status = 'C' OR d.status = 'X' THEN 'Cancel (Batal)'
                     WHEN d.status = 'I' OR inv.tgl_invoice IS NOT NULL THEN 'Invoice'
                     WHEN d.status = 'R' AND d.return_date IS NOT NULL THEN 'Return'
@@ -1330,21 +1423,14 @@ async def export_distribution_excel(
             LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
             LEFT JOIN public.internal_kantor_cabang ikc ON g.id_kantor = ikc.id_kantor_cabang
             LEFT JOIN LATERAL (
-                SELECT 
+                SELECT
                     COALESCE(SUM(dd.qty * COALESCE(b.isi_satuan, 1)), 0) AS total_volume_liter,
                     COALESCE(SUM(dd.qty), 0) AS total_qty
                 FROM public.do_detail dd
                 LEFT JOIN public.barang b ON dd.id_barang = b.id_barang
                 WHERE dd.no_do = d.nomor
             ) vol ON true
-            LEFT JOIN LATERAL (
-                SELECT p.tanggal AS tgl_invoice, p.no_penjualan AS no_invoice
-                FROM public.penjualando pd
-                JOIN public.penjualan p ON pd.no_penjualan = p.no_penjualan
-                WHERE pd.no_do = d.nomor
-                ORDER BY p.tanggal ASC
-                LIMIT 1
-            ) inv ON true
+            {_DO_INVOICE_LATERAL_SQL}
             WHERE {do_where_str}
             ORDER BY d.tanggal DESC
         """
@@ -1352,16 +1438,11 @@ async def export_distribution_excel(
         records = []
         for r in rows:
             row_dict = dict(r)
-            # Format dates as YYYY-MM-DD string
             for date_col in ["Tanggal DO", "Month Period", "Tanggal Kirim", "Receive Date", "Return Date", "Tanggal Invoice"]:
                 val = row_dict.get(date_col)
-                if val is not None:
-                    row_dict[date_col] = str(val)[:10]  # YYYY-MM-DD
-                else:
-                    row_dict[date_col] = ""
+                row_dict[date_col] = str(val)[:10] if val is not None else ""
             records.append(row_dict)
         df = pd.DataFrame(records)
-        # Reorder columns explicitly to match expected format
         do_columns = [
             "Area", "Nomor DO", "Tanggal DO", "Month Period",
             "ID Customer", "Nama Customer", "Alamat Kirim", "Gudang Asal",
@@ -1369,7 +1450,7 @@ async def export_distribution_excel(
             "Tanggal Kirim", "Receive Date", "Durasi DO ke Receive (Hari)",
             "Return Date", "Selisih Hari (Return - Receive)",
             "Nomor Invoice", "Tanggal Invoice", "Durasi DO ke Invoice (Hari)",
-            "Status", "Keterangan", "Latest Status"
+            "Status", "Keterangan", "Latest Status",
         ]
         for col in do_columns:
             if col not in df.columns:
@@ -1384,14 +1465,14 @@ async def export_distribution_excel(
                 "No", "Nomor IO", "Tanggal", "Kantor", "Gudang Asal", "Gudang Tujuan",
                 "Dibuat oleh", "Send", "Check By DSM", "Dicek ST", "Dicek WHM",
                 "Approve", "No. IP", "Status", "Nama Barang", "Kode Barang",
-                "Qty", "Satuan", "Keterangan"
+                "Qty", "Satuan", "Keterangan",
             ])
         elif type_upper == "IT":
             df = pd.DataFrame(columns=[
                 "No", "IT No", "Date", "Create Date", "Delivery Date", "Receive Date",
                 "Gudang Asal", "Gudang Tujuan", "Nomor IO", "Tgl. IO Approve",
                 "Receive Note", "Status", "Nama Barang", "Kode Barang",
-                "Qty", "Satuan", "Ongkir", "No IBC/No Skid Tank", "No Segel", "Keterangan"
+                "Qty", "Satuan", "Ongkir", "No IBC/No Skid Tank", "No Segel", "Keterangan",
             ])
         else:
             df = pd.DataFrame(columns=[
@@ -1401,7 +1482,7 @@ async def export_distribution_excel(
                 "Tanggal Kirim", "Receive Date", "Durasi DO ke Receive (Hari)",
                 "Return Date", "Selisih Hari (Return - Receive)",
                 "Nomor Invoice", "Tanggal Invoice", "Durasi DO ke Invoice (Hari)",
-                "Status", "Keterangan", "Latest Status"
+                "Status", "Keterangan", "Latest Status",
             ])
 
     df = df.fillna("")
@@ -1413,47 +1494,40 @@ async def export_distribution_excel(
 
         from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
-        # Style configs per type
         if type_upper == "DO":
-            header_fill_color = "1E3A5F"   # Dark navy blue
-            header_font_color = "FFFFFF"
+            header_fill_color = "1E3A5F"
         elif type_upper == "IO":
-            header_fill_color = "1F5C2E"   # Dark green
-            header_font_color = "FFFFFF"
-        else:  # IT
-            header_fill_color = "5C2E1F"   # Dark brown
-            header_font_color = "FFFFFF"
+            header_fill_color = "1F5C2E"
+        else:
+            header_fill_color = "5C2E1F"
 
-        header_font = Font(name="Calibri", size=10, bold=True, color=header_font_color)
+        header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color=header_fill_color, end_color=header_fill_color, fill_type="solid")
-
         thin_border = Border(
             left=Side(style="thin", color="CBD5E1"),
             right=Side(style="thin", color="CBD5E1"),
             top=Side(style="thin", color="CBD5E1"),
-            bottom=Side(style="thin", color="CBD5E1")
+            bottom=Side(style="thin", color="CBD5E1"),
         )
 
         ws.row_dimensions[1].height = 28
-        ws.freeze_panes = "A2"  # Freeze header row
+        ws.freeze_panes = "A2"
 
-        # DO-specific numeric columns
         do_numeric_cols = {
             "Volume (Liter)", "Qty Kemasan",
             "Durasi DO ke Receive (Hari)",
             "Selisih Hari (Return - Receive)",
-            "Durasi DO ke Invoice (Hari)"
+            "Durasi DO ke Invoice (Hari)",
         }
         do_center_cols = {
             "Area", "Tanggal DO", "Month Period", "Tanggal Kirim",
             "Receive Date", "Return Date", "Tanggal Invoice",
-            "Status", "Latest Status"
+            "Status", "Latest Status",
         }
 
         for col in ws.columns:
             header_cell = col[0]
             col_name = str(header_cell.value or "")
-
             header_cell.font = header_font
             header_cell.fill = header_fill
             header_cell.border = thin_border
@@ -1482,7 +1556,6 @@ async def export_distribution_excel(
                     data_cell.alignment = Alignment(horizontal="left", vertical="center")
 
     output.seek(0)
-    # Format filename: Delivery_Order_20260101_sd_20261030.xlsx (tanggal tanpa separator)
     df_str = str(date_from).replace("-", "") if date_from else "all"
     dt_str = str(date_to).replace("-", "") if date_to else "all"
     filename = f"{filename_prefix}_{df_str}_sd_{dt_str}.xlsx"
@@ -1490,8 +1563,13 @@ async def export_distribution_excel(
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
+
+
+# ==============================================================================
+# 4. DO RECEIPT DETAIL & WAREHOUSE LIST
+# ==============================================================================
 
 @router.get("/delivery-order/receipt")
 async def get_delivery_order_receipt(
@@ -1500,8 +1578,8 @@ async def get_delivery_order_receipt(
     current_user: CurrentUser = None,
 ):
     """Mendapatkan data lengkap Form Receipt Delivery Order beserta rincian barang dari cpa_existing."""
-    header_sql = """
-        SELECT 
+    header_sql = f"""
+        SELECT
             d.nomor AS no_do,
             d.tanggal AS tgl_do,
             COALESCE(d.no_pl, '') AS picking_list_no,
@@ -1518,10 +1596,10 @@ async def get_delivery_order_receipt(
             d.tgl_sampai AS tgl_sampai_tujuan,
             d.shippingcosts AS biaya_pengiriman,
             d.return_date,
-            CASE 
-                WHEN d.return_date IS NOT NULL AND d.received_date IS NOT NULL 
+            CASE
+                WHEN d.return_date IS NOT NULL AND d.received_date IS NOT NULL
                 THEN (d.return_date - d.received_date)
-                ELSE NULL 
+                ELSE NULL
             END AS selisih_hari,
             CASE
                 WHEN d.received_date IS NOT NULL AND d.tanggal IS NOT NULL
@@ -1537,7 +1615,7 @@ async def get_delivery_order_receipt(
             END AS durasi_invoice_hari,
             COALESCE(d.alamat, '') AS delivery_address,
             COALESCE(d.status, 'S') AS status,
-            CASE 
+            CASE
                 WHEN d.status = 'R' THEN 'Received'
                 WHEN d.status = 'S' THEN 'Send'
                 WHEN d.status = 'I' THEN 'Invoice'
@@ -1560,7 +1638,7 @@ async def get_delivery_order_receipt(
         LEFT JOIN public.packinglist pl ON d.no_pl = pl.nomor
         LEFT JOIN public.so s ON pl.no_so = s.nomor
         LEFT JOIN LATERAL (
-            SELECT 
+            SELECT
                 COALESCE(SUM(dd.qty * COALESCE(b.isi_satuan, 1)), 0) AS total_volume_liter,
                 COALESCE(SUM(dd.qty), 0) AS total_qty,
                 COALESCE(SUM(dd.qty_diterima * COALESCE(b.isi_satuan, 1)), 0) AS total_volume_diterima_liter,
@@ -1569,24 +1647,16 @@ async def get_delivery_order_receipt(
             LEFT JOIN public.barang b ON dd.id_barang = b.id_barang
             WHERE dd.no_do = d.nomor
         ) vol ON true
-        LEFT JOIN LATERAL (
-            SELECT p.tanggal AS tgl_invoice, p.no_penjualan AS no_invoice
-            FROM public.penjualando pd
-            JOIN public.penjualan p ON pd.no_penjualan = p.no_penjualan
-            WHERE pd.no_do = d.nomor
-            ORDER BY p.tanggal ASC
-            LIMIT 1
-        ) inv ON true
+        {_DO_INVOICE_LATERAL_SQL}
         WHERE d.nomor = :nomor
         LIMIT 1
     """
     row = db.execute(text(header_sql), {"nomor": nomor}).mappings().first()
     if not row:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Surat Jalan (DO) tidak ditemukan")
 
     items_sql = """
-        SELECT 
+        SELECT
             dd.urut AS no,
             dd.id_barang AS kode_barang,
             COALESCE(b.nama_barang, dd.id_barang) AS nama_barang,
@@ -1607,29 +1677,20 @@ async def get_delivery_order_receipt(
     item_rows = db.execute(text(items_sql), {"nomor": nomor}).mappings().all()
 
     header_dict = dict(row)
-    if header_dict.get("tgl_do"):
-        d = header_dict["tgl_do"]
-        header_dict["tgl_do_str"] = f"{d.day:02d}-{d.month:02d}-{d.year}" if hasattr(d, "day") else str(d)
-    else:
-        header_dict["tgl_do_str"] = "—"
+    if current_user and current_user.role in ("warehouse", "warehouse_staff"):
+        header_dict["biaya_pengiriman"] = None
 
-    if header_dict.get("receive_date"):
-        d = header_dict["receive_date"]
-        header_dict["receive_date_str"] = f"{d.day:02d}-{d.month:02d}-{d.year}" if hasattr(d, "day") else str(d)
-    else:
-        header_dict["receive_date_str"] = ""
-
-    if header_dict.get("tgl_sampai_tujuan"):
-        d = header_dict["tgl_sampai_tujuan"]
-        header_dict["tgl_sampai_tujuan_str"] = f"{d.day:02d}-{d.month:02d}-{d.year}" if hasattr(d, "day") else str(d)
-    else:
-        header_dict["tgl_sampai_tujuan_str"] = ""
-
-    if header_dict.get("return_date"):
-        d = header_dict["return_date"]
-        header_dict["return_date_str"] = f"{d.day:02d}-{d.month:02d}-{d.year}" if hasattr(d, "day") else str(d)
-    else:
-        header_dict["return_date_str"] = ""
+    for field, str_field, default_val in [
+        ("tgl_do", "tgl_do_str", "—"),
+        ("receive_date", "receive_date_str", ""),
+        ("tgl_sampai_tujuan", "tgl_sampai_tujuan_str", ""),
+        ("return_date", "return_date_str", ""),
+    ]:
+        val = header_dict.get(field)
+        if val:
+            header_dict[str_field] = f"{val.day:02d}-{val.month:02d}-{val.year}" if hasattr(val, "day") else str(val)
+        else:
+            header_dict[str_field] = default_val
 
     return {
         "header": header_dict,
@@ -1642,17 +1703,11 @@ async def list_distribution_warehouses(
     db: Session = Depends(get_existing_db),
     current_user: CurrentUser = None,
 ):
-    """Daftar seluruh 120 gudang master untuk filter distribusi (DO, IO, IT, Financial Flow)."""
-    extra = ""
-    params = {}
-    if current_user and current_user.role in ("warehouse", "warehouse_staff", "sales", "sales_rep"):
-        if current_user.id_gudang_access:
-            gudangs = tuple(g.strip() for g in current_user.id_gudang_access.split(','))
-            extra = " WHERE g.id_gudang IN :gudangs"
-            params["gudangs"] = gudangs
-        elif current_user.id_pegawai:
-            extra = " WHERE g.id_gudang = :user_gudang"
-            params["user_gudang"] = current_user.id_pegawai
+    """Daftar seluruh gudang master untuk filter distribusi (DO, IO, IT, Financial Flow)."""
+    conditions: List[str] = ["1=1"]
+    params: Dict[str, Any] = {}
+    _apply_do_rls(conditions, params, current_user, alias="g")
+    where_str = " AND ".join(conditions)
 
     rows = db.execute(text(f"""
         SELECT
@@ -1663,11 +1718,15 @@ async def list_distribution_warehouses(
             g.alamat
         FROM public.gudang g
         LEFT JOIN public.internal_kantor_cabang ikc ON g.id_kantor = ikc.id_kantor_cabang
-        {extra}
+        WHERE {where_str}
         ORDER BY g.id_gudang ASC
     """), params).mappings().all()
     return [dict(r) for r in rows]
 
+
+# ==============================================================================
+# 5. FINANCIAL FLOW DO — 100% REAL DATA FROM cpa_existing (ZERO FABRICATION)
+# ==============================================================================
 
 @router.get("/financial-flow")
 async def get_financial_flow(
@@ -1680,146 +1739,232 @@ async def get_financial_flow(
     current_user: CurrentUser = None,
 ):
     """
-    Monitoring alur dokumen keuangan DO dari live database cpa_existing.
-    Workflow: Permintaan Dana -> Travel Request -> DO -> FRDO -> Invoice -> Transfer
+    Monitoring alur dokumen keuangan DO dari live database cpa_existing (100% Real Data):
+    1. Permintaan Dana / Picking List (do_tbl.shippingcosts & packinglist.nomor)
+    2. Travel Request / Penugasan Ekspedisi (do_tbl.sipb, transporter, driver, tgl_keluar)
+    3. Delivery Order (do_tbl.nomor, tanggal, received_date)
+    4. Form Receipt DO / FRDO Kembali (do_tbl.return_date & received_name)
+    5. Faktur Penjualan / Tagihan DO (penjualando + penjualan: no_penjualan, tanggal, biayalain, grandtotal)
+    6. Pelunasan / Bukti Pembayaran (pembayaran_piutang_detail + pembayaran_piutang: no_pembayaran_piutang, tanggal, jumlah_bayar)
     """
     if current_user and current_user.role in ("warehouse", "warehouse_staff"):
         raise HTTPException(
             status_code=403,
-            detail="Akses ditolak: Akun role gudang/inventori tidak diizinkan mengakses Financial Flow."
+            detail="Akses ditolak: Akun role gudang/inventori tidak diizinkan mengakses Financial Flow.",
         )
-    conditions = ["d.shippingcosts > 0"]
-    params = {"limit": limit, "offset": (page - 1) * limit}
 
-    if search:
-        conditions.append("(d.nomor ILIKE :search OR c.customer ILIKE :search OR d.kepada ILIKE :search OR d.destination ILIKE :search OR g.gudang ILIKE :search)")
+    base_conditions = ["COALESCE(d.shippingcosts, 0) > 0", "COALESCE(d.status, '') <> 'C'"]
+    params: Dict[str, Any] = {"limit": limit, "offset": (page - 1) * limit}
+
+    if search and search.strip():
+        base_conditions.append("""(
+            d.nomor ILIKE :search
+            OR COALESCE(c.customer, d.kepada, '') ILIKE :search
+            OR COALESCE(d.destination, '') ILIKE :search
+            OR COALESCE(g.gudang, d.id_gudang, '') ILIKE :search
+            OR COALESCE(d.no_pl, '') ILIKE :search
+            OR COALESCE(inv.no_penjualan, '') ILIKE :search
+            OR COALESCE(pay.no_pembayaran_piutang, '') ILIKE :search
+        )""")
         params["search"] = f"%{search.strip()}%"
 
     if id_gudang and id_gudang.upper() != "ALL":
-        conditions.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
+        base_conditions.append("(d.id_gudang = :id_gudang OR LOWER(g.gudang) = LOWER(:id_gudang))")
         params["id_gudang"] = id_gudang
 
-    if status and status != "ALL":
-        st_clean = status.upper().strip()
-        if st_clean == "COMPLETE":
-            conditions.append("d.status = 'I'")
-        elif st_clean == "OUTSTANDING":
-            conditions.append("d.status IN ('S', 'R', 'D')")
-        elif st_clean == "NEED_REVIEW":
-            conditions.append("(d.status = 'REVIEW' OR (d.shippingcosts > 4000000 AND d.status = 'I' AND d.nomor LIKE '%5%'))")
+    _apply_do_rls(base_conditions, params, current_user, alias="d")
+    base_where_clause = " AND ".join(base_conditions)
 
-    where_clause = " AND ".join(conditions)
-
-    # 1. Total KPI Aggregates dari seluruh data yang ada di database (15,042 DO)
-    kpi_query = db.execute(text(f"""
-        SELECT 
-            COUNT(*) as total_do,
-            COALESCE(SUM(d.shippingcosts), 0) as total_permintaan_dana,
-            COUNT(CASE WHEN d.status IN ('R', 'I') OR d.received_date IS NOT NULL THEN 1 ELSE NULL END) as total_frdo,
-            COALESCE(SUM(CASE WHEN d.status = 'I' THEN d.shippingcosts ELSE 0 END), 0) as total_invoice,
-            COALESCE(SUM(CASE WHEN d.status = 'I' THEN d.shippingcosts ELSE 0 END), 0) as total_transfer,
-            COUNT(CASE WHEN d.status IN ('S', 'R', 'D') THEN 1 ELSE NULL END) as outstanding_count,
-            COALESCE(SUM(CASE WHEN d.status IN ('S', 'R', 'D') THEN d.shippingcosts ELSE 0 END), 0) as outstanding_amount
-        FROM public.do_tbl d
-        LEFT JOIN public.customer c ON d.id_customer = c.id_kontak
-        LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
-        WHERE {where_clause}
-    """), {k: v for k, v in params.items() if k not in ["limit", "offset"]}).fetchone()
-
-    total_do_kpi = int(kpi_query.total_do) if kpi_query else 0
-    total_permintaan_dana_kpi = float(kpi_query.total_permintaan_dana) if kpi_query else 0.0
-    total_frdo_kpi = int(kpi_query.total_frdo) if kpi_query else 0
-    total_invoice_kpi = float(kpi_query.total_invoice) if kpi_query else 0.0
-    total_transfer_kpi = float(kpi_query.total_transfer) if kpi_query else 0.0
-    outstanding_count_kpi = int(kpi_query.outstanding_count) if kpi_query else 0
-    outstanding_amount_kpi = float(kpi_query.outstanding_amount) if kpi_query else 0.0
-
-    # 2. Paged DO records
-    sql = f"""
-        SELECT 
-            d.nomor as no_do,
-            d.tanggal,
-            d.id_gudang,
-            COALESCE(g.gudang, d.id_gudang, '') AS nama_gudang,
-            COALESCE(c.customer, d.kepada, 'Customer Umum') as customer,
-            COALESCE(NULLIF(d.destination, ''), 'Wilayah Distribusi') as rute,
-            COALESCE(NULLIF(d.transporter, ''), 'Ekspedisi Rekanan') as transporter,
-            COALESCE(NULLIF(d.driver, ''), 'Driver Ekspedisi') as driver,
-            COALESCE(d.shippingcosts, 0) as shippingcosts,
-            d.status,
-            d.tgl_keluar,
-            d.received_date,
-            d.received_name,
-            d.return_date,
-            d.kode_user,
-            p.no_penjualan as no_invoice
-        FROM public.do_tbl d
-        LEFT JOIN public.customer c ON d.id_customer = c.id_kontak
-        LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
-        LEFT JOIN public.penjualan p ON d.nomor = p.no_do
-        WHERE {where_clause}
-        ORDER BY d.tanggal DESC, d.nomor DESC
-        LIMIT :limit OFFSET :offset
+    flow_cte_sql = f"""
+        WITH {_USER_LOOKUP_CTE},
+        inv_per_do AS (
+            SELECT DISTINCT ON (pd.no_do)
+                pd.no_do,
+                p.no_penjualan,
+                p.tanggal AS tgl_invoice,
+                COALESCE(p.grandtotal, p.total, 0) AS nilai_invoice,
+                COALESCE(p.biayalain, 0) AS inv_biayalain,
+                COALESCE(p.total_bayar, 0) AS total_bayar,
+                p.is_lunas,
+                p.tgl_bayar,
+                p.kode_user AS inv_user
+            FROM public.penjualando pd
+            JOIN public.penjualan p ON pd.no_penjualan = p.no_penjualan
+            WHERE COALESCE(p.status, '') <> 'C'
+            ORDER BY pd.no_do, p.tanggal DESC
+        ),
+        pay_per_inv AS (
+            SELECT
+                ppd.no_invoice,
+                MAX(pp.no_pembayaran_piutang) AS no_pembayaran_piutang,
+                MAX(pp.tanggal) AS pay_tanggal,
+                SUM(COALESCE(ppd.jumlah_bayar, 0)) AS jumlah_bayar,
+                MAX(pp.kode_user) AS pay_user
+            FROM public.pembayaran_piutang_detail ppd
+            JOIN public.pembayaran_piutang pp ON pp.no_pembayaran_piutang = ppd.nomor
+            WHERE COALESCE(pp.status, '') <> 'C'
+            GROUP BY ppd.no_invoice
+        ),
+        base AS (
+            SELECT
+                d.nomor AS no_do,
+                d.tanggal AS tgl_do,
+                d.id_gudang,
+                COALESCE(g.gudang, d.id_gudang, '') AS nama_gudang,
+                COALESCE(c.customer, d.kepada, '—') AS customer,
+                COALESCE(NULLIF(d.destination, ''), '—') AS rute,
+                COALESCE(NULLIF(d.transporter, ''), '—') AS transporter,
+                COALESCE(NULLIF(d.driver, ''), '—') AS driver,
+                COALESCE(NULLIF(d.lic_plate, ''), '') AS lic_plate,
+                COALESCE(d.istransporter, FALSE) AS istransporter,
+                COALESCE(NULLIF(d.sipb, ''), '') AS sipb,
+                COALESCE(NULLIF(d.no_pl, ''), '') AS no_pl,
+                pl.tanggal AS tgl_pl,
+                COALESCE(NULLIF(pl.no_so, ''), '') AS no_so,
+                COALESCE(d.shippingcosts, 0)::FLOAT AS shippingcosts,
+                d.status AS status_do,
+                d.tgl_keluar,
+                d.tgl_transporter,
+                d.received_date,
+                d.received_name,
+                d.return_date,
+                COALESCE(u_do.nama, NULLIF(d.kode_user, ''), NULLIF(d.id_pegawai_log, ''), '—') AS pic_do,
+                inv.no_penjualan AS no_invoice,
+                inv.tgl_invoice,
+                COALESCE(inv.nilai_invoice, 0)::FLOAT AS nilai_invoice,
+                COALESCE(inv.inv_biayalain, 0)::FLOAT AS inv_biayalain,
+                inv.is_lunas,
+                inv.tgl_bayar,
+                COALESCE(u_inv.nama, NULLIF(inv.inv_user, ''), 'Finance AR') AS pic_inv,
+                pay.no_pembayaran_piutang,
+                pay.pay_tanggal,
+                COALESCE(pay.jumlah_bayar, 0)::FLOAT AS jumlah_bayar,
+                COALESCE(u_pay.nama, NULLIF(pay.pay_user, ''), 'Finance Treasury') AS pic_pay,
+                CASE
+                    WHEN inv.no_penjualan IS NOT NULL
+                         AND COALESCE(inv.inv_biayalain, 0) > 0
+                         AND COALESCE(inv.inv_biayalain, 0) <> COALESCE(d.shippingcosts, 0)
+                        THEN 'NEED_REVIEW'
+                    WHEN inv.no_penjualan IS NOT NULL
+                         AND (
+                             pay.no_pembayaran_piutang IS NOT NULL
+                             OR inv.tgl_bayar IS NOT NULL
+                             OR UPPER(COALESCE(inv.is_lunas, '')) IN ('Y', '1', 'T', 'TRUE')
+                         )
+                        THEN 'COMPLETE'
+                    ELSE 'OUTSTANDING'
+                END AS flow_status
+            FROM public.do_tbl d
+            LEFT JOIN public.customer c ON d.id_customer = c.id_kontak
+            LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
+            LEFT JOIN public.packinglist pl ON d.no_pl = pl.nomor
+            LEFT JOIN inv_per_do inv ON inv.no_do = d.nomor
+            LEFT JOIN pay_per_inv pay ON pay.no_invoice = inv.no_penjualan
+            LEFT JOIN user_lookup u_do ON COALESCE(NULLIF(d.kode_user, ''), d.id_pegawai_log) = u_do.key_code
+            LEFT JOIN user_lookup u_inv ON inv.inv_user = u_inv.key_code
+            LEFT JOIN user_lookup u_pay ON pay.pay_user = u_pay.key_code
+            WHERE {base_where_clause}
+        )
     """
-    rows = db.execute(text(sql), params).mappings().all()
+
+    kpi_params = {k: v for k, v in params.items() if k not in ["limit", "offset"]}
+    kpi_row = db.execute(text(f"""
+        {flow_cte_sql}
+        SELECT
+            COUNT(*) AS total_do,
+            COALESCE(SUM(shippingcosts), 0)::FLOAT AS total_permintaan_dana,
+            COUNT(*) FILTER (WHERE return_date IS NOT NULL) AS total_frdo,
+            COALESCE(SUM(
+                CASE
+                    WHEN no_invoice IS NOT NULL THEN (CASE WHEN inv_biayalain > 0 THEN inv_biayalain ELSE shippingcosts END)
+                    ELSE 0
+                END
+            ), 0)::FLOAT AS total_invoice,
+            COALESCE(SUM(CASE WHEN flow_status = 'COMPLETE' THEN shippingcosts ELSE 0 END), 0)::FLOAT AS total_transfer,
+            COUNT(*) FILTER (WHERE flow_status = 'COMPLETE') AS complete_count,
+            COUNT(*) FILTER (WHERE flow_status = 'OUTSTANDING') AS outstanding_count,
+            COALESCE(SUM(CASE WHEN flow_status <> 'COMPLETE' THEN shippingcosts ELSE 0 END), 0)::FLOAT AS outstanding_amount,
+            COUNT(*) FILTER (WHERE flow_status = 'NEED_REVIEW') AS need_review_count
+        FROM base
+    """), kpi_params).mappings().first()
+
+    status_filter_sql = "1=1"
+    if status and status.upper().strip() in ("COMPLETE", "OUTSTANDING", "NEED_REVIEW"):
+        params["flow_status"] = status.upper().strip()
+        status_filter_sql = "flow_status = :flow_status"
 
     total_count = db.execute(text(f"""
-        SELECT COUNT(*) FROM public.do_tbl d
-        LEFT JOIN public.customer c ON d.id_customer = c.id_kontak
-        LEFT JOIN public.gudang g ON d.id_gudang = g.id_gudang
-        WHERE {where_clause}
+        {flow_cte_sql}
+        SELECT COUNT(*) FROM base WHERE {status_filter_sql}
     """), {k: v for k, v in params.items() if k not in ["limit", "offset"]}).scalar() or 0
 
-    items = []
-    for idx, r in enumerate(rows):
-        shipping = float(r["shippingcosts"] or 0)
-        st = r["status"]
-        has_frdo = bool(r["received_date"] or r["return_date"] or st in ("R", "I"))
-        has_invoice = bool(r["no_invoice"] or st == "I")
-        has_transfer = bool(st == "I")
+    rows = db.execute(text(f"""
+        {flow_cte_sql}
+        SELECT *
+        FROM base
+        WHERE {status_filter_sql}
+        ORDER BY tgl_do DESC, no_do DESC
+        LIMIT :limit OFFSET :offset
+    """), params).mappings().all()
 
-        # Simulate small realistic variance for specific review items
-        is_variance_test = (idx % 6 == 2) and has_invoice and shipping > 500000
-        if is_variance_test:
-            variance_nom = -round(shipping * 0.085, 0)
-            variance_pct = 8.5
-            inv_nom = shipping + abs(variance_nom)
-            flow_status = "NEED_REVIEW"
+    items = []
+    for r in rows:
+        shipping = float(r["shippingcosts"] or 0)
+        flow_status = r["flow_status"]
+        has_pl = bool(r["no_pl"])
+        has_transport = bool(
+            r["tgl_keluar"]
+            or r["tgl_transporter"]
+            or (r["transporter"] and r["transporter"] != "—")
+            or (r["driver"] and r["driver"] != "—")
+            or r["sipb"]
+        )
+        has_frdo = bool(r["return_date"])
+        has_invoice = bool(r["no_invoice"])
+        has_transfer = bool(
+            r["no_pembayaran_piutang"]
+            or r["tgl_bayar"]
+            or str(r["is_lunas"] or "").upper() in ("Y", "1", "T", "TRUE")
+        )
+
+        inv_biayalain = float(r["inv_biayalain"] or 0)
+        if has_invoice:
+            inv_nom = inv_biayalain if inv_biayalain > 0 else shipping
+        else:
+            inv_nom = None
+
+        if flow_status == "NEED_REVIEW" and inv_nom is not None and shipping > 0:
+            variance_nom = round(shipping - inv_nom, 2)
+            variance_pct = round(abs(variance_nom) / shipping * 100.0, 1)
             status_label = "Need Review"
-            waiting_reason = "Waiting Payment"
-        elif has_invoice and has_transfer:
-            variance_nom = 0
+            waiting_reason = "Selisih Biaya DO vs Faktur"
+        elif flow_status == "COMPLETE":
+            variance_nom = 0.0
             variance_pct = 0.0
-            inv_nom = shipping
-            flow_status = "COMPLETE"
             status_label = "Complete"
             waiting_reason = None
-        elif has_frdo and not has_invoice:
-            variance_nom = 0
-            variance_pct = 0.0
-            inv_nom = None
-            flow_status = "OUTSTANDING"
-            status_label = "Outstanding"
-            waiting_reason = "Waiting Invoice"
-        elif not has_frdo:
-            variance_nom = 0
-            variance_pct = 0.0
-            inv_nom = None
-            flow_status = "OUTSTANDING"
-            status_label = "Outstanding"
-            waiting_reason = "Waiting FRDO"
         else:
-            variance_nom = 0
+            variance_nom = 0.0
             variance_pct = 0.0
-            inv_nom = shipping
-            flow_status = "OUTSTANDING"
             status_label = "Outstanding"
-            waiting_reason = "Waiting Payment"
+            if not has_frdo and not has_invoice:
+                waiting_reason = "Waiting FRDO"
+            elif not has_invoice:
+                waiting_reason = "Waiting Invoice"
+            else:
+                waiting_reason = "Waiting Payment"
+
+        # Stage 2 real document reference (SIPB or Picking List)
+        tr_doc_no = r["sipb"] if r["sipb"] else (r["no_pl"] if has_transport and has_pl else None)
+        tr_date = str(r["tgl_transporter"] or r["tgl_keluar"] or r["tgl_do"]) if has_transport else None
+        tr_pic = r["driver"] if r["driver"] != "—" else (r["transporter"] if r["transporter"] != "—" else None)
+        if tr_pic and r["lic_plate"]:
+            tr_pic = f"{tr_pic} ({r['lic_plate']})"
 
         items.append({
-            "id": f"FF-{r['no_do']}",
+            "id": r["no_do"],
             "no_do": r["no_do"],
-            "tanggal": str(r["tanggal"]) if r["tanggal"] else "-",
+            "tanggal": str(r["tgl_do"]) if r["tgl_do"] else "—",
             "id_gudang": r["id_gudang"] or "",
             "nama_gudang": r["nama_gudang"] or "",
             "customer": r["customer"],
@@ -1828,65 +1973,85 @@ async def get_financial_flow(
             "driver": r["driver"],
             "permintaan_dana": {
                 "stage": "PERMINTAAN_DANA",
-                "stage_label": "Permintaan Dana (BR)",
-                "nomor_dokumen": f"PD-{str(r['no_do'])[-8:]}",
-                "tanggal": str(r["tanggal"]),
+                "stage_label": "Biaya Pengiriman DO / Picking List",
+                "nomor_dokumen": r["no_pl"] or r["no_do"],
+                "tanggal": str(r["tgl_pl"] or r["tgl_do"]),
                 "nominal": shipping,
-                "pic": r["kode_user"] or "Dispatcher SC",
-                "status": "APPROVED",
-                "is_available": True,
+                "pic": r["pic_do"],
+                "status": "TERCATAT DI DO",
+                "is_available": shipping > 0,
+                "notes": f"No. PL: {r['no_pl'] or '—'} | No. SO: {r['no_so'] or '—'} (Tabel public.permintaan_dana kosong di ERP; biaya diambil dari do_tbl.shippingcosts).",
             },
             "travel_request": {
                 "stage": "TRAVEL_REQUEST",
-                "stage_label": "Travel Request (TR)",
-                "nomor_dokumen": f"TR-{str(r['no_do'])[-8:]}",
-                "tanggal": str(r["tgl_keluar"] or r["tanggal"]),
-                "nominal": shipping,
-                "pic": r["driver"] or "Driver Operasional",
-                "status": "RELEASED",
-                "is_available": True,
+                "stage_label": "Penugasan Ekspedisi / SIPB",
+                "nomor_dokumen": tr_doc_no,
+                "tanggal": tr_date,
+                "nominal": shipping if has_transport else None,
+                "pic": tr_pic,
+                "status": "EXTERNAL TRANSPORTER" if r["istransporter"] else ("INTERNAL ARMADA" if has_transport else None),
+                "is_available": has_transport,
+                "notes": f"Transporter: {r['transporter']} | Driver: {r['driver']} | Nopol: {r['lic_plate'] or '—'}",
             },
             "delivery_order": {
                 "stage": "DELIVERY_ORDER",
                 "stage_label": "Delivery Order (DO)",
                 "nomor_dokumen": r["no_do"],
-                "tanggal": str(r["tanggal"]),
+                "tanggal": str(r["tgl_do"]),
                 "nominal": shipping,
-                "pic": "Gudang Origin CPA",
-                "status": "DELIVERED" if st in ("R", "I") else "IN_TRANSIT",
+                "pic": r["pic_do"],
+                "status": DO_STATUS_MAP.get((r["status_do"] or "").strip(), r["status_do"] or "Send").upper(),
                 "is_available": True,
+                "notes": f"Diterima: {r['received_date'] or 'Belum'} oleh {r['received_name'] or '—'} | Tujuan: {r['rute']}",
             },
             "frdo": {
                 "stage": "FRDO",
-                "stage_label": "Form Receipt DO (FRDO)",
-                "nomor_dokumen": f"FRDO-{str(r['no_do'])[-8:]}" if has_frdo else None,
-                "tanggal": str(r["received_date"] or r["return_date"] or r["tanggal"]) if has_frdo else None,
+                "stage_label": "Form Receipt DO (Return Date)",
+                "nomor_dokumen": r["no_do"] if has_frdo else None,
+                "tanggal": str(r["return_date"]) if has_frdo else None,
                 "nominal": shipping if has_frdo else None,
-                "pic": r["received_name"] or "Penerima Customer" if has_frdo else None,
-                "status": "SIGNED & STAMPED" if has_frdo else None,
+                "pic": r["received_name"] or None if has_frdo else None,
+                "status": "RETURNED" if has_frdo else None,
                 "is_available": has_frdo,
+                "notes": (
+                    f"Dokumen DO kembali tanggal {r['return_date']} (diterima customer: {r['received_date'] or '—'})."
+                    if has_frdo
+                    else f"Barang diterima tanggal {r['received_date'] or '—'}, menunggu tanggal kembali fisik DO (do_tbl.return_date)."
+                ),
             },
             "invoice": {
                 "stage": "INVOICE",
-                "stage_label": "Invoice Ekspedisi",
-                "nomor_dokumen": r["no_invoice"] or f"INV-EXP-{str(r['no_do'])[-6:]}" if has_invoice else None,
-                "tanggal": str(r["received_date"] or r["tanggal"]) if has_invoice else None,
+                "stage_label": "Faktur Penjualan (penjualando)",
+                "nomor_dokumen": r["no_invoice"] if has_invoice else None,
+                "tanggal": str(r["tgl_invoice"]) if r["tgl_invoice"] else None,
                 "nominal": inv_nom,
-                "pic": f"Finance {r['transporter']}" if has_invoice else None,
-                "status": "OVER_BUDGET" if is_variance_test else "VERIFIED" if has_invoice else None,
+                "pic": r["pic_inv"] if has_invoice else None,
+                "status": "VARIANCE BIAYA" if flow_status == "NEED_REVIEW" else ("TERBIT" if has_invoice else None),
                 "is_available": has_invoice,
-                "notes": "Penyesuaian biaya solar/retribusi penyeberangan feri di luar estimasi standar (+8.5%)" if is_variance_test else None,
+                "notes": (
+                    f"Selisih biaya pengiriman DO (Rp {shipping:,.0f}) vs Biaya Lain Faktur (Rp {inv_biayalain:,.0f}). Nilai Faktur: Rp {float(r['nilai_invoice'] or 0):,.0f}."
+                    if flow_status == "NEED_REVIEW"
+                    else (
+                        f"No. Faktur: {r['no_invoice']} | Grand Total Faktur: Rp {float(r['nilai_invoice'] or 0):,.0f}"
+                        if has_invoice
+                        else None
+                    )
+                ),
             },
             "transfer": {
                 "stage": "TRANSFER",
-                "stage_label": "Bukti Transfer Bank",
-                "nomor_dokumen": f"TRF-BCA-{str(r['no_do'])[-6:]}" if has_transfer and not is_variance_test else None,
-                "tanggal": str(r["received_date"] or r["tanggal"]) if has_transfer and not is_variance_test else None,
-                "nominal": shipping if has_transfer and not is_variance_test else None,
-                "pic": "Treasury Finance (CPA)" if has_transfer and not is_variance_test else None,
-                "status": "SETTLED" if has_transfer and not is_variance_test else None,
-                "is_available": has_transfer and not is_variance_test,
-                "notes": "Menunggu persetujuan selisih biaya dari Dept Head" if is_variance_test else None,
+                "stage_label": "Bukti Pelunasan (pembayaran_piutang)",
+                "nomor_dokumen": (r["no_pembayaran_piutang"] or r["no_invoice"]) if has_transfer else None,
+                "tanggal": str(r["pay_tanggal"] or r["tgl_bayar"] or r["tgl_invoice"]) if has_transfer else None,
+                "nominal": shipping if has_transfer else None,
+                "pic": r["pic_pay"] if has_transfer else None,
+                "status": "SETTLED" if has_transfer else None,
+                "is_available": has_transfer,
+                "notes": (
+                    f"No. Pembayaran: {r['no_pembayaran_piutang'] or 'Lunas di Faktur'} | Jumlah Bayar Faktur: Rp {float(r['jumlah_bayar'] or 0):,.0f}"
+                    if has_transfer
+                    else ("Menunggu rekonsiliasi selisih biaya DO vs Faktur" if flow_status == "NEED_REVIEW" else None)
+                ),
             },
             "variance_nominal": variance_nom,
             "variance_pct": variance_pct,
@@ -1897,13 +2062,15 @@ async def get_financial_flow(
 
     return {
         "kpi": {
-            "total_do": total_do_kpi,
-            "total_permintaan_dana": total_permintaan_dana_kpi,
-            "total_frdo": total_frdo_kpi,
-            "total_invoice": total_invoice_kpi,
-            "total_transfer": total_transfer_kpi,
-            "outstanding_count": outstanding_count_kpi,
-            "outstanding_amount": outstanding_amount_kpi,
+            "total_do": int(kpi_row["total_do"]) if kpi_row else 0,
+            "total_permintaan_dana": float(kpi_row["total_permintaan_dana"]) if kpi_row else 0.0,
+            "total_frdo": int(kpi_row["total_frdo"]) if kpi_row else 0,
+            "total_invoice": float(kpi_row["total_invoice"]) if kpi_row else 0.0,
+            "total_transfer": float(kpi_row["total_transfer"]) if kpi_row else 0.0,
+            "complete_count": int(kpi_row["complete_count"]) if kpi_row else 0,
+            "outstanding_count": int(kpi_row["outstanding_count"]) if kpi_row else 0,
+            "outstanding_amount": float(kpi_row["outstanding_amount"]) if kpi_row else 0.0,
+            "need_review_count": int(kpi_row["need_review_count"]) if kpi_row else 0,
         },
         "items": items,
         "pagination": {
@@ -1912,6 +2079,12 @@ async def get_financial_flow(
             "total": total_count,
             "total_pages": (total_count + limit - 1) // limit if limit > 0 else 1,
         },
+        "data_note": (
+            "100% Real Data (cpa_existing): Biaya pengiriman diambil dari public.do_tbl.shippingcosts & public.packinglist (no_pl); "
+            "FRDO kembali dari public.do_tbl.return_date; Faktur dari public.penjualando + public.penjualan; "
+            "dan Pelunasan dari public.pembayaran_piutang_detail + public.pembayaran_piutang. "
+            "Status Need Review dihitung dari selisih nyata antara do_tbl.shippingcosts dan penjualan.biayalain."
+        ),
     }
 
 
@@ -1938,4 +2111,3 @@ async def get_delivery_detail(
         "header": res["header"],
         "items": res["items"],
     }
-
