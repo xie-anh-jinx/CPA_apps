@@ -4,6 +4,8 @@ DO tracking, Internal Order (IO), Internal Transfer (IT), dan Financial Flow DO.
 Seluruh endpoint menggunakan 100% Real Data dari database produksi (cpa_existing)
 tanpa duplikasi SQL atau fabrikasi nomor dokumen.
 """
+import html
+import re
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -47,6 +49,31 @@ IT_STATUS_MAP: Dict[str, str] = {
     "C": "Receipt",
     "X": "Cancel",
 }
+
+
+def _clean_html_text(val: Optional[str]) -> str:
+    """
+    Membersihkan tag HTML (misalnya <p>, </p>, <br>, <strong>, dsb.) dan HTML entities
+    (&nbsp;, &amp;, &gt;, dll.) dari teks agar format alamat dan keterangan bersih dan rapi di Excel.
+    """
+    if not val:
+        return ""
+    text_val = str(val).strip()
+    if "<" not in text_val or ">" not in text_val:
+        return html.unescape(text_val).replace("\xa0", " ").strip()
+
+    # Ganti tag pembatas baris/paragraf dengan newline
+    text_val = re.sub(r"</?(?:br|p|div|li|tr)[^>]*>", "\n", text_val, flags=re.IGNORECASE)
+    # Hapus seluruh tag HTML lainnya
+    text_val = re.sub(r"<[^>]+>", "", text_val)
+    # Decode HTML entities seperti &nbsp;, &gt;, &amp;, &quot;, &#39;
+    text_val = html.unescape(text_val)
+    # Ganti non-breaking space dengan regular space
+    text_val = text_val.replace("\xa0", " ")
+    # Rapikan whitespace per baris dan hapus baris kosong berulang
+    lines = [line.strip() for line in text_val.splitlines()]
+    clean_lines = [line for line in lines if line]
+    return "\n".join(clean_lines)
 
 # CTE Single Source of Truth untuk resolusi kode user / id_pegawai ke nama & jabatan asli
 _USER_LOOKUP_CTE = """
@@ -1278,7 +1305,7 @@ async def export_distribution_excel(
                 "Kode Barang": row_dict.get("Kode Barang", ""),
                 "Qty": float(qty_raw) if qty_raw is not None else "",
                 "Satuan": row_dict.get("Satuan", ""),
-                "Keterangan": row_dict.get("Keterangan", ""),
+                "Keterangan": _clean_html_text(row_dict.get("Keterangan", "")),
             })
         df = pd.DataFrame(records)
         sheet_name = "Internal Order"
@@ -1343,7 +1370,7 @@ async def export_distribution_excel(
                 "Gudang Tujuan": row_dict.get("Gudang Tujuan", ""),
                 "Nomor IO": row_dict.get("Nomor IO", ""),
                 "Tgl. IO Approve": row_dict.get("Tgl. IO Approve", ""),
-                "Receive Note": row_dict.get("Receive Note", ""),
+                "Receive Note": _clean_html_text(row_dict.get("Receive Note", "")),
                 "Status": status_desc,
                 "Nama Barang": row_dict.get("Nama Barang", ""),
                 "Kode Barang": row_dict.get("Kode Barang", ""),
@@ -1352,7 +1379,7 @@ async def export_distribution_excel(
                 "Ongkir": row_dict.get("Ongkir", ""),
                 "No IBC/No Skid Tank": row_dict.get("No IBC/No Skid Tank", ""),
                 "No Segel": row_dict.get("No Segel", ""),
-                "Keterangan": row_dict.get("Keterangan", ""),
+                "Keterangan": _clean_html_text(row_dict.get("Keterangan", "")),
             })
         df = pd.DataFrame(records)
         sheet_name = "Internal Transfer"
@@ -1441,6 +1468,10 @@ async def export_distribution_excel(
             for date_col in ["Tanggal DO", "Month Period", "Tanggal Kirim", "Receive Date", "Return Date", "Tanggal Invoice"]:
                 val = row_dict.get(date_col)
                 row_dict[date_col] = str(val)[:10] if val is not None else ""
+            if "Alamat Kirim" in row_dict:
+                row_dict["Alamat Kirim"] = _clean_html_text(row_dict.get("Alamat Kirim"))
+            if "Keterangan" in row_dict:
+                row_dict["Keterangan"] = _clean_html_text(row_dict.get("Keterangan"))
             records.append(row_dict)
         df = pd.DataFrame(records)
         do_columns = [
@@ -1533,9 +1564,18 @@ async def export_distribution_excel(
             header_cell.border = thin_border
             header_cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-            max_len = max(len(str(c.value or "")) for c in col)
             col_letter = header_cell.column_letter
-            ws.column_dimensions[col_letter].width = max(max_len + 3, len(col_name) + 3, 10)
+            if col_name in ["Alamat Kirim", "Keterangan", "Receive Note"]:
+                max_line_len = 0
+                for c in col:
+                    lines = str(c.value or "").splitlines()
+                    for l in lines:
+                        if len(l) > max_line_len:
+                            max_line_len = len(l)
+                ws.column_dimensions[col_letter].width = min(max(max_line_len + 3, len(col_name) + 3, 15), 55)
+            else:
+                max_len = max(len(str(c.value or "")) for c in col)
+                ws.column_dimensions[col_letter].width = min(max(max_len + 3, len(col_name) + 3, 10), 45)
 
             is_no_col = col_name == "No"
             is_qty_col = col_name in ["Qty"] or (type_upper == "DO" and col_name in do_numeric_cols)
@@ -1552,6 +1592,8 @@ async def export_distribution_excel(
                     data_cell.alignment = Alignment(horizontal="center", vertical="center")
                 elif is_qty_col:
                     data_cell.alignment = Alignment(horizontal="right", vertical="center")
+                elif col_name in ["Alamat Kirim", "Keterangan", "Receive Note"]:
+                    data_cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
                 else:
                     data_cell.alignment = Alignment(horizontal="left", vertical="center")
 
