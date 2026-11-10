@@ -1453,21 +1453,33 @@ async def export_distribution_excel(
                 COALESCE(d.lic_plate, '') AS "Plat Nomor",
                 COALESCE(vol.total_volume_liter, 0)::FLOAT AS "Volume (Liter)",
                 COALESCE(vol.total_qty, 0)::FLOAT AS "Qty Kemasan",
-                d.tgl_keluar AS "Tanggal Kirim",
-                d.received_date AS "Receive Date",
+                CASE
+                    WHEN d.tgl_keluar IS NOT NULL THEN TO_CHAR(d.tgl_keluar, 'DD-Mon-YY')
+                    ELSE ''
+                END AS "Tanggal Kirim",
+                CASE
+                    WHEN d.received_date IS NOT NULL THEN TO_CHAR(d.received_date, 'DD-Mon-YY')
+                    ELSE ''
+                END AS "Receive Date",
                 CASE
                     WHEN d.received_date IS NOT NULL AND d.tanggal IS NOT NULL
                     THEN (d.received_date - d.tanggal)
                     ELSE NULL
                 END AS "Durasi DO ke Receive (Hari)",
-                d.return_date AS "Return Date",
+                CASE
+                    WHEN d.return_date IS NOT NULL THEN TO_CHAR(d.return_date, 'DD-Mon-YY')
+                    ELSE ''
+                END AS "Return Date",
                 CASE
                     WHEN d.return_date IS NOT NULL AND d.received_date IS NOT NULL
                     THEN (d.return_date - d.received_date)
                     ELSE NULL
                 END AS "Selisih Hari (Return - Receive)",
                 COALESCE(inv.no_invoice, '') AS "Nomor Invoice",
-                inv.tgl_invoice AS "Tanggal Invoice",
+                CASE
+                    WHEN inv.tgl_invoice IS NOT NULL THEN TO_CHAR(inv.tgl_invoice, 'DD-Mon-YY')
+                    ELSE ''
+                END AS "Tanggal Invoice",
                 CASE
                     WHEN inv.tgl_invoice IS NOT NULL AND d.tanggal IS NOT NULL
                     THEN (inv.tgl_invoice - d.tanggal)
@@ -1485,10 +1497,9 @@ async def export_distribution_excel(
                 COALESCE(d.keterangan, '') AS "Keterangan",
                 CASE
                     WHEN d.status = 'C' OR d.status = 'X' THEN 'Void/Cancel'
-                    WHEN inv.tgl_invoice IS NOT NULL THEN 'Menunggu Payment'
-                    WHEN d.status = 'I' THEN 'Menunggu Payment'
-                    WHEN d.status = 'R' AND d.return_date IS NOT NULL THEN 'Menunggu Invoice'
-                    WHEN d.status = 'R' THEN 'Menunggu Invoice'
+                    WHEN inv.tgl_invoice IS NOT NULL OR d.status = 'I' THEN 'Menunggu Payment'
+                    WHEN (d.status = 'R' OR d.received_date IS NOT NULL) AND d.return_date IS NOT NULL THEN 'Menunggu Invoice'
+                    WHEN d.status = 'R' OR d.received_date IS NOT NULL THEN 'Menunggu DO Return'
                     WHEN d.status = 'S' THEN 'Menunggu Receiving'
                     WHEN d.status = 'D' THEN 'Draft'
                     ELSE 'Menunggu Receiving'
@@ -1513,10 +1524,7 @@ async def export_distribution_excel(
         records = []
         for r in rows:
             row_dict = dict(r)
-            for date_col in ["Tanggal Kirim", "Receive Date", "Return Date", "Tanggal Invoice"]:
-                val = row_dict.get(date_col)
-                row_dict[date_col] = str(val)[:10] if val is not None else ""
-            for date_col in ["Tanggal DO", "Month Period"]:
+            for date_col in ["Tanggal DO", "Month Period", "Tanggal Kirim", "Receive Date", "Return Date", "Tanggal Invoice"]:
                 val = row_dict.get(date_col)
                 row_dict[date_col] = str(val) if val is not None else ""
             if "Alamat Kirim" in row_dict:
