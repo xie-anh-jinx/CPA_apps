@@ -1437,8 +1437,14 @@ async def export_distribution_excel(
             SELECT
                 COALESCE('CPA ' || ikc.id_kantor_cabang, '') AS "Area",
                 d.nomor AS "Nomor DO",
-                d.tanggal AS "Tanggal DO",
-                DATE_TRUNC('month', d.tanggal)::date AS "Month Period",
+                CASE
+                    WHEN d.tanggal IS NOT NULL THEN TO_CHAR(d.tanggal, 'DD-Mon-YY')
+                    ELSE ''
+                END AS "Tanggal DO",
+                CASE
+                    WHEN d.tanggal IS NOT NULL THEN TO_CHAR(d.tanggal, 'Mon-YY')
+                    ELSE ''
+                END AS "Month Period",
                 d.id_customer AS "ID Customer",
                 COALESCE(c.customer, d.kepada, '') AS "Nama Customer",
                 COALESCE(d.alamat, '') AS "Alamat Kirim",
@@ -1507,9 +1513,12 @@ async def export_distribution_excel(
         records = []
         for r in rows:
             row_dict = dict(r)
-            for date_col in ["Tanggal DO", "Month Period", "Tanggal Kirim", "Receive Date", "Return Date", "Tanggal Invoice"]:
+            for date_col in ["Tanggal Kirim", "Receive Date", "Return Date", "Tanggal Invoice"]:
                 val = row_dict.get(date_col)
                 row_dict[date_col] = str(val)[:10] if val is not None else ""
+            for date_col in ["Tanggal DO", "Month Period"]:
+                val = row_dict.get(date_col)
+                row_dict[date_col] = str(val) if val is not None else ""
             if "Alamat Kirim" in row_dict:
                 row_dict["Alamat Kirim"] = _clean_html_text(row_dict.get("Alamat Kirim"))
             if "Keterangan" in row_dict:
