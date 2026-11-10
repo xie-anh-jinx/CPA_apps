@@ -374,7 +374,7 @@ export default function StockAgingPage() {
   };
 
   return (
-    <div style={{ padding: '24px', maxWidth: '1440px', margin: '0 auto', fontFamily: 'inherit' }}>
+    <div style={{ padding: '20px 24px', width: '100%', maxWidth: '100%', boxSizing: 'border-box', fontFamily: 'inherit' }}>
       {/* Page Header */}
       <div style={{ marginBottom: '18px' }}>
         <h1 style={{ margin: 0, fontSize: '1.6rem', fontWeight: 700, color: 'var(--text-primary, #ffffff)' }}>
@@ -835,53 +835,53 @@ export default function StockAgingPage() {
         boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
         overflow: 'visible' 
       }}>
-        <div style={{ overflowX: 'auto', overflowY: 'visible' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1250px' }}>
+        <div style={{ width: '100%', overflowX: 'auto', overflowY: 'visible' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', tableLayout: 'fixed' }}>
             <thead style={{ background: 'var(--bg-card, #1e1e1e)', borderBottom: '1px solid var(--bg-border, #444444)' }}>
               <tr>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '50px', textAlign: 'center' }}>
+                <th style={{ padding: '8px 4px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '3%', textAlign: 'center' }}>
                   No
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '130px' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '8%' }}>
                   Material Code
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '260px' }}>
-                  <div style={{ marginBottom: '6px' }}>Nama Barang</div>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '18%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Nama Barang</div>
                   <MultiSelectFilter
                     title="Nama Barang"
-                    placeholder="Semua Barang"
+                    placeholder="Semua"
                     searchPlaceholder="Cari barang..."
                     options={productOptions}
                     selectedValues={selectedFilterProduk}
                     onChange={setSelectedFilterProduk}
-                    popoverWidth={340}
+                    popoverWidth={300}
                     compact={true}
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'right', width: '100px' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'right', width: '6%' }}>
                   Volume
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '100px' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '6%' }}>
                   Stock
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '180px' }}>
-                  <div style={{ marginBottom: '6px' }}>Asal (Supplier / Gudang)</div>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '7.5%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Asal</div>
                   <MultiSelectFilter
                     title="Asal"
-                    placeholder="Semua Asal"
+                    placeholder="Semua"
                     searchPlaceholder="Cari asal..."
                     options={asalOptions}
                     selectedValues={selectedFilterAsal}
                     onChange={setSelectedFilterAsal}
-                    popoverWidth={260}
+                    popoverWidth={240}
                     compact={true}
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '160px' }}>
-                  <div style={{ marginBottom: '6px' }}>Lifetime Aging</div>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '10.5%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Lifetime Aging">Lifetime</div>
                   <MultiSelectFilter
                     title="Lifetime"
-                    placeholder="Semua Umur"
+                    placeholder="Semua"
                     searchable={false}
                     options={lifetimeAgingOptions}
                     selectedValues={selectedFilterLifetime}
@@ -891,11 +891,11 @@ export default function StockAgingPage() {
                     align="left"
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '185px' }}>
-                  <div style={{ marginBottom: '6px' }}>Aging of Current Location</div>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '10.5%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Aging of Current Location">Aging Lokasi</div>
                   <MultiSelectFilter
                     title="Aging Gudang"
-                    placeholder="Semua Lokasi"
+                    placeholder="Semua"
                     searchable={false}
                     options={currentLocAgingOptions}
                     selectedValues={selectedFilterCurrentLoc}
@@ -905,11 +905,11 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '180px' }}>
-                  <div style={{ marginBottom: '6px' }}>Sell In</div>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '9.5%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Sell In</div>
                   <MultiSelectFilter
                     title="Sell In"
-                    placeholder="Semua PO"
+                    placeholder="Semua"
                     searchPlaceholder="Cari nomor PO..."
                     options={sellInOptions}
                     selectedValues={selectedFilterSellIn}
@@ -918,11 +918,11 @@ export default function StockAgingPage() {
                     compact={true}
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '175px' }}>
-                  <div style={{ marginBottom: '6px' }}>Status Aging</div>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '9.5%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Status</div>
                   <MultiSelectFilter
                     title="Status Aging"
-                    placeholder="Semua Status"
+                    placeholder="Semua"
                     searchable={false}
                     options={statusAgingOptions}
                     selectedValues={selectedFilterStatusAging}
@@ -932,11 +932,11 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '165px' }}>
-                  <div style={{ marginBottom: '6px' }}>Gudang</div>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '8%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Gudang</div>
                   <MultiSelectFilter
                     title="Gudang"
-                    placeholder="Semua Gudang"
+                    placeholder="Semua"
                     searchPlaceholder="Cari gudang..."
                     options={gudangColumnOptions}
                     selectedValues={selectedFilterGudang}
@@ -946,8 +946,8 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '12px 14px', fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '80px' }}>
-                  Action
+                <th style={{ padding: '8px 4px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '3.5%' }}>
+                  Aksi
                 </th>
               </tr>
             </thead>
@@ -980,95 +980,103 @@ export default function StockAgingPage() {
                         transition: 'background 0.15s' 
                       }}
                     >
-                      <td style={{ padding: '12px 14px', fontSize: '0.85rem', color: 'var(--text-muted, #828690)', textAlign: 'center' }}>
+                      <td style={{ padding: '8px 4px', fontSize: '0.78rem', color: 'var(--text-muted, #828690)', textAlign: 'center' }}>
                         {rowNumber}
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary, #ffffff)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary, #ffffff)', wordBreak: 'break-all' }}>
                         {row.material_code}
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.875rem', color: 'var(--text-primary, #ffffff)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: '0.8rem', color: 'var(--text-primary, #ffffff)', lineHeight: 1.3, wordBreak: 'break-word' }} title={row.nama_barang}>
                         {row.nama_barang}
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.875rem', textAlign: 'right', color: 'var(--text-primary, #ffffff)', fontVariantNumeric: 'tabular-nums' }}>
+                      <td style={{ padding: '8px 6px', fontSize: '0.78rem', textAlign: 'right', color: 'var(--text-primary, #ffffff)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         {row.volume_label}
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.875rem', fontWeight: 600, textAlign: 'center', color: 'var(--color-primary-light, #38bdf8)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 600, textAlign: 'center', color: 'var(--color-primary-light, #38bdf8)', whiteSpace: 'nowrap' }}>
                         {row.stok_kemasan_label}
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.85rem' }}>
+                      <td style={{ padding: '8px 6px', fontSize: '0.75rem', textAlign: 'center' }}>
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          padding: '3px 8px',
-                          borderRadius: '6px',
-                          fontSize: '0.8rem',
+                          justifyContent: 'center',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          fontSize: '0.72rem',
                           fontWeight: 600,
                           background: row.asal === 'Shell' ? '#fef3c7' : row.asal === 'CRA' ? '#e0f2fe' : row.asal === 'Cancel IT' ? '#fee2e2' : 'var(--bg-card, #2e2e2e)',
                           color: row.asal === 'Shell' ? '#b45309' : row.asal === 'CRA' ? '#0369a1' : row.asal === 'Cancel IT' ? '#b91c1c' : 'var(--text-primary, #ffffff)',
-                          border: `1px solid ${row.asal === 'Shell' ? '#fde68a' : row.asal === 'CRA' ? '#bae6fd' : row.asal === 'Cancel IT' ? '#fecaca' : 'var(--bg-border, #444444)'}`
-                        }}>
+                          border: `1px solid ${row.asal === 'Shell' ? '#fde68a' : row.asal === 'CRA' ? '#bae6fd' : row.asal === 'Cancel IT' ? '#fecaca' : 'var(--bg-border, #444444)'}`,
+                          whiteSpace: 'nowrap',
+                          maxWidth: '100%',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }} title={row.asal}>
                           {row.asal}
                         </span>
                       </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
                         <span style={{ 
                           display: 'inline-block',
-                          padding: '4px 12px', 
-                          borderRadius: '12px', 
-                          fontSize: '0.825rem', 
+                          padding: '2px 8px', 
+                          borderRadius: '10px', 
+                          fontSize: '0.75rem', 
                           fontWeight: 700, 
                           background: agingStyle.bg, 
                           color: agingStyle.text,
                           border: `1px solid ${agingStyle.border}`,
-                          fontVariantNumeric: 'tabular-nums'
+                          fontVariantNumeric: 'tabular-nums',
+                          whiteSpace: 'nowrap'
                         }}>
-                          {row.aging_hari} hari
+                          {row.aging_hari} hr
                         </span>
                         {row.tgl_diterima && row.tgl_diterima !== '-' && (
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted, #828690)', marginTop: '3px' }} title={`Tanggal Penerimaan/Stok: ${row.tgl_diterima}`}>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted, #828690)', marginTop: '2px', whiteSpace: 'nowrap' }} title={`Tanggal Penerimaan/Stok: ${row.tgl_diterima}`}>
                             {row.tgl_diterima}
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
                         <div style={{ 
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '6px',
-                          padding: '3px 10px',
-                          borderRadius: '8px',
+                          gap: '4px',
+                          padding: '2px 6px',
+                          borderRadius: '6px',
                           background: 'rgba(56, 189, 248, 0.1)',
                           border: '1px solid rgba(56, 189, 248, 0.25)',
                           color: 'var(--color-primary-light, #38bdf8)',
                           fontWeight: 700,
-                          fontSize: '0.825rem'
-                        }}>
-                          <span>Gudang Ini:</span>
+                          fontSize: '0.75rem',
+                          whiteSpace: 'nowrap'
+                        }} title={`Umur di gudang saat ini: ${row.umur_gudang_hari ?? row.umurGudang ?? '-'} hari`}>
+                          <span>Ini:</span>
                           <span style={{ color: 'var(--text-primary, #ffffff)' }}>
                             {row.umur_gudang_hari ?? row.umurGudang ?? '-'} hr
                           </span>
                         </div>
                         {row.umur_gudang_asal_hari > 0 && (
-                          <div style={{ fontSize: '0.72rem', color: '#f59e0b', marginTop: '3px', fontWeight: 600 }}>
+                          <div style={{ fontSize: '0.7rem', color: '#f59e0b', marginTop: '2px', fontWeight: 600, whiteSpace: 'nowrap' }} title={`Umur di gudang asal: ${row.umur_gudang_asal_hari} hari`}>
                             Asal: {row.umur_gudang_asal_hari} hr
                           </div>
                         )}
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.85rem', fontWeight: 600 }}>
+                      <td style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 600, wordBreak: 'break-all' }}>
                         {row.sell_in_po && row.sell_in_po !== '-' ? (
-                          <span style={{ color: 'var(--color-primary-light, #38bdf8)' }}>{row.sell_in_po}</span>
+                          <span style={{ color: 'var(--color-primary-light, #38bdf8)' }} title={row.sell_in_po}>{row.sell_in_po}</span>
                         ) : (
                           <span style={{ color: 'var(--text-muted, #828690)' }}>-</span>
                         )}
                       </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
                         <span style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: '5px',
-                          padding: '4px 10px',
-                          borderRadius: '12px',
-                          fontSize: '0.78rem',
+                          justifyContent: 'center',
+                          gap: '4px',
+                          padding: '2px 6px',
+                          borderRadius: '10px',
+                          fontSize: '0.72rem',
                           fontWeight: 700,
                           background: agingStyle.bg,
                           color: agingStyle.text,
@@ -1079,10 +1087,10 @@ export default function StockAgingPage() {
                           <span>{agingStyle.status}</span>
                         </span>
                       </td>
-                      <td style={{ padding: '12px 14px', fontSize: '0.85rem', textAlign: 'center', color: 'var(--text-primary, #ffffff)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: '0.78rem', textAlign: 'center', color: 'var(--text-primary, #ffffff)', wordBreak: 'break-word', lineHeight: 1.2 }} title={row.gudang}>
                         {row.gudang}
                       </td>
-                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      <td style={{ padding: '8px 4px', textAlign: 'center' }}>
                         <button 
                           onClick={() => setSelectedStock(row)}
                           title="Lacak Perjalanan Barang"
@@ -1090,20 +1098,21 @@ export default function StockAgingPage() {
                             background: '#0284c7', 
                             border: 'none', 
                             borderRadius: '50%', 
-                            width: '32px', 
-                            height: '32px', 
+                            width: '28px', 
+                            height: '28px', 
                             display: 'inline-flex', 
                             alignItems: 'center', 
                             justifyContent: 'center', 
                             cursor: 'pointer', 
                             color: 'white',
                             boxShadow: '0 2px 4px rgba(2, 132, 199, 0.3)',
-                            transition: 'transform 0.15s, background 0.15s'
+                            transition: 'transform 0.15s, background 0.15s',
+                            margin: '0 auto'
                           }}
-                          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.08)'}
+                          onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
                           onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                         >
-                          <Eye size={16} />
+                          <Eye size={14} />
                         </button>
                       </td>
                     </tr>
