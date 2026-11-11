@@ -1,7 +1,7 @@
 "use client";
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Eye, X, Loader2, Truck, Clock, ArrowRight, Building, MapPin, Calendar, Filter, RotateCcw } from 'lucide-react';
-import { api, apiWarehouses } from '@/lib/api';
+import { Search, Eye, X, Loader2, Truck, Clock, ArrowRight, Building, MapPin, Calendar, Filter, RotateCcw, Download } from 'lucide-react';
+import { api, apiWarehouses, apiInventory } from '@/lib/api';
 import MultiSelectFilter, { MultiSelectOption } from '@/components/inventory/MultiSelectFilter';
 
 const AGING_BUCKETS = [
@@ -45,6 +45,7 @@ export default function StockAgingPage() {
   const [data, setData] = useState<any[]>([]);
   const [traceData, setTraceData] = useState<any | null>(null);
   const [traceLoading, setTraceLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     apiWarehouses.list().then((res) => {
@@ -351,6 +352,54 @@ export default function StockAgingPage() {
     setDateTo('');
   };
 
+  const handleExportExcel = async () => {
+    if (exporting) return;
+    if (filteredData.length === 0) {
+      alert("Tidak ada data Stock Aging yang cocok untuk diekspor.");
+      return;
+    }
+
+    try {
+      setExporting(true);
+      const activeWh = selectedGudangs.filter(g => g && g !== 'ALL');
+      const gudangLabel = activeWh.length > 0
+        ? activeWh.map(id => warehouses.find(w => w.id_gudang === id)?.nama_gudang || id).join(', ')
+        : 'Semua Warehouse (Nasional)';
+      const periodeLabel = (dateFrom || dateTo)
+        ? `${dateFrom || 'Awal'} s/d ${dateTo || 'Hari Ini'}`
+        : 'Semua Periode';
+
+      const res = await apiInventory.exportAgingExcel({
+        items: filteredData,
+        summary: agingStats,
+        gudang_label: gudangLabel,
+        periode_label: periodeLabel,
+        search: search.trim() || undefined,
+        id_gudang: activeWh.length > 0 ? activeWh.join(',') : 'ALL',
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      });
+
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const dateTag = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      a.download = `Stock_Aging_CPA_${dateTag}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error('Gagal mengekspor data Stock Aging:', err);
+      alert('Terjadi kendala saat mengekspor data Stock Aging. Silakan coba kembali.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const totalPages = Math.max(Math.ceil(filteredData.length / itemsPerPage), 1);
   const paginatedData = filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
@@ -578,6 +627,43 @@ export default function StockAgingPage() {
               }}
             />
           </div>
+
+          {/* Tombol Export Excel */}
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={exporting || loading || filteredData.length === 0}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '7px 14px',
+              borderRadius: '6px',
+              border: '1px solid #16a34a',
+              background: '#15803d',
+              color: '#ffffff',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              cursor: exporting || loading || filteredData.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: exporting || loading || filteredData.length === 0 ? 0.6 : 1,
+              transition: 'all 0.15s ease',
+              whiteSpace: 'nowrap',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+            }}
+            title="Download Laporan Stock Aging format Excel (.xlsx)"
+          >
+            {exporting ? (
+              <>
+                <Loader2 size={15} className="animate-spin" />
+                <span>Mengekspor...</span>
+              </>
+            ) : (
+              <>
+                <Download size={15} />
+                <span>Export Excel</span>
+              </>
+            )}
+          </button>
         </div>
       </div>
 

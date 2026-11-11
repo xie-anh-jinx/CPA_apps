@@ -2,11 +2,14 @@
 Router — Inventory Monitoring
 Stok real-time, aging, low-stock, overstock, mutasi, inbound, outbound
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func, and_, case
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import date, datetime
+import io
 
 from app.database import get_analytics_db, get_existing_db
 from app.routers.auth import CurrentUser
@@ -740,6 +743,327 @@ async def get_inventory_aging_fifo(
         "summary": summary,
         "data": results
     }
+
+
+class StockAgingExportRequest(BaseModel):
+    items: Optional[List[Dict[str, Any]]] = None
+    summary: Optional[Dict[str, Any]] = None
+    id_gudang: Optional[str] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    search: Optional[str] = None
+    gudang_label: Optional[str] = None
+    periode_label: Optional[str] = None
+
+
+def _format_date_dd_mon_yy(val) -> str:
+    if not val or str(val).strip() in ("", "-", "None"):
+        return "-"
+    if isinstance(val, (datetime, date)):
+        return val.strftime("%d-%b-%y")
+    val_str = str(val).strip()
+    for fmt in ("%Y-%m-%d", "%d %b %Y", "%d-%m-%Y"):
+        try:
+            dt = datetime.strptime(val_str, fmt)
+            return dt.strftime("%d-%b-%y")
+        except Exception:
+            pass
+    try:
+        dt = datetime.strptime(val_str[:10], "%Y-%m-%d")
+        return dt.strftime("%d-%b-%y")
+    except Exception:
+        pass
+    return val_str
+
+
+def _generate_stock_aging_excel(
+    items: List[Dict[str, Any]],
+    summary: Optional[Dict[str, Any]] = None,
+    gudang_label: str = "Semua Warehouse",
+    periode_label: str = "Semua Periode"
+) -> io.BytesIO:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Stock Aging"
+
+    # 1. Header Banner
+    ws.merge_cells("A1:P1")
+    ws["A1"] = "PT. CAHAYA PENGAJARAN ABADI"
+    ws["A1"].font = Font(name="Calibri", size=13, bold=True, color="1E3A5F")
+
+    ws.merge_cells("A2:P2")
+    ws["A2"] = "LAPORAN STOCK AGING & JEJAK BATCH PERSEDIAAN (FIFO)"
+    ws["A2"].font = Font(name="Calibri", size=11, bold=True, color="0F172A")
+
+    now_str = datetime.now().strftime("%d-%b-%y %H:%M WIB")
+    ws.merge_cells("A3:P3")
+    ws["A3"] = f"Gudang: {gudang_label} | Periode: {periode_label} | Diekspor pada: {now_str} | Total Stok: {len(items):,} baris"
+    ws["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
+
+    # 2. KPI Summary Cards
+    thin_border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1")
+    )
+    card_header_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+
+    tot_vol = sum(float(r.get("stok") or r.get("sisaStok") or 0) for r in items)
+
+    ws.merge_cells("A5:C5")
+    ws["A5"] = "TOTAL VOLUME PERSEDIAAN"
+    ws["A5"].font = Font(name="Calibri", size=9, bold=True, color="1E3A5F")
+    ws["A5"].fill = card_header_fill
+    ws["A5"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.merge_cells("A6:C6")
+    ws["A6"] = f"{tot_vol:,.0f} Liter ({len(items):,} Baris Stok)"
+    ws["A6"].font = Font(name="Calibri", size=11, bold=True, color="0F172A")
+    ws["A6"].alignment = Alignment(horizontal="center", vertical="center")
+
+    acc_vol = sum(float(r.get("stok") or r.get("sisaStok") or 0) for r in items if r.get("status_aging") == "Acceptable")
+    acc_count = sum(1 for r in items if r.get("status_aging") == "Acceptable")
+    acc_card_fill = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")
+    ws.merge_cells("D5:F5")
+    ws["D5"] = "ACCEPTABLE (0 - 149 HARI)"
+    ws["D5"].font = Font(name="Calibri", size=9, bold=True, color="15803D")
+    ws["D5"].fill = acc_card_fill
+    ws["D5"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.merge_cells("D6:F6")
+    ws["D6"] = f"{acc_vol:,.0f} Liter ({acc_count:,} Stok)"
+    ws["D6"].font = Font(name="Calibri", size=11, bold=True, color="15803D")
+    ws["D6"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ovr_vol = sum(float(r.get("stok") or r.get("sisaStok") or 0) for r in items if r.get("status_aging") == "Over-stock")
+    ovr_count = sum(1 for r in items if r.get("status_aging") == "Over-stock")
+    ovr_card_fill = PatternFill(start_color="FEF9C3", end_color="FEF9C3", fill_type="solid")
+    ws.merge_cells("G5:I5")
+    ws["G5"] = "OVER-STOCK (150 - 239 HARI)"
+    ws["G5"].font = Font(name="Calibri", size=9, bold=True, color="A16207")
+    ws["G5"].fill = ovr_card_fill
+    ws["G5"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.merge_cells("G6:I6")
+    ws["G6"] = f"{ovr_vol:,.0f} Liter ({ovr_count:,} Stok)"
+    ws["G6"].font = Font(name="Calibri", size=11, bold=True, color="A16207")
+    ws["G6"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ded_vol = sum(float(r.get("stok") or r.get("sisaStok") or 0) for r in items if r.get("status_aging") == "Deadstock")
+    ded_count = sum(1 for r in items if r.get("status_aging") == "Deadstock")
+    ded_card_fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    ws.merge_cells("J5:L5")
+    ws["J5"] = "DEADSTOCK (≥ 240 HARI)"
+    ws["J5"].font = Font(name="Calibri", size=9, bold=True, color="B91C1C")
+    ws["J5"].fill = ded_card_fill
+    ws["J5"].alignment = Alignment(horizontal="center", vertical="center")
+
+    ws.merge_cells("J6:L6")
+    ws["J6"] = f"{ded_vol:,.0f} Liter ({ded_count:,} Stok)"
+    ws["J6"].font = Font(name="Calibri", size=11, bold=True, color="B91C1C")
+    ws["J6"].alignment = Alignment(horizontal="center", vertical="center")
+
+    for row_idx in (5, 6):
+        for col_idx in range(1, 13):
+            cell = ws.cell(row_idx, col_idx)
+            cell.border = thin_border
+
+    # 3. Table Headers
+    headers = [
+        "No", "Material Code", "Nama Barang", "Kategori", "Volume (Liter)",
+        "Stok Kemasan", "Asal (Supplier / Gudang)", "Lifetime Aging (Hari)",
+        "Tgl. Penerimaan / Masuk", "Aging Gudang Ini (Hari)", "Aging Asal (Hari)",
+        "Sell In PO", "Status Aging", "Gudang Saat Ini", "No. Dokumen Reff", "No. Batch"
+    ]
+
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    ws.row_dimensions[8].height = 28
+
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(8, col_idx, h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+
+    # 4. Data Rows
+    fill_acc = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")
+    font_acc = Font(name="Calibri", size=10, bold=True, color="15803D")
+
+    fill_ovr = PatternFill(start_color="FEF9C3", end_color="FEF9C3", fill_type="solid")
+    font_ovr = Font(name="Calibri", size=10, bold=True, color="A16207")
+
+    fill_ded = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+    font_ded = Font(name="Calibri", size=10, bold=True, color="B91C1C")
+
+    font_regular = Font(name="Calibri", size=10, color="000000")
+    font_code = Font(name="Consolas", size=9, bold=True, color="0F172A")
+
+    for idx, r in enumerate(items, 1):
+        row_num = 8 + idx
+        ws.row_dimensions[row_num].height = 20
+
+        stk_vol = float(r.get("stok") or r.get("sisaStok") or 0)
+        kemasan_lbl = str(r.get("stok_kemasan_label") or "")
+        aging_days = int(r.get("aging_hari") or r.get("umur_hari") or 0)
+        umur_gd = int(r.get("umur_gudang_hari") if r.get("umur_gudang_hari") is not None else aging_days)
+        umur_asal = int(r.get("umur_gudang_asal_hari") or max(aging_days - umur_gd, 0))
+        tgl_rcv = _format_date_dd_mon_yy(r.get("tgl_diterima") or r.get("tanggal_stok"))
+        st_aging = str(r.get("status_aging") or ("Acceptable" if aging_days <= 149 else "Over-stock" if aging_days <= 239 else "Deadstock"))
+        po_str = str(r.get("sell_in_po") or r.get("nomor_po") or "-")
+        if po_str == "":
+            po_str = "-"
+
+        row_values = [
+            (idx, Alignment(horizontal="center", vertical="center"), font_regular, None),
+            (str(r.get("material_code") or r.get("id_barang") or "-"), Alignment(horizontal="center", vertical="center"), font_code, None),
+            (str(r.get("nama_barang") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(r.get("kategori") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (stk_vol, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (kemasan_lbl, Alignment(horizontal="center", vertical="center"), font_regular, None),
+            (str(r.get("asal") or "-"), Alignment(horizontal="center", vertical="center"), font_regular, None),
+            (aging_days, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (tgl_rcv, Alignment(horizontal="center", vertical="center"), font_regular, None),
+            (umur_gd, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (umur_asal, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (po_str, Alignment(horizontal="center", vertical="center"), font_regular, None),
+            (st_aging, Alignment(horizontal="center", vertical="center"), font_acc if st_aging == "Acceptable" else font_ovr if st_aging == "Over-stock" else font_ded, fill_acc if st_aging == "Acceptable" else fill_ovr if st_aging == "Over-stock" else fill_ded),
+            (str(r.get("gudang") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(r.get("dokumen") or r.get("reff") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(r.get("batch") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+        ]
+
+        for col_idx, (val, align, fnt, num_fmt_or_fill) in enumerate(row_values, 1):
+            cell = ws.cell(row_num, col_idx, val)
+            cell.alignment = align
+            cell.font = fnt
+            cell.border = thin_border
+            if col_idx == 13 and num_fmt_or_fill:
+                cell.fill = num_fmt_or_fill
+            elif isinstance(num_fmt_or_fill, str):
+                cell.number_format = num_fmt_or_fill
+
+    # 5. Auto column widths
+    min_widths = {
+        1: 6,   # No
+        2: 15,  # Material Code
+        3: 38,  # Nama Barang
+        4: 16,  # Kategori
+        5: 15,  # Volume (Liter)
+        6: 15,  # Stok Kemasan
+        7: 18,  # Asal
+        8: 15,  # Lifetime Aging
+        9: 16,  # Tgl Penerimaan
+        10: 15, # Aging Gudang Ini
+        11: 14, # Aging Asal
+        12: 18, # Sell In PO
+        13: 15, # Status Aging
+        14: 18, # Gudang
+        15: 20, # Dokumen Reff
+        16: 16, # Batch
+    }
+
+    for col_idx in range(1, 17):
+        col_letter = get_column_letter(col_idx)
+        max_len = 0
+        for r_idx in range(8, 8 + len(items) + 1):
+            val_s = str(ws.cell(r_idx, col_idx).value or "")
+            if len(val_s) > max_len:
+                max_len = len(val_s)
+        base_min = min_widths.get(col_idx, 12)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, base_min), 55)
+
+    ws.freeze_panes = "A9"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@router.post("/aging-fifo/export-excel")
+async def export_inventory_aging_excel_post(
+    payload: Optional[StockAgingExportRequest] = None,
+    db: Session = Depends(get_existing_db),
+    current_user: CurrentUser = None,
+):
+    """
+    Ekspor data Stock Aging ke format Excel (.xlsx).
+    Menerima items yang telah difilter di frontend atau menarik ulang data dari database.
+    """
+    items = payload.items if payload and payload.items is not None else None
+    summary = payload.summary if payload else None
+    gudang_label = payload.gudang_label if payload and payload.gudang_label else (payload.id_gudang or "Semua Warehouse")
+    periode_label = payload.periode_label if payload and payload.periode_label else "Semua Periode"
+
+    if items is None:
+        data_res = await get_inventory_aging_fifo(
+            id_gudang=payload.id_gudang if payload else None,
+            date_from=payload.date_from if payload else None,
+            date_to=payload.date_to if payload else None,
+            db=db,
+            current_user=current_user
+        )
+        items = data_res.get("data", [])
+        if not summary:
+            summary = data_res.get("summary")
+
+        if payload and payload.search:
+            s = payload.search.lower().strip()
+            items = [
+                r for r in items
+                if s in str(r.get("material_code", "")).lower()
+                or s in str(r.get("nama_barang", "")).lower()
+                or s in str(r.get("sell_in_po", "")).lower()
+                or s in str(r.get("asal", "")).lower()
+                or s in str(r.get("gudang", "")).lower()
+                or s in str(r.get("dokumen", "")).lower()
+            ]
+
+    buf = _generate_stock_aging_excel(
+        items=items,
+        summary=summary,
+        gudang_label=gudang_label,
+        periode_label=periode_label
+    )
+
+    now_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"Stock_Aging_CPA_{now_tag}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/aging-fifo/export-excel")
+async def export_inventory_aging_excel_get(
+    id_gudang: Optional[str] = Query(None, description="Pilihan gudang atau 'ALL'/kosong untuk semua warehouse"),
+    date_from: Optional[str] = Query(None, description="Filter tanggal awal (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="Filter tanggal akhir (YYYY-MM-DD)"),
+    search: Optional[str] = Query(None, description="Kata kunci pencarian"),
+    db: Session = Depends(get_existing_db),
+    current_user: CurrentUser = None,
+):
+    """
+    Ekspor data Stock Aging via GET request query parameters ke format Excel (.xlsx).
+    """
+    payload = StockAgingExportRequest(
+        id_gudang=id_gudang,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+        gudang_label=id_gudang or "Semua Warehouse",
+        periode_label=f"{date_from or 'Awal'} s/d {date_to or 'Hari Ini'}" if (date_from or date_to) else "Semua Periode"
+    )
+    return await export_inventory_aging_excel_post(payload=payload, db=db, current_user=current_user)
 
 
 @router.get("/stock-trace")

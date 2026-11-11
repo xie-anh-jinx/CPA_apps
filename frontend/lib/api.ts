@@ -68,6 +68,8 @@ export const apiInventory = {
     api.get("/api/inventory/movements", { params }),
   aging: (id_gudang?: string) =>
     api.get("/api/inventory/aging", { params: { id_gudang } }),
+  exportAgingExcel: (payload?: Record<string, unknown>, params?: Record<string, unknown>) =>
+    api.post("/api/inventory/aging-fifo/export-excel", payload || {}, { params, responseType: "blob" }),
   inbound: (params?: Record<string, unknown>) =>
     api.get("/api/inventory/inbound", { params }),
   outbound: (params?: Record<string, unknown>) =>
