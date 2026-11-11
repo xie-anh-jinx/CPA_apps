@@ -1435,7 +1435,12 @@ async def export_distribution_excel(
         )
         sql = f"""
             SELECT
-                COALESCE('CPA ' || ikc.id_kantor_cabang, '') AS "Area",
+                CASE
+                    WHEN g.id_kantor IN ('02', '03', '05') THEN 'CPA02'
+                    WHEN g.id_kantor IN ('04', '08') THEN 'CPA01'
+                    WHEN g.id_kantor IN ('06', '07') THEN 'CPA03'
+                    ELSE 'HO'
+                END AS "Area",
                 d.nomor AS "Nomor DO",
                 CASE
                     WHEN d.tanggal IS NOT NULL THEN TO_CHAR(d.tanggal, 'DD-Mon-YY')

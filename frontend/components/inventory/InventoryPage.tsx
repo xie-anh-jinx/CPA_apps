@@ -1,6 +1,8 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Download, Loader2 } from "lucide-react";
 import { apiInventory } from "@/lib/api";
+import { getWarehouseCodeArea, getCodeAreaBadgeStyle } from "@/lib/warehouse_master";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Cell
@@ -29,6 +31,8 @@ interface InventoryItem {
   nama_brand: string;
   id_gudang: string;
   nama_gudang: string;
+  nama_kantor?: string;
+  code_area?: string;
   on_hand: number;
   reserved: number;
   available: number;
@@ -47,6 +51,8 @@ interface InventoryItem {
 interface WarehouseStock {
   id_gudang: string;
   nama_gudang: string;
+  nama_kantor?: string;
+  code_area?: string;
   total_on_hand: number;
   total_available: number;
   total_nilai?: number | null;
@@ -61,6 +67,7 @@ interface Transaction {
   tanggal: string;
   id_gudang: string;
   nama_gudang: string;
+  code_area?: string;
   referensi: string;
   keterangan: string;
   kode_user: string;
@@ -198,6 +205,7 @@ function TransactionTable({
                 <th>Tipe</th>
                 <th>Nomor</th>
                 <th>Tanggal</th>
+                <th style={{ textAlign: "center" }}>Code Area</th>
                 <th>Gudang</th>
                 <th>Referensi / Tujuan</th>
                 <th>Keterangan</th>
@@ -209,20 +217,22 @@ function TransactionTable({
               {loading ? (
                 Array.from({ length: 8 }).map((_, i) => (
                   <tr key={i}>
-                    {Array.from({ length: 8 }).map((_, j) => (
+                    {Array.from({ length: 9 }).map((_, j) => (
                       <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
                     ))}
                   </tr>
                 ))
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ textAlign: "center", padding: "2.5rem", color: "var(--text-muted)" }}>
+                  <td colSpan={9} style={{ textAlign: "center", padding: "2.5rem", color: "var(--text-muted)" }}>
                     Tidak ada transaksi pada periode ini
                   </td>
                 </tr>
               ) : (
                 data.map((row, idx) => {
                   const badge = TIPE_BADGE[row.tipe];
+                  const area = row.code_area || getWarehouseCodeArea(row.id_gudang, row.nama_gudang);
+                  const bStyle = getCodeAreaBadgeStyle(area);
                   return (
                     <tr key={`${row.nomor}-${idx}`}>
                       <td>
@@ -243,6 +253,21 @@ function TransactionTable({
                         {row.nomor}
                       </td>
                       <td style={{ fontSize: "0.8rem", whiteSpace: "nowrap" }}>{fmtDate(row.tanggal)}</td>
+                      <td style={{ textAlign: "center" }}>
+                        <span style={{
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          fontSize: "0.72rem",
+                          fontWeight: 700,
+                          fontFamily: "monospace",
+                          background: bStyle.bg,
+                          color: bStyle.color,
+                          border: bStyle.border,
+                          whiteSpace: "nowrap"
+                        }}>
+                          {area}
+                        </span>
+                      </td>
                       <td style={{ fontSize: "0.8rem", color: "var(--text-secondary)" }}>{row.nama_gudang || row.id_gudang}</td>
                       <td style={{ fontSize: "0.75rem", color: "var(--text-muted)", maxWidth: 140 }}>
                         <div className="truncate" title={row.referensi}>{row.referensi || "—"}</div>
@@ -292,9 +317,11 @@ export default function InventoryPage() {
 
   // Stock filters
   const [activeTab, setActiveTab] = useState<"all" | "fast" | "medium" | "slow" | "deadstock" | "low_stock" | "overstock" | "zero">("all");
+  const [selectedArea, setSelectedArea] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [exportingStock, setExportingStock] = useState<boolean>(false);
   const LIMIT = 50;
 
   const loadStock = useCallback(async () => {
@@ -321,6 +348,43 @@ export default function InventoryPage() {
   }, [activeTab, search, page]);
 
   useEffect(() => { loadStock(); }, [loadStock]);
+
+  const displayedItems = useMemo(() => {
+    if (selectedArea === "all") return items;
+    return items.filter(it => (it.code_area || getWarehouseCodeArea(it.id_gudang, it.nama_gudang)) === selectedArea);
+  }, [items, selectedArea]);
+
+  const handleExportStockExcel = async () => {
+    if (exportingStock) return;
+    try {
+      setExportingStock(true);
+      const res = await apiInventory.exportStockExcel({
+        items: displayedItems,
+        status: activeTab === "all" ? undefined : activeTab,
+        code_area: selectedArea === "all" ? undefined : selectedArea,
+        search: search || undefined,
+        area_label: selectedArea === "all" ? "Semua Area" : selectedArea,
+        status_label: activeTab === "all" ? "Semua Status" : activeTab,
+      });
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const dateTag = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      a.download = `Monitoring_Stok_CPA_${dateTag}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Gagal export excel stok:", err);
+      alert("Gagal mengekspor data stok. Silakan coba kembali.");
+    } finally {
+      setExportingStock(false);
+    }
+  };
 
   const minMaxChartData = [
     { name: "Fast (≥9)", count: summary?.fast_count || 0, fill: "#10b981" },
@@ -554,13 +618,59 @@ export default function InventoryPage() {
                 </button>
               ))}
             </div>
+            <select
+              className="input"
+              style={{ width: 130, cursor: "pointer", fontSize: "0.8rem" }}
+              value={selectedArea}
+              onChange={(e) => { setSelectedArea(e.target.value); setPage(1); }}
+            >
+              <option value="all">Semua Area</option>
+              <option value="CPA01">CPA01</option>
+              <option value="CPA02">CPA02</option>
+              <option value="CPA03">CPA03</option>
+              <option value="HO">HO</option>
+            </select>
             <input
               className="input"
-              style={{ width: 240 }}
+              style={{ width: 220 }}
               placeholder="Cari produk atau kode..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             />
+            <button
+              type="button"
+              onClick={handleExportStockExcel}
+              disabled={exportingStock || loading || displayedItems.length === 0}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 14px",
+                borderRadius: "6px",
+                border: "1px solid #16a34a",
+                background: "#15803d",
+                color: "#ffffff",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                cursor: exportingStock || loading || displayedItems.length === 0 ? "not-allowed" : "pointer",
+                opacity: exportingStock || loading || displayedItems.length === 0 ? 0.6 : 1,
+                whiteSpace: "nowrap",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+              }}
+              title="Download Laporan Stok format Excel (.xlsx)"
+            >
+              {exportingStock ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" />
+                  <span>Mengekspor...</span>
+                </>
+              ) : (
+                <>
+                  <Download size={14} />
+                  <span>Export Excel</span>
+                </>
+              )}
+            </button>
           </div>
 
           {/* Data Table */}
@@ -572,6 +682,7 @@ export default function InventoryPage() {
                     <th>Kode Barang</th>
                     <th>Nama Produk</th>
                     <th>Kategori</th>
+                    <th style={{ textAlign: "center" }}>Code Area</th>
                     <th>Gudang</th>
                     <th style={{ textAlign: "right" }}>On Hand</th>
                     <th style={{ textAlign: "right" }}>Reserved</th>
@@ -587,22 +698,24 @@ export default function InventoryPage() {
                   {loading ? (
                     Array.from({ length: 10 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: 12 }).map((_, j) => (
+                        {Array.from({ length: 13 }).map((_, j) => (
                           <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
                         ))}
                       </tr>
                     ))
-                  ) : items.length === 0 ? (
+                  ) : displayedItems.length === 0 ? (
                     <tr>
-                      <td colSpan={12} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
+                      <td colSpan={13} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
                         {activeTab === "all" && !search ? "Belum ada data. Jalankan sync worker terlebih dahulu." : "Tidak ada data yang cocok."}
                       </td>
                     </tr>
                   ) : (
-                    items.map((item, idx) => {
+                    displayedItems.map((item, idx) => {
                       const badge = STATUS_BADGE[item.stock_status] || STATUS_BADGE.ok;
                       const mov = item.movement_category || "Deadstock";
                       const mBadge = MOVEMENT_BADGE[mov] || MOVEMENT_BADGE.Deadstock;
+                      const area = item.code_area || getWarehouseCodeArea(item.id_gudang, item.nama_gudang, item.nama_kantor);
+                      const bStyle = getCodeAreaBadgeStyle(area);
                       return (
                         <tr key={`${item.id_barang}-${item.id_gudang}-${idx}`}>
                           <td className="font-mono" style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
@@ -612,6 +725,21 @@ export default function InventoryPage() {
                             <div className="truncate" title={item.nama_barang}>{item.nama_barang}</div>
                           </td>
                           <td style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>{item.nama_kategori || "—"}</td>
+                          <td style={{ textAlign: "center" }}>
+                            <span style={{
+                              padding: "2px 7px",
+                              borderRadius: "4px",
+                              fontSize: "0.72rem",
+                              fontWeight: 700,
+                              fontFamily: "monospace",
+                              background: bStyle.bg,
+                              color: bStyle.color,
+                              border: bStyle.border,
+                              whiteSpace: "nowrap"
+                            }}>
+                              {area}
+                            </span>
+                          </td>
                           <td style={{ color: "var(--text-secondary)", fontSize: "0.8rem" }}>{item.nama_gudang}</td>
                           <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                             {Number(item.on_hand).toLocaleString("id")}

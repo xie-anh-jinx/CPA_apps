@@ -2,12 +2,16 @@
 Router — Warehouses Multi-Gudang Monitoring
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from typing import Optional
+from typing import Optional, List, Dict, Any
+from datetime import datetime
+import io
 
 from app.database import get_analytics_db
 from app.routers.auth import CurrentUser
+from app.utils.warehouse_master import get_warehouse_code_area
 
 router = APIRouter()
 
@@ -32,7 +36,7 @@ async def list_warehouses(
 
     rows = db.execute(text(f"""
         SELECT
-            w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.inisial,
+            w.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area, w.alamat, w.inisial,
             w.parent, w.telpon, w.kontak_person, w.dsm,
             COUNT(DISTINCT ib.id_barang) AS jumlah_sku,
             SUM(ib.on_hand) AS total_on_hand,
@@ -43,7 +47,7 @@ async def list_warehouses(
         FROM operational.warehouses w
         LEFT JOIN operational.inventory_balances ib ON w.id_gudang = ib.id_gudang
         {extra}
-        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.inisial, w.parent, w.telpon, w.kontak_person, w.dsm
+        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area, w.alamat, w.inisial, w.parent, w.telpon, w.kontak_person, w.dsm
         ORDER BY w.nama_gudang
     """), params).mappings().all()
 
@@ -51,6 +55,8 @@ async def list_warehouses(
     res = []
     for r in rows:
         d = dict(r)
+        if not d.get("code_area"):
+            d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"), d.get("nama_kantor"))
         if hide_financial:
             d["total_nilai"] = None
         res.append(d)
@@ -77,7 +83,7 @@ async def compare_warehouses(
 
     rows = db.execute(text(f"""
         SELECT
-            w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.telpon, w.kontak_person, w.dsm,
+            w.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area, w.alamat, w.telpon, w.kontak_person, w.dsm,
             SUM(ib.on_hand) AS total_on_hand,
             SUM(ib.available) AS total_available,
             SUM(ib.reserved) AS stok_reserved,
@@ -101,7 +107,7 @@ async def compare_warehouses(
         FROM operational.warehouses w
         LEFT JOIN operational.inventory_balances ib ON w.id_gudang = ib.id_gudang
         {extra}
-        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.alamat, w.telpon, w.kontak_person, w.dsm
+        GROUP BY w.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area, w.alamat, w.telpon, w.kontak_person, w.dsm
         ORDER BY total_nilai DESC
     """), params).mappings().all()
 
@@ -109,10 +115,146 @@ async def compare_warehouses(
     res = []
     for r in rows:
         d = dict(r)
+        if not d.get("code_area"):
+            d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"), d.get("nama_kantor"))
         if hide_financial:
             d["total_nilai"] = None
         res.append(d)
     return res
+
+
+@router.get("/export-excel")
+async def export_warehouses_excel(
+    code_area: Optional[str] = Query(None, description="Filter code area"),
+    db: Session = Depends(get_analytics_db),
+    current_user: CurrentUser = None,
+):
+    """
+    Ekspor daftar multi-gudang ke format Excel (.xlsx) dengan kolom Code Area.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    warehouses = await list_warehouses(db=db, current_user=current_user)
+    ca_val = str(code_area) if (code_area and not hasattr(code_area, "default")) else None
+    if ca_val and ca_val.upper() != "ALL":
+        ca_upper = ca_val.upper()
+        warehouses = [w for w in warehouses if str(w.get("code_area", "")).upper() == ca_upper]
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Multi Gudang"
+
+    thin_border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1")
+    )
+
+    ws.merge_cells("A1:K1")
+    ws["A1"] = "PT. CAHAYA PENGAJARAN ABADI"
+    ws["A1"].font = Font(name="Calibri", size=13, bold=True, color="1E3A5F")
+
+    ws.merge_cells("A2:K2")
+    ws["A2"] = "LAPORAN MASTER DATA & MONITORING MULTI-GUDANG"
+    ws["A2"].font = Font(name="Calibri", size=11, bold=True, color="0F172A")
+
+    now_str = datetime.now().strftime("%d-%b-%y %H:%M WIB")
+    ws.merge_cells("A3:K3")
+    ws["A3"] = f"Filter Area: {code_area or 'Semua Area'} | Waktu: {now_str} | Total: {len(warehouses)} Gudang"
+    ws["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
+
+    headers = [
+        "ID Gudang", "Nama Gudang", "Kantor / Cabang", "Code Area",
+        "Kontak Person", "DSM", "Telepon", "On Hand", "Available",
+        "Low Stock", "Stok Kosong"
+    ]
+
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    ws.row_dimensions[5].height = 26
+
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(5, col_idx, h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+
+    font_regular = Font(name="Calibri", size=10, color="000000")
+    font_code = Font(name="Consolas", size=9, bold=True, color="0F172A")
+
+    for idx, w in enumerate(warehouses, 1):
+        row_num = 5 + idx
+        ws.row_dimensions[row_num].height = 19
+
+        on_hand = float(w.get("total_on_hand") or 0)
+        available = float(w.get("total_available") or 0)
+        low_stk = int(w.get("low_stock_count") or 0)
+        zero_stk = int(w.get("zero_stock_count") or 0)
+
+        row_values = [
+            (str(w.get("id_gudang") or "-"), Alignment(horizontal="center", vertical="center"), font_code, None),
+            (str(w.get("nama_gudang") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(w.get("nama_kantor") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(w.get("code_area") or "-"), Alignment(horizontal="center", vertical="center"), font_code, None),
+            (str(w.get("kontak_person") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(w.get("dsm") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(w.get("telpon") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (on_hand, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (available, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (low_stk, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (zero_stk, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+        ]
+
+        for col_idx, (val, align, fnt, num_fmt) in enumerate(row_values, 1):
+            cell = ws.cell(row_num, col_idx, val)
+            cell.alignment = align
+            cell.font = fnt
+            cell.border = thin_border
+            if num_fmt:
+                cell.number_format = num_fmt
+
+    min_widths = {
+        1: 12, # ID
+        2: 32, # Nama Gudang
+        3: 18, # Kantor
+        4: 12, # Code Area
+        5: 22, # PIC
+        6: 22, # DSM
+        7: 18, # Telp
+        8: 14, # On Hand
+        9: 14, # Available
+        10: 12, # Low Stock
+        11: 12, # Zero Stock
+    }
+
+    for col_idx in range(1, 12):
+        col_letter = get_column_letter(col_idx)
+        max_len = 0
+        for r_idx in range(5, 5 + len(warehouses) + 1):
+            val_s = str(ws.cell(r_idx, col_idx).value or "")
+            if len(val_s) > max_len:
+                max_len = len(val_s)
+        base_min = min_widths.get(col_idx, 12)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, base_min), 45)
+
+    ws.freeze_panes = "A6"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    now_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"Multi_Warehouse_CPA_{now_tag}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @router.get("/{id_gudang}/stock")

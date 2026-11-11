@@ -13,6 +13,7 @@ import io
 
 from app.database import get_analytics_db, get_existing_db
 from app.routers.auth import CurrentUser
+from app.utils.warehouse_master import get_warehouse_code_area, WAREHOUSE_CODE_AREA_MAP
 
 router = APIRouter()
 
@@ -150,7 +151,7 @@ async def get_inventory_by_product(
         {cte}
         SELECT
             ib.id_barang, p.nama_barang, p.nama_kategori, p.nama_brand,
-            ib.id_gudang, w.nama_gudang,
+            ib.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area,
             ib.on_hand, ib.reserved, ib.available,
             ib.damaged, ib.quarantine, ib.pending_transfer,
             ib.stok_min, ib.stok_max,
@@ -192,6 +193,8 @@ async def get_inventory_by_product(
     data_list = []
     for r in rows:
         d = dict(r)
+        if not d.get("code_area"):
+            d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"), d.get("nama_kantor"))
         if hide_financial:
             d["hpp"] = None
             d["nilai_persediaan"] = None
@@ -223,7 +226,7 @@ async def get_inventory_by_warehouse(
 
     rows = db.execute(text(f"""
         SELECT
-            ib.id_gudang, w.nama_gudang, w.nama_kantor,
+            ib.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area,
             COUNT(DISTINCT ib.id_barang) AS jumlah_sku,
             SUM(ib.on_hand) AS total_on_hand,
             SUM(ib.available) AS total_available,
@@ -233,13 +236,15 @@ async def get_inventory_by_warehouse(
         FROM operational.inventory_balances ib
         JOIN operational.warehouses w ON ib.id_gudang = w.id_gudang
         WHERE 1=1 {extra}
-        GROUP BY ib.id_gudang, w.nama_gudang, w.nama_kantor
+        GROUP BY ib.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area
         ORDER BY total_on_hand DESC
     """), params).mappings().all()
     hide_financial = current_user and current_user.role in ("sales", "sales_rep", "warehouse", "warehouse_staff")
     result_rows = []
     for r in rows:
         d = dict(r)
+        if not d.get("code_area"):
+            d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"), d.get("nama_kantor"))
         if hide_financial:
             d["total_nilai"] = None
         result_rows.append(d)
@@ -272,7 +277,7 @@ async def get_low_stock(
     rows = db.execute(text(f"""
         SELECT
             ib.id_barang, p.nama_barang, p.nama_kategori,
-            ib.id_gudang, w.nama_gudang,
+            ib.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area,
             ib.available, ib.stok_min,
             ib.stok_min - ib.available AS kekurangan,
             lt.leadtime AS lead_time_days
@@ -286,7 +291,13 @@ async def get_low_stock(
         ORDER BY (ib.stok_min - ib.available) DESC
         LIMIT 200
     """), params).mappings().all()
-    return [dict(r) for r in rows]
+    results = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("code_area"):
+            d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"), d.get("nama_kantor"))
+        results.append(d)
+    return results
 
 
 @router.get("/overstock")
@@ -315,7 +326,7 @@ async def get_overstock(
     rows = db.execute(text(f"""
         SELECT
             ib.id_barang, p.nama_barang, p.nama_kategori,
-            ib.id_gudang, w.nama_gudang,
+            ib.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area,
             ib.on_hand, ib.stok_max,
             ib.on_hand - ib.stok_max AS kelebihan,
             ib.nilai_persediaan
@@ -330,6 +341,8 @@ async def get_overstock(
     res = []
     for r in rows:
         d = dict(r)
+        if not d.get("code_area"):
+            d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"), d.get("nama_kantor"))
         if hide_financial:
             d["nilai_persediaan"] = None
         res.append(d)
@@ -373,7 +386,7 @@ async def get_stock_movements(
 
     rows = db.execute(text(f"""
         SELECT
-            sm.tahun, sm.bulan, sm.id_gudang, w.nama_gudang,
+            sm.tahun, sm.bulan, sm.id_gudang, w.nama_gudang, w.nama_kantor, w.code_area,
             sm.id_barang, p.nama_barang,
             sm.saldo_awal, sm.masuk, sm.keluar, sm.saldo_akhir
         FROM operational.stock_movements sm
@@ -383,7 +396,13 @@ async def get_stock_movements(
         ORDER BY sm.tahun DESC, sm.bulan DESC
         LIMIT 500
     """), params).mappings().all()
-    return [dict(r) for r in rows]
+    results = []
+    for r in rows:
+        d = dict(r)
+        if not d.get("code_area"):
+            d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"), d.get("nama_kantor"))
+        results.append(d)
+    return results
 
 
 @router.get("/aging")
@@ -701,6 +720,7 @@ async def get_inventory_aging_fifo(
             "id_stok": int(r['id_stok']) if r['id_stok'] is not None else 0,
             "id_barang": str(r['id_barang']),
             "id_gudang": str(r.get('id_gudang') or ''),
+            "code_area": get_warehouse_code_area(r.get('id_gudang'), r.get('nama_gudang_curr')),
             "material_code": str(r['id_barang']),
             "nama_barang": str(r['nama_barang']),
             "produk": f"{r['id_barang']} - {r['nama_barang']}",
@@ -756,6 +776,18 @@ class StockAgingExportRequest(BaseModel):
     periode_label: Optional[str] = None
 
 
+class StockInventoryExportRequest(BaseModel):
+    items: Optional[List[Dict[str, Any]]] = None
+    id_gudang: Optional[str] = None
+    kategori: Optional[str] = None
+    status: Optional[str] = None
+    code_area: Optional[str] = None
+    search: Optional[str] = None
+    gudang_label: Optional[str] = None
+    area_label: Optional[str] = None
+    status_label: Optional[str] = None
+
+
 def _format_date_dd_mon_yy(val) -> str:
     if not val or str(val).strip() in ("", "-", "None"):
         return "-"
@@ -791,16 +823,16 @@ def _generate_stock_aging_excel(
     ws.title = "Stock Aging"
 
     # 1. Header Banner
-    ws.merge_cells("A1:P1")
+    ws.merge_cells("A1:Q1")
     ws["A1"] = "PT. CAHAYA PENGAJARAN ABADI"
     ws["A1"].font = Font(name="Calibri", size=13, bold=True, color="1E3A5F")
 
-    ws.merge_cells("A2:P2")
+    ws.merge_cells("A2:Q2")
     ws["A2"] = "LAPORAN STOCK AGING & JEJAK BATCH PERSEDIAAN (FIFO)"
     ws["A2"].font = Font(name="Calibri", size=11, bold=True, color="0F172A")
 
     now_str = datetime.now().strftime("%d-%b-%y %H:%M WIB")
-    ws.merge_cells("A3:P3")
+    ws.merge_cells("A3:Q3")
     ws["A3"] = f"Gudang: {gudang_label} | Periode: {periode_label} | Diekspor pada: {now_str} | Total Stok: {len(items):,} baris"
     ws["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
 
@@ -878,7 +910,7 @@ def _generate_stock_aging_excel(
         "No", "Material Code", "Nama Barang", "Kategori", "Volume (Liter)",
         "Stok Kemasan", "Asal (Supplier / Gudang)", "Lifetime Aging (Hari)",
         "Tgl. Penerimaan / Masuk", "Aging Gudang Ini (Hari)", "Aging Asal (Hari)",
-        "Sell In PO", "Status Aging", "Gudang Saat Ini", "No. Dokumen Reff", "No. Batch"
+        "Sell In PO", "Status Aging", "Code Area", "Gudang Saat Ini", "No. Dokumen Reff", "No. Batch"
     ]
 
     header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
@@ -919,6 +951,7 @@ def _generate_stock_aging_excel(
         po_str = str(r.get("sell_in_po") or r.get("nomor_po") or "-")
         if po_str == "":
             po_str = "-"
+        code_area_val = str(r.get("code_area") or get_warehouse_code_area(r.get("id_gudang"), r.get("gudang")))
 
         row_values = [
             (idx, Alignment(horizontal="center", vertical="center"), font_regular, None),
@@ -934,6 +967,7 @@ def _generate_stock_aging_excel(
             (umur_asal, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
             (po_str, Alignment(horizontal="center", vertical="center"), font_regular, None),
             (st_aging, Alignment(horizontal="center", vertical="center"), font_acc if st_aging == "Acceptable" else font_ovr if st_aging == "Over-stock" else font_ded, fill_acc if st_aging == "Acceptable" else fill_ovr if st_aging == "Over-stock" else fill_ded),
+            (code_area_val, Alignment(horizontal="center", vertical="center"), font_code, None),
             (str(r.get("gudang") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
             (str(r.get("dokumen") or r.get("reff") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
             (str(r.get("batch") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
@@ -964,12 +998,13 @@ def _generate_stock_aging_excel(
         11: 14, # Aging Asal
         12: 18, # Sell In PO
         13: 15, # Status Aging
-        14: 18, # Gudang
-        15: 20, # Dokumen Reff
-        16: 16, # Batch
+        14: 12, # Code Area
+        15: 22, # Gudang Saat Ini
+        16: 20, # Dokumen Reff
+        17: 16, # Batch
     }
 
-    for col_idx in range(1, 17):
+    for col_idx in range(1, 18):
         col_letter = get_column_letter(col_idx)
         max_len = 0
         for r_idx in range(8, 8 + len(items) + 1):
@@ -1064,6 +1099,216 @@ async def export_inventory_aging_excel_get(
         periode_label=f"{date_from or 'Awal'} s/d {date_to or 'Hari Ini'}" if (date_from or date_to) else "Semua Periode"
     )
     return await export_inventory_aging_excel_post(payload=payload, db=db, current_user=current_user)
+
+
+def _generate_stock_inventory_excel(
+    items: List[Dict[str, Any]],
+    gudang_label: str = "Semua Warehouse",
+    area_label: str = "Semua Area",
+    status_label: str = "Semua Status"
+) -> io.BytesIO:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Stok Persediaan"
+
+    thin_border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1")
+    )
+
+    # 1. Header Banner
+    ws.merge_cells("A1:O1")
+    ws["A1"] = "PT. CAHAYA PENGAJARAN ABADI"
+    ws["A1"].font = Font(name="Calibri", size=13, bold=True, color="1E3A5F")
+
+    ws.merge_cells("A2:O2")
+    ws["A2"] = "LAPORAN MONITORING STOK & PERSEDIAAN GUDANG"
+    ws["A2"].font = Font(name="Calibri", size=11, bold=True, color="0F172A")
+
+    now_str = datetime.now().strftime("%d-%b-%y %H:%M WIB")
+    ws.merge_cells("A3:O3")
+    ws["A3"] = f"Gudang: {gudang_label} | Code Area: {area_label} | Status: {status_label} | Diekspor pada: {now_str} | Total SKU: {len(items):,} baris"
+    ws["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
+
+    # 2. Table Headers
+    headers = [
+        "No", "Kode Barang", "Nama Produk", "Kategori", "Code Area",
+        "Nama Gudang", "Kantor / Cabang", "On Hand", "Reserved", "Available",
+        "Stok Min", "Stok Max", "Demand (3M)", "Kategori Min-Max", "Status Stok"
+    ]
+
+    header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
+    header_font = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+    ws.row_dimensions[5].height = 26
+
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(5, col_idx, h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
+
+    # 3. Data Rows
+    font_regular = Font(name="Calibri", size=10, color="000000")
+    font_code = Font(name="Consolas", size=9, bold=True, color="0F172A")
+
+    for idx, r in enumerate(items, 1):
+        row_num = 5 + idx
+        ws.row_dimensions[row_num].height = 19
+
+        code_area_val = str(r.get("code_area") or get_warehouse_code_area(r.get("id_gudang"), r.get("nama_gudang"), r.get("nama_kantor")))
+        on_hand = float(r.get("on_hand") or 0)
+        reserved = float(r.get("reserved") or 0)
+        available = float(r.get("available") or 0)
+        stok_min = float(r.get("stok_min") or 0)
+        stok_max = float(r.get("stok_max") or 0)
+        demand = float(r.get("demand") or 0)
+        mov_cat = str(r.get("movement_category") or ("Fast" if demand >= 9 else "Medium" if demand >= 4 else "Slow" if demand > 0 else "Deadstock"))
+        stk_status = str(r.get("stock_status") or ("zero" if available <= 0 else "low_stock" if (stok_min > 0 and available < stok_min) else "overstock" if (stok_max > 0 and on_hand > stok_max) else "ok"))
+
+        status_lbl_map = {"zero": "Stok Kosong", "low_stock": "Stok Menipis", "overstock": "Kelebihan Stok", "ok": "Stok Aman"}
+        status_label_str = status_lbl_map.get(stk_status, stk_status.title())
+
+        row_values = [
+            (idx, Alignment(horizontal="center", vertical="center"), font_regular, None),
+            (str(r.get("id_barang") or "-"), Alignment(horizontal="center", vertical="center"), font_code, None),
+            (str(r.get("nama_barang") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(r.get("nama_kategori") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (code_area_val, Alignment(horizontal="center", vertical="center"), font_code, None),
+            (str(r.get("nama_gudang") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (str(r.get("nama_kantor") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (on_hand, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (reserved, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (available, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (stok_min, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (stok_max, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0"),
+            (demand, Alignment(horizontal="right", vertical="center"), font_regular, "#,##0.0"),
+            (mov_cat, Alignment(horizontal="center", vertical="center"), font_regular, None),
+            (status_label_str, Alignment(horizontal="center", vertical="center"), font_regular, None),
+        ]
+
+        for col_idx, (val, align, fnt, num_fmt) in enumerate(row_values, 1):
+            cell = ws.cell(row_num, col_idx, val)
+            cell.alignment = align
+            cell.font = fnt
+            cell.border = thin_border
+            if num_fmt:
+                cell.number_format = num_fmt
+
+    min_widths = {
+        1: 6,   # No
+        2: 15,  # Kode Barang
+        3: 38,  # Nama Produk
+        4: 16,  # Kategori
+        5: 12,  # Code Area
+        6: 22,  # Nama Gudang
+        7: 18,  # Kantor / Cabang
+        8: 12,  # On Hand
+        9: 12,  # Reserved
+        10: 12, # Available
+        11: 12, # Min
+        12: 12, # Max
+        13: 14, # Demand
+        14: 16, # Kategori Min-Max
+        15: 16, # Status
+    }
+
+    for col_idx in range(1, 16):
+        col_letter = get_column_letter(col_idx)
+        max_len = 0
+        for r_idx in range(5, 5 + len(items) + 1):
+            val_s = str(ws.cell(r_idx, col_idx).value or "")
+            if len(val_s) > max_len:
+                max_len = len(val_s)
+        base_min = min_widths.get(col_idx, 12)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 3, base_min), 50)
+
+    ws.freeze_panes = "A6"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return buf
+
+
+@router.post("/export-excel")
+async def export_inventory_stock_excel_post(
+    payload: Optional[StockInventoryExportRequest] = None,
+    db: Session = Depends(get_analytics_db),
+    current_user: CurrentUser = None,
+):
+    """
+    Ekspor data Monitoring Stok Persediaan ke format Excel (.xlsx).
+    """
+    items = payload.items if payload and payload.items is not None else None
+    gudang_label = payload.gudang_label if payload and payload.gudang_label else "Semua Warehouse"
+    area_label = payload.area_label if payload and payload.area_label else "Semua Area"
+    status_label = payload.status_label if payload and payload.status_label else "Semua Status"
+
+    if items is None:
+        data_res = await get_inventory_by_product(
+            id_gudang=payload.id_gudang if payload else None,
+            search=payload.search if payload else None,
+            kategori=payload.kategori if payload else None,
+            status=payload.status if payload else None,
+            page=1,
+            limit=5000,
+            db=db,
+            current_user=current_user
+        )
+        items = data_res.get("data", [])
+
+    if payload and payload.code_area and payload.code_area.upper() != "ALL":
+        ca_filter = payload.code_area.upper()
+        items = [r for r in items if str(r.get("code_area", "")).upper() == ca_filter]
+
+    buf = _generate_stock_inventory_excel(
+        items=items,
+        gudang_label=gudang_label,
+        area_label=area_label,
+        status_label=status_label
+    )
+
+    now_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"Monitoring_Stok_CPA_{now_tag}.xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/export-excel")
+async def export_inventory_stock_excel_get(
+    id_gudang: Optional[str] = Query(None, description="Pilihan gudang"),
+    code_area: Optional[str] = Query(None, description="Pilihan code area (CPA01, CPA02, CPA03, HO)"),
+    status: Optional[str] = Query(None, description="Filter status stok"),
+    kategori: Optional[str] = Query(None, description="Filter kategori"),
+    search: Optional[str] = Query(None, description="Pencarian nama atau kode"),
+    db: Session = Depends(get_analytics_db),
+    current_user: CurrentUser = None,
+):
+    """
+    Ekspor data Monitoring Stok via GET query parameters.
+    """
+    payload = StockInventoryExportRequest(
+        id_gudang=id_gudang,
+        code_area=code_area,
+        status=status,
+        kategori=kategori,
+        search=search,
+        gudang_label=id_gudang or "Semua Warehouse",
+        area_label=code_area or "Semua Area",
+        status_label=status or "Semua Status"
+    )
+    return await export_inventory_stock_excel_post(payload=payload, db=db, current_user=current_user)
 
 
 @router.get("/stock-trace")
@@ -1581,6 +1826,7 @@ async def get_inbound_transactions(
     result = []
     for r in rows:
         d = dict(r)
+        d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"))
         if hide_financial:
             d["total_nilai"] = None
         else:
@@ -1747,6 +1993,7 @@ async def get_outbound_transactions(
     result = []
     for r in rows:
         d = dict(r)
+        d["code_area"] = get_warehouse_code_area(d.get("id_gudang"), d.get("nama_gudang"))
         if hide_financial:
             d["total_nilai"] = None
         else:

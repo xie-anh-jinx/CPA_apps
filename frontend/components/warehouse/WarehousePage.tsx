@@ -1,6 +1,8 @@
 "use client";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { Download, Loader2 } from "lucide-react";
 import { apiWarehouses, apiDistributions } from "@/lib/api";
+import { getWarehouseCodeArea, getCodeAreaBadgeStyle } from "@/lib/warehouse_master";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer
@@ -10,6 +12,7 @@ interface WarehouseData {
   id_gudang: string;
   nama_gudang: string;
   nama_kantor: string;
+  code_area?: string;
   lokasi: string;
   kapasitas_max: number;
   total_on_hand: number;
@@ -92,8 +95,10 @@ export default function WarehousePage() {
   // Multi-warehouse Overview state
   const [data, setData] = useState<WarehouseData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchWh, setSearchWh] = useState<string>("");
+  const [searchWh, setSearchWh] = useState<string>("" );
   const [filterBranch, setFilterBranch] = useState<string>("all");
+  const [filterArea, setFilterArea] = useState<string>("all");
+  const [exportingWh, setExportingWh] = useState<boolean>(false);
 
   // Transfers state
   const [transfers, setTransfers] = useState<TransferRecord[]>([]);
@@ -115,6 +120,7 @@ export default function WarehousePage() {
       const res = await apiWarehouses.comparison();
       setData((res.data || []).map((w: any) => ({
         ...w,
+        code_area: w.code_area || getWarehouseCodeArea(w.id_gudang, w.nama_gudang, w.nama_kantor),
         lokasi: w.nama_kantor || w.lokasi || "—",
       })));
     } catch {
@@ -202,19 +208,51 @@ export default function WarehousePage() {
       if (filterBranch !== "all" && row.nama_kantor !== filterBranch) {
         return false;
       }
+      const area = row.code_area || getWarehouseCodeArea(row.id_gudang, row.nama_gudang, row.nama_kantor);
+      if (filterArea !== "all" && area !== filterArea) {
+        return false;
+      }
       if (!searchWh.trim()) return true;
       const q = searchWh.toLowerCase();
       return (
         (row.id_gudang && row.id_gudang.toLowerCase().includes(q)) ||
         (row.nama_gudang && row.nama_gudang.toLowerCase().includes(q)) ||
         (row.nama_kantor && row.nama_kantor.toLowerCase().includes(q)) ||
+        (area && area.toLowerCase().includes(q)) ||
         (row.kontak_person && row.kontak_person.toLowerCase().includes(q)) ||
         (row.dsm && row.dsm.toLowerCase().includes(q)) ||
         (row.telpon && row.telpon.toLowerCase().includes(q)) ||
         (row.alamat && row.alamat.toLowerCase().includes(q))
       );
     });
-  }, [data, searchWh, filterBranch]);
+  }, [data, searchWh, filterBranch, filterArea]);
+
+  const handleExportWarehouseExcel = async () => {
+    if (exportingWh) return;
+    try {
+      setExportingWh(true);
+      const res = await apiWarehouses.exportExcel({
+        code_area: filterArea !== "all" ? filterArea : undefined,
+      });
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const dateTag = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+      a.download = `Multi_Warehouse_CPA_${dateTag}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Gagal export excel gudang:", err);
+      alert("Gagal mengekspor data gudang. Silakan coba kembali.");
+    } finally {
+      setExportingWh(false);
+    }
+  };
 
   // Transfer metrics & filter
   const transferCounts = useMemo(() => {
@@ -515,6 +553,59 @@ export default function WarehousePage() {
                   <option key={b} value={b}>{b}</option>
                 ))}
               </select>
+              <select
+                value={filterArea}
+                onChange={(e) => setFilterArea(e.target.value)}
+                style={{
+                  padding: "0.55rem 0.75rem",
+                  borderRadius: "6px",
+                  border: "1px solid var(--bg-border)",
+                  background: "var(--bg-surface)",
+                  color: "var(--text-primary)",
+                  fontSize: "0.85rem",
+                  cursor: "pointer"
+                }}
+              >
+                <option value="all">Semua Area</option>
+                <option value="CPA01">CPA01</option>
+                <option value="CPA02">CPA02</option>
+                <option value="CPA03">CPA03</option>
+                <option value="HO">HO</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleExportWarehouseExcel}
+                disabled={exportingWh || loading || filteredWarehouses.length === 0}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "0.55rem 0.9rem",
+                  borderRadius: "6px",
+                  border: "1px solid #16a34a",
+                  background: "#15803d",
+                  color: "#ffffff",
+                  fontSize: "0.85rem",
+                  fontWeight: 600,
+                  cursor: exportingWh || loading || filteredWarehouses.length === 0 ? "not-allowed" : "pointer",
+                  opacity: exportingWh || loading || filteredWarehouses.length === 0 ? 0.6 : 1,
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                }}
+                title="Download Master Data & Stok Gudang format Excel (.xlsx)"
+              >
+                {exportingWh ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Mengekspor...</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={15} />
+                    <span>Export Excel</span>
+                  </>
+                )}
+              </button>
             </div>
             <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)" }}>
               Menampilkan <strong style={{ color: "var(--text-primary)" }}>{filteredWarehouses.length}</strong> dari {data.length} gudang
@@ -530,6 +621,7 @@ export default function WarehousePage() {
                     <th style={{ width: "60px" }}>ID</th>
                     <th>Nama Gudang</th>
                     <th>Kantor / Cabang</th>
+                    <th style={{ textAlign: "center" }}>Code Area</th>
                     <th>Kontak Person</th>
                     <th>DSM</th>
                     <th>Telepon</th>
@@ -544,19 +636,22 @@ export default function WarehousePage() {
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: hasFinancial ? 11 : 10 }).map((_, j) => (
+                        {Array.from({ length: hasFinancial ? 12 : 11 }).map((_, j) => (
                           <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
                         ))}
                       </tr>
                     ))
                   ) : filteredWarehouses.length === 0 ? (
                     <tr>
-                      <td colSpan={hasFinancial ? 11 : 10} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
+                      <td colSpan={hasFinancial ? 12 : 11} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
                         Tidak ada data gudang yang sesuai kriteria pencarian.
                       </td>
                     </tr>
                   ) : (
-                    filteredWarehouses.map((row) => (
+                    filteredWarehouses.map((row) => {
+                      const area = row.code_area || getWarehouseCodeArea(row.id_gudang, row.nama_gudang, row.nama_kantor);
+                      const bStyle = getCodeAreaBadgeStyle(area);
+                      return (
                       <tr key={row.id_gudang}>
                         <td>
                           <span style={{
@@ -597,6 +692,21 @@ export default function WarehousePage() {
                             {row.nama_kantor || row.lokasi || "—"}
                           </span>
                         </td>
+                        <td style={{ textAlign: "center" }}>
+                          <span style={{
+                            padding: "2px 8px",
+                            borderRadius: "6px",
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            fontFamily: "monospace",
+                            background: bStyle.bg,
+                            color: bStyle.color,
+                            border: bStyle.border,
+                            whiteSpace: "nowrap"
+                          }}>
+                            {area}
+                          </span>
+                        </td>
                         <td style={{ color: "var(--text-primary)", fontSize: "0.82rem" }}>
                           {row.kontak_person ? (
                             <span>👤 {row.kontak_person}</span>
@@ -632,8 +742,9 @@ export default function WarehousePage() {
                           {row.zero_stock_count}
                         </td>
                       </tr>
-                    ))
-                  )}
+                    );
+                  })
+                )}
                 </tbody>
               </table>
             </div>

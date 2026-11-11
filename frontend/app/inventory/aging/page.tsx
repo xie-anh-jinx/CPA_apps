@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Eye, X, Loader2, Truck, Clock, ArrowRight, Building, MapPin, Calendar, Filter, RotateCcw, Download } from 'lucide-react';
 import { api, apiWarehouses, apiInventory } from '@/lib/api';
 import MultiSelectFilter, { MultiSelectOption } from '@/components/inventory/MultiSelectFilter';
+import { getWarehouseCodeArea, getCodeAreaBadgeStyle } from '@/lib/warehouse_master';
 
 const AGING_BUCKETS = [
   { key: '0-30', label: '0 - 30 Hari', subLabel: 'Stok baru / fast-moving', min: 0, max: 30, color: '#22c55e', badge: '🌱' },
@@ -32,6 +33,7 @@ export default function StockAgingPage() {
   const [selectedFilterSellIn, setSelectedFilterSellIn] = useState<string[]>([]);
   const [selectedFilterStatusAging, setSelectedFilterStatusAging] = useState<string[]>([]);
   const [selectedFilterGudang, setSelectedFilterGudang] = useState<string[]>([]);
+  const [selectedFilterCodeArea, setSelectedFilterCodeArea] = useState<string[]>([]);
   const [selectedFilterLifetime, setSelectedFilterLifetime] = useState<string[]>([]);
   const [selectedFilterCurrentLoc, setSelectedFilterCurrentLoc] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -243,6 +245,20 @@ export default function StockAgingPage() {
     }));
   }, [data]);
 
+  // Options for Table Header: Code Area
+  const codeAreaOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+      const ca = r.code_area || getWarehouseCodeArea(r.id_gudang, r.gudang);
+      counts[ca] = (counts[ca] || 0) + 1;
+    });
+    return Object.keys(counts).sort().map(ca => ({
+      label: ca,
+      value: ca,
+      count: counts[ca]
+    }));
+  }, [data]);
+
   // Fetch trace history saat baris diklik untuk dilacak
   useEffect(() => {
     if (!selectedStock) {
@@ -270,7 +286,7 @@ export default function StockAgingPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterStatusAging, selectedFilterGudang, selectedFilterLifetime, selectedFilterCurrentLoc, dateFrom, dateTo]);
+  }, [search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterStatusAging, selectedFilterGudang, selectedFilterCodeArea, selectedFilterLifetime, selectedFilterCurrentLoc, dateFrom, dateTo]);
 
   const filteredData = useMemo(() => {
     return data.filter(row => {
@@ -284,6 +300,7 @@ export default function StockAgingPage() {
         (row.sell_in_po && row.sell_in_po.toLowerCase().includes(s)) ||
         (row.dokumen && row.dokumen.toLowerCase().includes(s)) ||
         (row.kategori && row.kategori.toLowerCase().includes(s)) ||
+        (row.code_area && row.code_area.toLowerCase().includes(s)) ||
         (row.gudang && row.gudang.toLowerCase().includes(s));
 
       const matchProduk = selectedFilterProduk.length === 0 || 
@@ -300,6 +317,10 @@ export default function StockAgingPage() {
       const matchGudang = selectedFilterGudang.length === 0 || 
         selectedFilterGudang.includes(row.gudang) ||
         selectedFilterGudang.includes(row.id_gudang);
+
+      const rowCodeArea = row.code_area || getWarehouseCodeArea(row.id_gudang, row.gudang);
+      const matchCodeArea = selectedFilterCodeArea.length === 0 ||
+        selectedFilterCodeArea.includes(rowCodeArea);
 
       const matchStatusAging = selectedFilterStatusAging.length === 0 || 
         selectedFilterStatusAging.includes(row.status_aging);
@@ -321,9 +342,9 @@ export default function StockAgingPage() {
           return b ? locDays >= b.min && locDays <= b.max : false;
         });
 
-      return matchSearch && matchProduk && matchAsal && matchSellIn && matchGudang && matchStatusAging && matchLifetime && matchCurrentLoc;
+      return matchSearch && matchProduk && matchAsal && matchSellIn && matchGudang && matchCodeArea && matchStatusAging && matchLifetime && matchCurrentLoc;
     });
-  }, [data, search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterGudang, selectedFilterStatusAging, selectedFilterLifetime, selectedFilterCurrentLoc]);
+  }, [data, search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterGudang, selectedFilterCodeArea, selectedFilterStatusAging, selectedFilterLifetime, selectedFilterCurrentLoc]);
 
   const hasAnyActiveFilter = 
     search.trim() !== '' ||
@@ -332,6 +353,7 @@ export default function StockAgingPage() {
     selectedFilterSellIn.length > 0 ||
     selectedFilterStatusAging.length > 0 ||
     selectedFilterGudang.length > 0 ||
+    selectedFilterCodeArea.length > 0 ||
     selectedFilterLifetime.length > 0 ||
     selectedFilterCurrentLoc.length > 0 ||
     dateFrom !== '' ||
@@ -345,6 +367,7 @@ export default function StockAgingPage() {
     setSelectedFilterSellIn([]);
     setSelectedFilterStatusAging([]);
     setSelectedFilterGudang([]);
+    setSelectedFilterCodeArea([]);
     setSelectedFilterLifetime([]);
     setSelectedFilterCurrentLoc([]);
     setSelectedGudangs(['ALL']);
@@ -1018,7 +1041,21 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '8%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '6.5%' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Area</div>
+                  <MultiSelectFilter
+                    title="Code Area"
+                    placeholder="Semua"
+                    searchable={false}
+                    options={codeAreaOptions}
+                    selectedValues={selectedFilterCodeArea}
+                    onChange={setSelectedFilterCodeArea}
+                    popoverWidth={180}
+                    compact={true}
+                    align="right"
+                  />
+                </th>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '8.5%' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Gudang</div>
                   <MultiSelectFilter
                     title="Gudang"
@@ -1040,14 +1077,14 @@ export default function StockAgingPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
+                  <td colSpan={13} style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
                     <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 8px auto', display: 'block' }} />
                     Memuat data Stock Aging...
                   </td>
                 </tr>
               ) : paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={12} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
+                  <td colSpan={13} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
                     Tidak ada data stok barang yang cocok.
                   </td>
                 </tr>
@@ -1172,6 +1209,30 @@ export default function StockAgingPage() {
                           <span>{agingStyle.status === 'Acceptable' ? '✅' : agingStyle.status === 'Over-stock' ? '⚠️' : '🛑'}</span>
                           <span>{agingStyle.status}</span>
                         </span>
+                      </td>
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                        {(() => {
+                          const areaCode = row.code_area || getWarehouseCodeArea(row.id_gudang, row.gudang);
+                          const bStyle = getCodeAreaBadgeStyle(areaCode);
+                          return (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '2px 6px',
+                              borderRadius: '6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              fontFamily: 'monospace',
+                              background: bStyle.bg,
+                              color: bStyle.color,
+                              border: bStyle.border,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {areaCode}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: '8px 6px', fontSize: '0.78rem', textAlign: 'center', color: 'var(--text-primary, #ffffff)', wordBreak: 'break-word', lineHeight: 1.2 }} title={row.gudang}>
                         {row.gudang}
