@@ -16,6 +16,8 @@ export interface MultiSelectFilterProps {
   options: MultiSelectOption[];
   selectedValues: string[];
   onChange: (values: string[]) => void;
+  onRemoteSearch?: (query: string) => void;
+  remoteSearchLabel?: string;
   placeholder?: string;
   searchPlaceholder?: string;
   searchable?: boolean;
@@ -31,6 +33,8 @@ export default function MultiSelectFilter({
   options,
   selectedValues = [],
   onChange,
+  onRemoteSearch,
+  remoteSearchLabel,
   placeholder = "Semua",
   searchPlaceholder = "Cari opsi...",
   searchable = true,
@@ -289,6 +293,13 @@ export default function MultiSelectFilter({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && onRemoteSearch && searchTerm.trim()) {
+                    e.preventDefault();
+                    onRemoteSearch(searchTerm.trim());
+                    setIsOpen(false);
+                  }
+                }}
                 placeholder={searchPlaceholder}
                 autoFocus
                 style={{
@@ -460,6 +471,39 @@ export default function MultiSelectFilter({
               })
             )}
           </div>
+
+          {/* Remote Search Across Database if provided */}
+          {onRemoteSearch && searchTerm.trim() && (
+            <div style={{ paddingTop: '6px', marginTop: '6px', borderTop: '1px solid var(--bg-border, #3a3a3a)' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  onRemoteSearch(searchTerm.trim());
+                  setIsOpen(false);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '6px 8px',
+                  fontSize: '0.74rem',
+                  borderRadius: '5px',
+                  border: '1px solid #38bdf8',
+                  background: 'rgba(56, 189, 248, 0.15)',
+                  color: '#38bdf8',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  transition: 'all 0.15s ease',
+                }}
+                title={`Cari "${searchTerm.trim()}" di seluruh database`}
+              >
+                <Search size={12} />
+                <span>{remoteSearchLabel || `Cari "${searchTerm.trim()}" di Semua Tahun`}</span>
+              </button>
+            </div>
+          )}
 
           {/* Footer Info */}
           <div

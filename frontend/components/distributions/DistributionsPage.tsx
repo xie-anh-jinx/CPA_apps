@@ -4149,6 +4149,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
                         options={doNumberOptions}
                         selectedValues={selectedDoNumbers}
                         onChange={setSelectedDoNumbers}
+                        onRemoteSearch={(q) => setSearchTerm(q)}
                         popoverWidth={280}
                         compact={true}
                       />
@@ -4700,6 +4701,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
                       options={ioNumberOptions}
                       selectedValues={selectedIoNumbers}
                       onChange={setSelectedIoNumbers}
+                      onRemoteSearch={(q) => setSearchTerm(q)}
                       popoverWidth={280}
                       compact={true}
                     />
@@ -4938,6 +4940,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
                       options={itNumberOptions}
                       selectedValues={selectedItNumbers}
                       onChange={setSelectedItNumbers}
+                      onRemoteSearch={(q) => setSearchTerm(q)}
                       popoverWidth={280}
                       compact={true}
                     />
