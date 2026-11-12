@@ -500,7 +500,7 @@ export default function MultiSelectFilter({
                 title={`Cari "${searchTerm.trim()}" di seluruh database`}
               >
                 <Search size={12} />
-                <span>{remoteSearchLabel || `Cari "${searchTerm.trim()}" di Semua Tahun`}</span>
+                <span>{remoteSearchLabel || `Cari "${searchTerm.trim()}" di Database`}</span>
               </button>
             </div>
           )}
