@@ -14,6 +14,7 @@ from datetime import date
 
 from app.database import get_existing_db
 from app.routers.auth import CurrentUser
+from app.utils.warehouse_master import get_warehouse_master
 
 router = APIRouter()
 
@@ -519,6 +520,10 @@ async def list_deliveries(
         d = dict(r)
         if hide_financial:
             d["shippingcosts"] = None
+        wh_meta = get_warehouse_master(d.get("id_gudang"), d.get("nama_gudang"))
+        d["code_area"] = wh_meta.get("code_area")
+        d["actual_area"] = wh_meta.get("actual_area")
+        d["type_wh"] = wh_meta.get("type_wh")
         data.append(d)
 
     return {
@@ -1482,6 +1487,7 @@ async def export_distribution_excel(
                 d.id_customer AS "ID Customer",
                 COALESCE(c.customer, d.kepada, '') AS "Nama Customer",
                 COALESCE(d.alamat, '') AS "Alamat Kirim",
+                d.id_gudang,
                 COALESCE(g.gudang, d.id_gudang, '') AS "Gudang Asal",
                 COALESCE(d.driver, '') AS "Driver",
                 COALESCE(d.lic_plate, '') AS "Plat Nomor",
@@ -1558,6 +1564,10 @@ async def export_distribution_excel(
         records = []
         for r in rows:
             row_dict = dict(r)
+            wh_meta = get_warehouse_master(row_dict.get("id_gudang"), row_dict.get("Gudang Asal"))
+            row_dict["Code Area"] = wh_meta.get("code_area", "")
+            row_dict["Actual Area Penjualan"] = wh_meta.get("actual_area", "")
+            row_dict["Type WH"] = wh_meta.get("type_wh", "")
             for date_col in ["Tanggal DO", "Month Period", "Tanggal Kirim", "Receive Date", "Return Date", "Tanggal Invoice"]:
                 val = row_dict.get(date_col)
                 row_dict[date_col] = str(val) if val is not None else ""
@@ -1570,7 +1580,9 @@ async def export_distribution_excel(
         do_columns = [
             "Area", "Nomor DO", "Tanggal DO", "Month Period",
             "ID Customer", "Nama Customer", "Alamat Kirim", "Gudang Asal",
-            "Driver", "Plat Nomor", "Volume (Liter)", "Qty Kemasan",
+            "Volume (Liter)", "Qty Kemasan",
+            "Code Area", "Actual Area Penjualan", "Type WH",
+            "Driver", "Plat Nomor",
             "Tanggal Kirim", "Receive Date", "Durasi DO ke Receive (Hari)",
             "Return Date", "Selisih Hari (Return - Receive)",
             "Nomor Invoice", "Tanggal Invoice", "Durasi DO ke Invoice (Hari)",

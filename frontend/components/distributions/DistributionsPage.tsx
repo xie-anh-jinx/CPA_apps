@@ -4,6 +4,11 @@ import { Search, X, RotateCcw } from "lucide-react";
 import { apiDistributions, apiWarehouses } from "@/lib/api";
 import FinancialFlowTab from "./FinancialFlowTab";
 import MultiSelectFilter, { MultiSelectOption } from "@/components/inventory/MultiSelectFilter";
+import {
+  getWarehouseMaster,
+  getAreaBadgeStyle,
+  getTypeWhBadgeStyle,
+} from "@/lib/warehouse_master";
 
 interface DistributionSummary {
   total_do: number;
@@ -118,6 +123,9 @@ interface DeliveryRecord {
   lic_plate?: string;
   nama_gudang?: string | null;
   id_gudang?: string | null;
+  code_area?: string | null;
+  actual_area?: string | null;
+  type_wh?: string | null;
   po_no?: string | null;
   no_pl?: string | null;
 }
@@ -499,6 +507,9 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
   const [selectedItStatuses, setSelectedItStatuses] = useState<string[]>([]);
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
+  const [selectedCodeAreas, setSelectedCodeAreas] = useState<string[]>([]);
+  const [selectedActualAreas, setSelectedActualAreas] = useState<string[]>([]);
+  const [selectedTypeWhs, setSelectedTypeWhs] = useState<string[]>([]);
   const [selectedIoKantors, setSelectedIoKantors] = useState<string[]>([]);
   const [selectedIoCreators, setSelectedIoCreators] = useState<string[]>([]);
 
@@ -868,6 +879,69 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
     ];
   }, [items]);
 
+  const codeAreaOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      const master = getWarehouseMaster(r.id_gudang, r.nama_gudang);
+      const code = r.code_area || master.codeArea || "HO";
+      if (code) {
+        counts[code] = (counts[code] || 0) + 1;
+      }
+    });
+    const standardOrder = ["01", "02", "03", "HO"];
+    const allKeys = Array.from(new Set([...standardOrder, ...Object.keys(counts)]));
+    return allKeys
+      .filter((k) => counts[k] !== undefined || standardOrder.includes(k))
+      .map((k) => ({
+        label: `Area ${k}`,
+        value: k,
+        subLabel: k === "HO" ? "Head Office" : `CPA ${k}`,
+        count: counts[k] || 0,
+      }));
+  }, [items]);
+
+  const actualAreaOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      const master = getWarehouseMaster(r.id_gudang, r.nama_gudang);
+      const code = r.actual_area || master.actualArea || "HO";
+      if (code) {
+        counts[code] = (counts[code] || 0) + 1;
+      }
+    });
+    const standardOrder = ["01", "02", "03", "HO"];
+    const allKeys = Array.from(new Set([...standardOrder, ...Object.keys(counts)]));
+    return allKeys
+      .filter((k) => counts[k] !== undefined || standardOrder.includes(k))
+      .map((k) => ({
+        label: `Area ${k}`,
+        value: k,
+        subLabel: k === "HO" ? "Head Office" : `Actual ${k}`,
+        count: counts[k] || 0,
+      }));
+  }, [items]);
+
+  const typeWhOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((r) => {
+      const master = getWarehouseMaster(r.id_gudang, r.nama_gudang);
+      const typeWh = r.type_wh || master.typeWh || "CPA WH";
+      if (typeWh) {
+        counts[typeWh] = (counts[typeWh] || 0) + 1;
+      }
+    });
+    const standardOrder = ["CPA WH", "Konsinyasi"];
+    const allKeys = Array.from(new Set([...standardOrder, ...Object.keys(counts)]));
+    return allKeys
+      .filter((k) => counts[k] !== undefined || standardOrder.includes(k))
+      .map((k) => ({
+        label: k,
+        value: k,
+        badge: k.toLowerCase().includes("konsinyasi") ? "🤝" : "🏢",
+        count: counts[k] || 0,
+      }));
+  }, [items]);
+
   // Base DO Items matching warehouse, search, customer, driver, and date filters (WITHOUT status filter)
   // Single Source of Truth for computing responsive DO KPI cards when filters are active
   const baseDoItems = useMemo(() => {
@@ -922,6 +996,27 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
         if (!row.nama_customer || !selectedCustomers.includes(row.nama_customer)) return false;
       }
 
+      // 4b. Code Area Filter
+      if (selectedCodeAreas.length > 0) {
+        const master = getWarehouseMaster(row.id_gudang, row.nama_gudang);
+        const code = row.code_area || master.codeArea || "HO";
+        if (!selectedCodeAreas.includes(code)) return false;
+      }
+
+      // 4c. Actual Area Filter
+      if (selectedActualAreas.length > 0) {
+        const master = getWarehouseMaster(row.id_gudang, row.nama_gudang);
+        const act = row.actual_area || master.actualArea || "HO";
+        if (!selectedActualAreas.includes(act)) return false;
+      }
+
+      // 4d. Type WH Filter
+      if (selectedTypeWhs.length > 0) {
+        const master = getWarehouseMaster(row.id_gudang, row.nama_gudang);
+        const t = row.type_wh || master.typeWh || "CPA WH";
+        if (!selectedTypeWhs.includes(t)) return false;
+      }
+
       // 5. Driver Selection
       if (selectedDrivers.length > 0) {
         if (!row.driver || !selectedDrivers.includes(row.driver)) return false;
@@ -929,7 +1024,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
 
       return true;
     });
-  }, [items, searchTerm, selectedDoNumbers, selectedDoDates, selectedOriginWarehouses, selectedCustomers, selectedDrivers]);
+  }, [items, searchTerm, selectedDoNumbers, selectedDoDates, selectedOriginWarehouses, selectedCodeAreas, selectedActualAreas, selectedTypeWhs, selectedCustomers, selectedDrivers]);
 
   // Filtered Delivery Order (DO) List (Base DO Items + Status Filter / Active Tab)
   const filteredDoItems = useMemo(() => {
@@ -1542,19 +1637,32 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
     if (tab === "DO") {
       const selectedRows = items.filter((d) => selectedDoIds.has(d.nomor));
       if (selectedRows.length === 0) return;
-      const headers = ["No. DO", "Tanggal DO", "Customer", "Kota Tujuan", "Volume (Liter)", "Driver", "Plat Nomor", "Status", "No. PO", "No. Invoice"];
-      const rows = selectedRows.map((r) => [
-        `"${r.nomor || ""}"`,
-        `"${formatDisplayDate(r.tanggal)}"`,
-        `"${(r.nama_customer || "").replace(/"/g, '""')}"`,
-        `"${(r.destination || "").replace(/"/g, '""')}"`,
-        `"${r.total_volume_liter || 0}"`,
-        `"${(r.driver || "").replace(/"/g, '""')}"`,
-        `"${(r.lic_plate || "").replace(/"/g, '""')}"`,
-        `"${r.status || ""}"`,
-        `"${r.po_no || ""}"`,
-        `"${r.no_invoice || ""}"`,
-      ]);
+      const headers = [
+        "No. DO", "Tanggal DO", "Customer", "Kota Tujuan", "Volume (Liter)",
+        "Code Area", "Actual Area Penjualan", "Type WH",
+        "Driver", "Plat Nomor", "Status", "No. PO", "No. Invoice"
+      ];
+      const rows = selectedRows.map((r) => {
+        const master = getWarehouseMaster(r.id_gudang, r.nama_gudang);
+        const codeArea = r.code_area || master.codeArea || "";
+        const actualArea = r.actual_area || master.actualArea || "";
+        const typeWh = r.type_wh || master.typeWh || "";
+        return [
+          `"${r.nomor || ""}"`,
+          `"${formatDisplayDate(r.tanggal)}"`,
+          `"${(r.nama_customer || "").replace(/"/g, '""')}"`,
+          `"${(r.destination || "").replace(/"/g, '""')}"`,
+          `"${r.total_volume_liter || 0}"`,
+          `"${codeArea}"`,
+          `"${actualArea}"`,
+          `"${typeWh}"`,
+          `"${(r.driver || "").replace(/"/g, '""')}"`,
+          `"${(r.lic_plate || "").replace(/"/g, '""')}"`,
+          `"${r.status || ""}"`,
+          `"${r.po_no || ""}"`,
+          `"${r.no_invoice || ""}"`,
+        ];
+      });
       csvContent = [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
       filename = `PADI_DO_Selected_${new Date().toISOString().slice(0, 10)}.csv`;
     } else if (tab === "IO") {
@@ -1606,6 +1714,9 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
     searchTerm.trim() ||
     selectedDoNumbers.length > 0 ||
     selectedDoDates.length > 0 ||
+    selectedCodeAreas.length > 0 ||
+    selectedActualAreas.length > 0 ||
+    selectedTypeWhs.length > 0 ||
     selectedIoNumbers.length > 0 ||
     selectedItNumbers.length > 0 ||
     selectedDoStatuses.length > 0 ||
@@ -1627,6 +1738,9 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
     setSearchTerm("");
     setSelectedDoNumbers([]);
     setSelectedDoDates([]);
+    setSelectedCodeAreas([]);
+    setSelectedActualAreas([]);
+    setSelectedTypeWhs([]);
     setSelectedIoNumbers([]);
     setSelectedItNumbers([]);
     setSelectedDoStatuses([]);
@@ -3656,6 +3770,27 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
               </span>
             )}
 
+            {mainTab === "DO" && selectedCodeAreas.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏷️ Code Area: {selectedCodeAreas.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedCodeAreas([])} />
+              </span>
+            )}
+
+            {mainTab === "DO" && selectedActualAreas.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🎯 Actual Area: {selectedActualAreas.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedActualAreas([])} />
+              </span>
+            )}
+
+            {mainTab === "DO" && selectedTypeWhs.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏢 Type WH: {selectedTypeWhs.join(", ")}</span>
+                <X size={12} style={{ cursor: "pointer" }} onClick={() => setSelectedTypeWhs([])} />
+              </span>
+            )}
+
             {mainTab === "IO" && selectedIoNumbers.length > 0 && (
               <span style={activeChipStyle}>
                 <span>📋 No. IO: {selectedIoNumbers.length > 2 ? `${selectedIoNumbers.length} nomor` : selectedIoNumbers.join(", ")}</span>
@@ -4096,7 +4231,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
 
           <div style={{ background: "var(--bg-surface)", borderRadius: "12px", border: "1px solid var(--bg-border)", overflow: "visible" }}>
             <div style={{ overflowX: "auto", overflowY: "visible" }}>
-              <table className="data-table" style={{ width: "100%", minWidth: "1400px" }}>
+              <table className="data-table" style={{ width: "100%", minWidth: "1650px" }}>
                 <thead>
                   <tr>
                     <th style={{ minWidth: "170px" }}>
@@ -4155,6 +4290,45 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
                     </th>
                     <th>Kota Tujuan</th>
                     <th style={{ textAlign: "right" }}>Volume (Liter)</th>
+                    <th style={{ minWidth: "120px" }}>
+                      <div style={{ marginBottom: "6px" }}>Code Area</div>
+                      <MultiSelectFilter
+                        title="Code Area"
+                        placeholder="Semua Code Area"
+                        searchable={false}
+                        options={codeAreaOptions}
+                        selectedValues={selectedCodeAreas}
+                        onChange={setSelectedCodeAreas}
+                        popoverWidth={200}
+                        compact={true}
+                      />
+                    </th>
+                    <th style={{ minWidth: "155px" }}>
+                      <div style={{ marginBottom: "6px" }}>Actual Area Penjualan</div>
+                      <MultiSelectFilter
+                        title="Actual Area Penjualan"
+                        placeholder="Semua Actual Area"
+                        searchable={false}
+                        options={actualAreaOptions}
+                        selectedValues={selectedActualAreas}
+                        onChange={setSelectedActualAreas}
+                        popoverWidth={220}
+                        compact={true}
+                      />
+                    </th>
+                    <th style={{ minWidth: "130px" }}>
+                      <div style={{ marginBottom: "6px" }}>Type WH</div>
+                      <MultiSelectFilter
+                        title="Type WH"
+                        placeholder="Semua Type WH"
+                        searchable={false}
+                        options={typeWhOptions}
+                        selectedValues={selectedTypeWhs}
+                        onChange={setSelectedTypeWhs}
+                        popoverWidth={200}
+                        compact={true}
+                      />
+                    </th>
                     <th style={{ minWidth: "140px" }}>Driver / Kendaraan</th>
                     <th>Waktu Kirim</th>
                     <th title="Live tracking dihitung sejak DO dibuat">Receive Date</th>
@@ -4180,14 +4354,14 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: 12 }).map((_, j) => (
+                        {Array.from({ length: 15 }).map((_, j) => (
                           <td key={j}><div className="skeleton" style={{ height: 14, width: "80%" }} /></td>
                         ))}
                       </tr>
                     ))
                   ) : filteredDoItems.length === 0 ? (
                     <tr>
-                      <td colSpan={12} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
+                      <td colSpan={15} style={{ textAlign: "center", padding: "2rem", color: "var(--text-muted)" }}>
                         Tidak ada data DO yang sesuai dengan filter.
                       </td>
                     </tr>
@@ -4261,6 +4435,88 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
                                 </div>
                               )}
                             </td>
+
+                            {/* Code Area */}
+                            {(() => {
+                              const master = getWarehouseMaster(row.id_gudang, row.nama_gudang);
+                              const codeArea = row.code_area || master.codeArea || "—";
+                              const badgeStyle = getAreaBadgeStyle(codeArea);
+                              return (
+                                <td style={{ whiteSpace: "nowrap" }}>
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      padding: "2px 8px",
+                                      borderRadius: "6px",
+                                      fontSize: "0.75rem",
+                                      fontWeight: 600,
+                                      background: badgeStyle.bg,
+                                      color: badgeStyle.color,
+                                      border: badgeStyle.border,
+                                    }}
+                                  >
+                                    {codeArea}
+                                  </span>
+                                </td>
+                              );
+                            })()}
+
+                            {/* Actual Area Penjualan */}
+                            {(() => {
+                              const master = getWarehouseMaster(row.id_gudang, row.nama_gudang);
+                              const actualArea = row.actual_area || master.actualArea || "—";
+                              const badgeStyle = getAreaBadgeStyle(actualArea);
+                              return (
+                                <td style={{ whiteSpace: "nowrap" }}>
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      padding: "2px 8px",
+                                      borderRadius: "6px",
+                                      fontSize: "0.75rem",
+                                      fontWeight: 600,
+                                      background: badgeStyle.bg,
+                                      color: badgeStyle.color,
+                                      border: badgeStyle.border,
+                                    }}
+                                  >
+                                    {actualArea}
+                                  </span>
+                                </td>
+                              );
+                            })()}
+
+                            {/* Type WH */}
+                            {(() => {
+                              const master = getWarehouseMaster(row.id_gudang, row.nama_gudang);
+                              const typeWh = row.type_wh || master.typeWh || "—";
+                              const badgeStyle = getTypeWhBadgeStyle(typeWh);
+                              return (
+                                <td style={{ whiteSpace: "nowrap" }}>
+                                  <span
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: "4px",
+                                      padding: "2px 8px",
+                                      borderRadius: "6px",
+                                      fontSize: "0.72rem",
+                                      fontWeight: 600,
+                                      background: badgeStyle.bg,
+                                      color: badgeStyle.color,
+                                      border: badgeStyle.border,
+                                    }}
+                                  >
+                                    {typeWh}
+                                  </span>
+                                </td>
+                              );
+                            })()}
+
                             <td>
                               <div style={{ color: "var(--text-secondary)" }}>{row.driver || "—"}</div>
                               <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>{row.lic_plate || row.plat_nomor || "—"}</div>
@@ -4604,7 +4860,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
                           </tr>
                           {isExpanded && (
                             <tr key={`${row.nomor}-modal-subrow`}>
-                              <td colSpan={12} style={{ padding: "0.85rem 1rem 1.4rem", background: "var(--bg-surface)", borderBottom: "2px solid #38bdf8" }}>
+                              <td colSpan={15} style={{ padding: "0.85rem 1rem 1.4rem", background: "var(--bg-surface)", borderBottom: "2px solid #38bdf8" }}>
                                 {renderDoReceiptModalBox(row.nomor, () => setExpandedDoId(null))}
                               </td>
                             </tr>
