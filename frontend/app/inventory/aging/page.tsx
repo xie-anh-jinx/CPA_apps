@@ -3,7 +3,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Eye, X, Loader2, Truck, Clock, ArrowRight, Building, MapPin, Calendar, Filter, RotateCcw, Download } from 'lucide-react';
 import { api, apiWarehouses, apiInventory } from '@/lib/api';
 import MultiSelectFilter, { MultiSelectOption } from '@/components/inventory/MultiSelectFilter';
-import { getWarehouseCodeArea, getCodeAreaBadgeStyle } from '@/lib/warehouse_master';
+import {
+  getWarehouseCodeArea,
+  getCodeAreaBadgeStyle,
+  getWarehouseMaster,
+  getAreaBadgeStyle,
+  getTypeWhBadgeStyle,
+} from '@/lib/warehouse_master';
 
 const AGING_BUCKETS = [
   { key: '0-30', label: '0 - 30 Hari', subLabel: 'Stok baru / fast-moving', min: 0, max: 30, color: '#22c55e', badge: '🌱' },
@@ -34,6 +40,8 @@ export default function StockAgingPage() {
   const [selectedFilterStatusAging, setSelectedFilterStatusAging] = useState<string[]>([]);
   const [selectedFilterGudang, setSelectedFilterGudang] = useState<string[]>([]);
   const [selectedFilterCodeArea, setSelectedFilterCodeArea] = useState<string[]>([]);
+  const [selectedFilterActualArea, setSelectedFilterActualArea] = useState<string[]>([]);
+  const [selectedFilterTypeWh, setSelectedFilterTypeWh] = useState<string[]>([]);
   const [selectedFilterLifetime, setSelectedFilterLifetime] = useState<string[]>([]);
   const [selectedFilterCurrentLoc, setSelectedFilterCurrentLoc] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
@@ -259,6 +267,46 @@ export default function StockAgingPage() {
     }));
   }, [data]);
 
+  // Options for Table Header: Actual Area Penjualan
+  const actualAreaOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+      const master = getWarehouseMaster(r.id_gudang, r.gudang);
+      const aa = r.actual_area || master.actualArea || 'HO';
+      counts[aa] = (counts[aa] || 0) + 1;
+    });
+    const standardOrder = ['01', '02', '03', 'HO'];
+    const allKeys = Array.from(new Set([...standardOrder, ...Object.keys(counts)]));
+    return allKeys
+      .filter(k => counts[k] !== undefined || standardOrder.includes(k))
+      .map(k => ({
+        label: `Area ${k}`,
+        value: k,
+        subLabel: k === 'HO' ? 'Head Office' : `Actual ${k}`,
+        count: counts[k] || 0,
+      }));
+  }, [data]);
+
+  // Options for Table Header: Type WH
+  const typeWhOptions: MultiSelectOption[] = useMemo(() => {
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+      const master = getWarehouseMaster(r.id_gudang, r.gudang);
+      const t = r.type_wh || master.typeWh || 'CPA WH';
+      counts[t] = (counts[t] || 0) + 1;
+    });
+    const standardOrder = ['CPA WH', 'Konsinyasi'];
+    const allKeys = Array.from(new Set([...standardOrder, ...Object.keys(counts)]));
+    return allKeys
+      .filter(k => counts[k] !== undefined || standardOrder.includes(k))
+      .map(k => ({
+        label: k,
+        value: k,
+        badge: k.toLowerCase().includes('konsinyasi') ? '🤝' : '🏢',
+        count: counts[k] || 0,
+      }));
+  }, [data]);
+
   // Fetch trace history saat baris diklik untuk dilacak
   useEffect(() => {
     if (!selectedStock) {
@@ -286,7 +334,7 @@ export default function StockAgingPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterStatusAging, selectedFilterGudang, selectedFilterCodeArea, selectedFilterLifetime, selectedFilterCurrentLoc, dateFrom, dateTo]);
+  }, [search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterStatusAging, selectedFilterGudang, selectedFilterCodeArea, selectedFilterActualArea, selectedFilterTypeWh, selectedFilterLifetime, selectedFilterCurrentLoc, dateFrom, dateTo]);
 
   const filteredData = useMemo(() => {
     return data.filter(row => {
@@ -322,6 +370,14 @@ export default function StockAgingPage() {
       const matchCodeArea = selectedFilterCodeArea.length === 0 ||
         selectedFilterCodeArea.includes(rowCodeArea);
 
+      const rowActualArea = row.actual_area || getWarehouseMaster(row.id_gudang, row.gudang).actualArea || 'HO';
+      const matchActualArea = selectedFilterActualArea.length === 0 ||
+        selectedFilterActualArea.includes(rowActualArea);
+
+      const rowTypeWh = row.type_wh || getWarehouseMaster(row.id_gudang, row.gudang).typeWh || 'CPA WH';
+      const matchTypeWh = selectedFilterTypeWh.length === 0 ||
+        selectedFilterTypeWh.includes(rowTypeWh);
+
       const matchStatusAging = selectedFilterStatusAging.length === 0 || 
         selectedFilterStatusAging.includes(row.status_aging);
 
@@ -342,9 +398,9 @@ export default function StockAgingPage() {
           return b ? locDays >= b.min && locDays <= b.max : false;
         });
 
-      return matchSearch && matchProduk && matchAsal && matchSellIn && matchGudang && matchCodeArea && matchStatusAging && matchLifetime && matchCurrentLoc;
+      return matchSearch && matchProduk && matchAsal && matchSellIn && matchGudang && matchCodeArea && matchActualArea && matchTypeWh && matchStatusAging && matchLifetime && matchCurrentLoc;
     });
-  }, [data, search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterGudang, selectedFilterCodeArea, selectedFilterStatusAging, selectedFilterLifetime, selectedFilterCurrentLoc]);
+  }, [data, search, selectedFilterProduk, selectedFilterAsal, selectedFilterSellIn, selectedFilterGudang, selectedFilterCodeArea, selectedFilterActualArea, selectedFilterTypeWh, selectedFilterStatusAging, selectedFilterLifetime, selectedFilterCurrentLoc]);
 
   const hasAnyActiveFilter = 
     search.trim() !== '' ||
@@ -354,6 +410,8 @@ export default function StockAgingPage() {
     selectedFilterStatusAging.length > 0 ||
     selectedFilterGudang.length > 0 ||
     selectedFilterCodeArea.length > 0 ||
+    selectedFilterActualArea.length > 0 ||
+    selectedFilterTypeWh.length > 0 ||
     selectedFilterLifetime.length > 0 ||
     selectedFilterCurrentLoc.length > 0 ||
     dateFrom !== '' ||
@@ -368,6 +426,8 @@ export default function StockAgingPage() {
     setSelectedFilterStatusAging([]);
     setSelectedFilterGudang([]);
     setSelectedFilterCodeArea([]);
+    setSelectedFilterActualArea([]);
+    setSelectedFilterTypeWh([]);
     setSelectedFilterLifetime([]);
     setSelectedFilterCurrentLoc([]);
     setSelectedGudangs(['ALL']);
@@ -875,11 +935,35 @@ export default function StockAgingPage() {
               </span>
             )}
 
+            {/* Area chip */}
+            {selectedFilterCodeArea.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏷️ Code Area: {selectedFilterCodeArea.join(', ')}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterCodeArea([])} />
+              </span>
+            )}
+
+            {/* Actual Area chip */}
+            {selectedFilterActualArea.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🎯 Actual Area: {selectedFilterActualArea.join(', ')}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterActualArea([])} />
+              </span>
+            )}
+
             {/* Column Gudang chip */}
             {selectedFilterGudang.length > 0 && (
               <span style={activeChipStyle}>
-                <span>🏢 Filter Kolom Gudang: {selectedFilterGudang.length} dipilih</span>
+                <span>🏢 Gudang: {selectedFilterGudang.length} dipilih</span>
                 <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterGudang([])} />
+              </span>
+            )}
+
+            {/* Type WH chip */}
+            {selectedFilterTypeWh.length > 0 && (
+              <span style={activeChipStyle}>
+                <span>🏢 Type WH: {selectedFilterTypeWh.join(', ')}</span>
+                <X size={12} style={{ cursor: 'pointer' }} onClick={() => setSelectedFilterTypeWh([])} />
               </span>
             )}
 
@@ -945,16 +1029,16 @@ export default function StockAgingPage() {
         overflow: 'visible' 
       }}>
         <div style={{ width: '100%', overflowX: 'auto', overflowY: 'visible' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', tableLayout: 'fixed' }}>
+          <table style={{ width: '100%', minWidth: '1680px', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead style={{ background: 'var(--bg-card, #1e1e1e)', borderBottom: '1px solid var(--bg-border, #444444)' }}>
               <tr>
-                <th style={{ padding: '8px 4px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '3%', textAlign: 'center' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '45px', textAlign: 'center' }}>
                   No
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '8%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '120px' }}>
                   Material Code
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '18%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '220px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Nama Barang</div>
                   <MultiSelectFilter
                     title="Nama Barang"
@@ -967,13 +1051,13 @@ export default function StockAgingPage() {
                     compact={true}
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'right', width: '6%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'right', minWidth: '95px' }}>
                   Volume
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '6%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '95px' }}>
                   Stock
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '7.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '120px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Asal</div>
                   <MultiSelectFilter
                     title="Asal"
@@ -986,7 +1070,7 @@ export default function StockAgingPage() {
                     compact={true}
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '10.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '135px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Lifetime Aging">Lifetime</div>
                   <MultiSelectFilter
                     title="Lifetime"
@@ -1000,7 +1084,7 @@ export default function StockAgingPage() {
                     align="left"
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '10.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '135px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title="Aging of Current Location">Aging Lokasi</div>
                   <MultiSelectFilter
                     title="Aging Gudang"
@@ -1014,7 +1098,7 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', width: '9.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', minWidth: '135px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Sell In</div>
                   <MultiSelectFilter
                     title="Sell In"
@@ -1027,7 +1111,7 @@ export default function StockAgingPage() {
                     compact={true}
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '9.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '135px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Status</div>
                   <MultiSelectFilter
                     title="Status Aging"
@@ -1041,7 +1125,7 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '6.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '105px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Area</div>
                   <MultiSelectFilter
                     title="Code Area"
@@ -1055,7 +1139,21 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '8.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '145px' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Actual Area</div>
+                  <MultiSelectFilter
+                    title="Actual Area Penjualan"
+                    placeholder="Semua Actual"
+                    searchable={false}
+                    options={actualAreaOptions}
+                    selectedValues={selectedFilterActualArea}
+                    onChange={setSelectedFilterActualArea}
+                    popoverWidth={220}
+                    compact={true}
+                    align="right"
+                  />
+                </th>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '150px' }}>
                   <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Gudang</div>
                   <MultiSelectFilter
                     title="Gudang"
@@ -1069,7 +1167,21 @@ export default function StockAgingPage() {
                     align="right"
                   />
                 </th>
-                <th style={{ padding: '8px 4px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '3.5%' }}>
+                <th style={{ padding: '8px 6px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', minWidth: '120px' }}>
+                  <div style={{ marginBottom: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Type WH</div>
+                  <MultiSelectFilter
+                    title="Type WH"
+                    placeholder="Semua Type"
+                    searchable={false}
+                    options={typeWhOptions}
+                    selectedValues={selectedFilterTypeWh}
+                    onChange={setSelectedFilterTypeWh}
+                    popoverWidth={200}
+                    compact={true}
+                    align="right"
+                  />
+                </th>
+                <th style={{ padding: '8px 4px', fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary, #b6b6b6)', textAlign: 'center', width: '55px' }}>
                   Aksi
                 </th>
               </tr>
@@ -1077,14 +1189,14 @@ export default function StockAgingPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={13} style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
+                  <td colSpan={15} style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
                     <Loader2 size={24} className="animate-spin" style={{ margin: '0 auto 8px auto', display: 'block' }} />
                     Memuat data Stock Aging...
                   </td>
                 </tr>
               ) : paginatedData.length === 0 ? (
                 <tr>
-                  <td colSpan={13} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
+                  <td colSpan={15} style={{ padding: '36px', textAlign: 'center', color: 'var(--text-muted, #828690)' }}>
                     Tidak ada data stok barang yang cocok.
                   </td>
                 </tr>
@@ -1234,8 +1346,63 @@ export default function StockAgingPage() {
                           );
                         })()}
                       </td>
+
+                      {/* Actual Area Penjualan (diantara Area dan Gudang) */}
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                        {(() => {
+                          const master = getWarehouseMaster(row.id_gudang, row.gudang);
+                          const actArea = row.actual_area || master.actualArea || 'HO';
+                          const bStyle = getAreaBadgeStyle(actArea);
+                          return (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '2px 6px',
+                              borderRadius: '6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 700,
+                              fontFamily: 'monospace',
+                              background: bStyle.bg,
+                              color: bStyle.color,
+                              border: bStyle.border,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {actArea}
+                            </span>
+                          );
+                        })()}
+                      </td>
+
+                      {/* Gudang */}
                       <td style={{ padding: '8px 6px', fontSize: '0.78rem', textAlign: 'center', color: 'var(--text-primary, #ffffff)', wordBreak: 'break-word', lineHeight: 1.2 }} title={row.gudang}>
                         {row.gudang}
+                      </td>
+
+                      {/* Type WH (setelah Gudang) */}
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                        {(() => {
+                          const master = getWarehouseMaster(row.id_gudang, row.gudang);
+                          const typeWh = row.type_wh || master.typeWh || 'CPA WH';
+                          const bStyle = getTypeWhBadgeStyle(typeWh);
+                          return (
+                            <span style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '2px 6px',
+                              borderRadius: '6px',
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              background: bStyle.bg,
+                              color: bStyle.color,
+                              border: bStyle.border,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {typeWh}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td style={{ padding: '8px 4px', textAlign: 'center' }}>
                         <button 

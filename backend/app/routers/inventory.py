@@ -13,7 +13,7 @@ import io
 
 from app.database import get_analytics_db, get_existing_db
 from app.routers.auth import CurrentUser
-from app.utils.warehouse_master import get_warehouse_code_area, WAREHOUSE_CODE_AREA_MAP
+from app.utils.warehouse_master import get_warehouse_code_area, get_warehouse_master, WAREHOUSE_CODE_AREA_MAP
 
 router = APIRouter()
 
@@ -715,12 +715,19 @@ async def get_inventory_aging_fifo(
         formatted_date = tgl_stok.strftime('%d %b %Y') if tgl_stok else '-'
         sell_in_po_val = r.get('sell_in_po') or r.get('po_direct') or '-'
 
+        wh_meta = get_warehouse_master(r.get('id_gudang'), r.get('nama_gudang_curr'))
+        code_area_val = wh_meta.get("code_area") or get_warehouse_code_area(r.get('id_gudang'), r.get('nama_gudang_curr'))
+        actual_area_val = wh_meta.get("actual_area") or "HO"
+        type_wh_val = wh_meta.get("type_wh") or "CPA WH"
+
         results.append({
             "id": f"{r['id_barang']}-{r['id_stok']}",
             "id_stok": int(r['id_stok']) if r['id_stok'] is not None else 0,
             "id_barang": str(r['id_barang']),
             "id_gudang": str(r.get('id_gudang') or ''),
-            "code_area": get_warehouse_code_area(r.get('id_gudang'), r.get('nama_gudang_curr')),
+            "code_area": code_area_val,
+            "actual_area": actual_area_val,
+            "type_wh": type_wh_val,
             "material_code": str(r['id_barang']),
             "nama_barang": str(r['nama_barang']),
             "produk": f"{r['id_barang']} - {r['nama_barang']}",
@@ -823,16 +830,16 @@ def _generate_stock_aging_excel(
     ws.title = "Stock Aging"
 
     # 1. Header Banner
-    ws.merge_cells("A1:Q1")
+    ws.merge_cells("A1:S1")
     ws["A1"] = "PT. CAHAYA PENGAJARAN ABADI"
     ws["A1"].font = Font(name="Calibri", size=13, bold=True, color="1E3A5F")
 
-    ws.merge_cells("A2:Q2")
+    ws.merge_cells("A2:S2")
     ws["A2"] = "LAPORAN STOCK AGING & JEJAK BATCH PERSEDIAAN (FIFO)"
     ws["A2"].font = Font(name="Calibri", size=11, bold=True, color="0F172A")
 
     now_str = datetime.now().strftime("%d-%b-%y %H:%M WIB")
-    ws.merge_cells("A3:Q3")
+    ws.merge_cells("A3:S3")
     ws["A3"] = f"Gudang: {gudang_label} | Periode: {periode_label} | Diekspor pada: {now_str} | Total Stok: {len(items):,} baris"
     ws["A3"].font = Font(name="Calibri", size=9, italic=True, color="64748B")
 
@@ -910,7 +917,7 @@ def _generate_stock_aging_excel(
         "No", "Material Code", "Nama Barang", "Kategori", "Volume (Liter)",
         "Stok Kemasan", "Asal (Supplier / Gudang)", "Lifetime Aging (Hari)",
         "Tgl. Penerimaan / Masuk", "Aging Gudang Ini (Hari)", "Aging Asal (Hari)",
-        "Sell In PO", "Status Aging", "Code Area", "Gudang Saat Ini", "No. Dokumen Reff", "No. Batch"
+        "Sell In PO", "Status Aging", "Code Area", "Actual Area Penjualan", "Gudang Saat Ini", "Type WH", "No. Dokumen Reff", "No. Batch"
     ]
 
     header_fill = PatternFill(start_color="1E3A5F", end_color="1E3A5F", fill_type="solid")
@@ -951,7 +958,10 @@ def _generate_stock_aging_excel(
         po_str = str(r.get("sell_in_po") or r.get("nomor_po") or "-")
         if po_str == "":
             po_str = "-"
-        code_area_val = str(r.get("code_area") or get_warehouse_code_area(r.get("id_gudang"), r.get("gudang")))
+        wh_meta = get_warehouse_master(r.get("id_gudang"), r.get("gudang"))
+        code_area_val = str(r.get("code_area") or wh_meta.get("code_area") or get_warehouse_code_area(r.get("id_gudang"), r.get("gudang")))
+        actual_area_val = str(r.get("actual_area") or wh_meta.get("actual_area") or "HO")
+        type_wh_val = str(r.get("type_wh") or wh_meta.get("type_wh") or "CPA WH")
 
         row_values = [
             (idx, Alignment(horizontal="center", vertical="center"), font_regular, None),
@@ -968,7 +978,9 @@ def _generate_stock_aging_excel(
             (po_str, Alignment(horizontal="center", vertical="center"), font_regular, None),
             (st_aging, Alignment(horizontal="center", vertical="center"), font_acc if st_aging == "Acceptable" else font_ovr if st_aging == "Over-stock" else font_ded, fill_acc if st_aging == "Acceptable" else fill_ovr if st_aging == "Over-stock" else fill_ded),
             (code_area_val, Alignment(horizontal="center", vertical="center"), font_code, None),
+            (actual_area_val, Alignment(horizontal="center", vertical="center"), font_code, None),
             (str(r.get("gudang") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
+            (type_wh_val, Alignment(horizontal="center", vertical="center"), font_regular, None),
             (str(r.get("dokumen") or r.get("reff") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
             (str(r.get("batch") or "-"), Alignment(horizontal="left", vertical="center"), font_regular, None),
         ]
@@ -999,12 +1011,14 @@ def _generate_stock_aging_excel(
         12: 18, # Sell In PO
         13: 15, # Status Aging
         14: 12, # Code Area
-        15: 22, # Gudang Saat Ini
-        16: 20, # Dokumen Reff
-        17: 16, # Batch
+        15: 16, # Actual Area Penjualan
+        16: 22, # Gudang Saat Ini
+        17: 14, # Type WH
+        18: 20, # Dokumen Reff
+        19: 16, # Batch
     }
 
-    for col_idx in range(1, 18):
+    for col_idx in range(1, 20):
         col_letter = get_column_letter(col_idx)
         max_len = 0
         for r_idx in range(8, 8 + len(items) + 1):
