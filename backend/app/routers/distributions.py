@@ -359,10 +359,12 @@ def _apply_it_status_filter(
 async def list_deliveries(
     status: Optional[str] = Query(None, description="all|send|received|return|invoice|cancel|draft|S|R|I|C|D or comma-separated"),
     q: Optional[str] = Query(None, description="Search query across DO, Customer, Driver, Plate, PO, Invoice, etc."),
+    nomor: Optional[str] = Query(None, description="Filter specific DO number(s), comma-separated"),
     id_customer: Optional[str] = None,
     id_gudang: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    search_all_dates: bool = Query(False, description="Bypass date filters when searching specific DO or query"),
     page: int = 1,
     limit: int = 50,
     db: Session = Depends(get_existing_db),
@@ -372,7 +374,26 @@ async def list_deliveries(
     conditions = ["1=1"]
     params: Dict[str, Any] = {"limit": limit, "offset": (page - 1) * limit}
 
+    if hasattr(status, 'default') or not isinstance(status, str):
+        status = None
+    if hasattr(q, 'default') or not isinstance(q, str):
+        q = None
+    if hasattr(nomor, 'default') or not isinstance(nomor, str):
+        nomor = None
+    if hasattr(search_all_dates, 'default') or not isinstance(search_all_dates, bool):
+        search_all_dates = False
+
     _apply_do_status_filter(status, conditions, params, alias="d")
+
+    # Filter specific DO number(s) (mendukung 1 atau beberapa nomor DO sekaligus)
+    if nomor and nomor.strip():
+        no_list = [n.strip() for n in nomor.split(",") if n.strip()]
+        if len(no_list) == 1:
+            conditions.append("d.nomor = :no_single")
+            params["no_single"] = no_list[0]
+        elif len(no_list) > 1:
+            conditions.append("d.nomor IN :no_list")
+            params["no_list"] = tuple(no_list)
 
     if q and q.strip():
         q_clean = f"%{q.strip().lower()}%"
@@ -393,12 +414,17 @@ async def list_deliveries(
         conditions.append("d.id_customer = :id_customer")
         params["id_customer"] = id_customer
     _apply_do_warehouse_filter(id_gudang, conditions, params, alias="d", gudang_alias="g")
-    if date_from:
-        conditions.append("d.tanggal >= :date_from")
-        params["date_from"] = date_from
-    if date_to:
-        conditions.append("d.tanggal <= :date_to")
-        params["date_to"] = date_to
+
+    # Jika user mencari nomor DO spesifik atau search_all_dates=True dengan query q,
+    # bypass filter tanggal agar pencarian data masa lalu (misal 2025 ke bawah) tidak terkunci di tahun berjalan!
+    should_apply_date = not ((nomor and nomor.strip()) or (search_all_dates and q and q.strip()))
+    if should_apply_date:
+        if date_from:
+            conditions.append("d.tanggal >= :date_from")
+            params["date_from"] = date_from
+        if date_to:
+            conditions.append("d.tanggal <= :date_to")
+            params["date_to"] = date_to
 
     _apply_do_rls(conditions, params, current_user, alias="d")
     where_clause = " AND ".join(conditions)
@@ -585,7 +611,7 @@ async def get_distribution_summary(
 ):
     """Ringkasan distribusi DO: status, volume, biaya, dan on-time rate dari cpa_existing."""
     if not date_from:
-        date_from = date(2024, 1, 1)
+        date_from = date(2017, 1, 1)
     if not date_to:
         date_to = date.today()
 
@@ -685,6 +711,9 @@ async def get_map_data(
     conditions = ["d.origin IS NOT NULL", "d.destination IS NOT NULL"]
     params: Dict[str, Any] = {}
     _apply_do_warehouse_filter(id_gudang, conditions, params, alias="d", gudang_alias="g")
+
+    if hasattr(status, 'default') or not isinstance(status, str):
+        status = None
 
     _apply_do_status_filter(status, conditions, params, alias="d")
 

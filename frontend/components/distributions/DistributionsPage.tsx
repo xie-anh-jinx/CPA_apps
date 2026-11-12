@@ -477,9 +477,29 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
   const [itStatusFilter, setItStatusFilter] = useState<"all" | "draft" | "send" | "receipt" | "cancel">("all");
 
   // Calendar Date Range Filter (Default: Bulan Berjalan) & Excel Export States
+  const AVAILABLE_YEARS = ["2026", "2025", "2024", "2023", "2022", "2021", "2020", "2019", "2018"];
+  const [selectedYear, setSelectedYear] = useState<string>("CURRENT_MONTH");
   const [calendarDateFrom, setCalendarDateFrom] = useState<string>(() => getCurrentMonthDates().from);
   const [calendarDateTo, setCalendarDateTo] = useState<string>(() => getCurrentMonthDates().to);
   const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleSelectYear = (year: string) => {
+    setSelectedYear(year);
+    if (year === "ALL") {
+      setCalendarDateFrom("");
+      setCalendarDateTo("");
+    } else {
+      setCalendarDateFrom(`${year}-01-01`);
+      const now = new Date();
+      if (year === String(now.getFullYear())) {
+        const month = String(now.getMonth() + 1).padStart(2, "0");
+        const day = String(now.getDate()).padStart(2, "0");
+        setCalendarDateTo(`${year}-${month}-${day}`);
+      } else {
+        setCalendarDateTo(`${year}-12-31`);
+      }
+    }
+  };
 
   // Warehouse Filter for DO
   const [warehouses, setWarehouses] = useState<{ id_gudang: string; nama_gudang: string }[]>([]);
@@ -766,6 +786,12 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
         counts[r.nomor] = (counts[r.nomor] || 0) + 1;
       }
     });
+    // Pastikan nomor DO yang dipilih manual selalu ada di list opsi
+    selectedDoNumbers.forEach((no) => {
+      if (no && !counts[no]) {
+        counts[no] = 1;
+      }
+    });
     return Object.keys(counts)
       .sort()
       .map((no) => ({
@@ -774,7 +800,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
         subLabel: items.find((d) => d.nomor === no)?.nama_customer || undefined,
         count: counts[no],
       }));
-  }, [items]);
+  }, [items, selectedDoNumbers]);
 
   const doDateOptions: MultiSelectOption[] = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -893,7 +919,7 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
       }
 
       // 3. Origin Warehouse Selection (Mendukung 1 atau beberapa gudang)
-      if (selectedOriginWarehouses.length > 0) {
+      if (selectedOriginWarehouses.length > 0 && selectedDoNumbers.length === 0 && !searchTerm.trim()) {
         const matches = selectedOriginWarehouses.some((wh) => {
           const target = wh.toLowerCase().trim();
           const rowGudang = (row.nama_gudang || "").toLowerCase().trim();
@@ -3166,14 +3192,19 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
             ? undefined
             : activeTab;
 
+        const doNomorParam = selectedDoNumbers.length > 0 ? selectedDoNumbers.join(",") : undefined;
+        const isSearchOrNomorActive = Boolean(searchTerm.trim() || doNomorParam);
+
         const [sumRes, itemsRes] = await Promise.allSettled([
           apiDistributions.summary({ ...dateFilter, id_gudang: whParam }),
           apiDistributions.list({
             status: doStatusParam,
             q: searchTerm.trim() || undefined,
-            limit: 5000,
-            id_gudang: whParam,
-            ...dateFilter,
+            nomor: doNomorParam,
+            search_all_dates: isSearchOrNomorActive,
+            limit: 20000,
+            id_gudang: isSearchOrNomorActive ? undefined : whParam,
+            ...(isSearchOrNomorActive ? {} : dateFilter),
           }),
         ]);
 
@@ -3188,11 +3219,13 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
             : ioStatusFilter === "all"
             ? undefined
             : ioStatusFilter;
+        const ioNomorParam = selectedIoNumbers.length > 0 ? selectedIoNumbers.join(",") : undefined;
+        const isIoSearchActive = Boolean(searchTerm.trim() || ioNomorParam);
 
         const res = await apiDistributions.internalOrders({
-          date_from: calendarDateFrom || undefined,
-          date_to: calendarDateTo || undefined,
-          q: searchTerm.trim() || undefined,
+          date_from: isIoSearchActive ? undefined : (calendarDateFrom || undefined),
+          date_to: isIoSearchActive ? undefined : (calendarDateTo || undefined),
+          q: searchTerm.trim() || ioNomorParam || undefined,
           status: ioStatusParam,
           id_gudang_asal: whAsalParam,
           id_gudang_tujuan: whTujuanParam,
@@ -3208,11 +3241,13 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
             : itStatusFilter === "all"
             ? undefined
             : itStatusFilter;
+        const itNomorParam = selectedItNumbers.length > 0 ? selectedItNumbers.join(",") : undefined;
+        const isItSearchActive = Boolean(searchTerm.trim() || itNomorParam);
 
         const res = await apiDistributions.transferOrders({
-          date_from: calendarDateFrom || undefined,
-          date_to: calendarDateTo || undefined,
-          q: searchTerm.trim() || undefined,
+          date_from: isItSearchActive ? undefined : (calendarDateFrom || undefined),
+          date_to: isItSearchActive ? undefined : (calendarDateTo || undefined),
+          q: searchTerm.trim() || itNomorParam || undefined,
           status: itStatusParam,
           id_gudang_asal: whAsalParam,
           id_gudang_tujuan: whTujuanParam,
@@ -3239,6 +3274,9 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
     ioStatusFilter,
     itStatusFilter,
     searchTerm,
+    selectedDoNumbers,
+    selectedIoNumbers,
+    selectedItNumbers,
   ]);
 
   useEffect(() => { load(); }, [load]);
@@ -3295,8 +3333,8 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
             marginBottom: "16px",
           }}
         >
-          {/* Quick Date Presets & Date Picker */}
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+          {/* Quick Date Presets, Year Selector & Date Picker */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
             <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>
               📅 Periode:
             </span>
@@ -3304,16 +3342,17 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
               type="button"
               onClick={() => {
                 const curr = getCurrentMonthDates();
+                setSelectedYear("CURRENT_MONTH");
                 setCalendarDateFrom(curr.from);
                 setCalendarDateTo(curr.to);
               }}
               style={{
-                fontSize: "0.75rem",
-                padding: "4px 9px",
+                fontSize: "0.74rem",
+                padding: "4px 8px",
                 borderRadius: "6px",
                 border: "1px solid var(--bg-border)",
-                background: "rgba(56, 189, 248, 0.12)",
-                color: "#38bdf8",
+                background: selectedYear === "CURRENT_MONTH" ? "rgba(56, 189, 248, 0.18)" : "var(--bg-card)",
+                color: selectedYear === "CURRENT_MONTH" ? "#38bdf8" : "var(--text-secondary)",
                 fontWeight: 600,
                 cursor: "pointer",
               }}
@@ -3326,16 +3365,18 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
               onClick={() => {
                 const past = new Date();
                 past.setDate(past.getDate() - 7);
+                setSelectedYear("7_DAYS");
                 setCalendarDateFrom(past.toISOString().slice(0, 10));
                 setCalendarDateTo(new Date().toISOString().slice(0, 10));
               }}
               style={{
-                fontSize: "0.75rem",
-                padding: "4px 9px",
+                fontSize: "0.74rem",
+                padding: "4px 8px",
                 borderRadius: "6px",
                 border: "1px solid var(--bg-border)",
-                background: "var(--bg-card)",
-                color: "var(--text-secondary)",
+                background: selectedYear === "7_DAYS" ? "rgba(56, 189, 248, 0.18)" : "var(--bg-card)",
+                color: selectedYear === "7_DAYS" ? "#38bdf8" : "var(--text-secondary)",
+                fontWeight: 600,
                 cursor: "pointer",
               }}
               title="7 Hari Terakhir"
@@ -3344,23 +3385,85 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
             </button>
             <button
               type="button"
-              onClick={() => {
-                setCalendarDateFrom("");
-                setCalendarDateTo(new Date().toISOString().slice(0, 10));
-              }}
+              onClick={() => handleSelectYear("2026")}
               style={{
-                fontSize: "0.75rem",
-                padding: "4px 9px",
+                fontSize: "0.74rem",
+                padding: "4px 8px",
                 borderRadius: "6px",
                 border: "1px solid var(--bg-border)",
-                background: "var(--bg-card)",
-                color: "var(--text-secondary)",
+                background: selectedYear === "2026" ? "rgba(56, 189, 248, 0.18)" : "var(--bg-card)",
+                color: selectedYear === "2026" ? "#38bdf8" : "var(--text-secondary)",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              title="Tahun 2026"
+            >
+              2026
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectYear("2025")}
+              style={{
+                fontSize: "0.74rem",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "1px solid var(--bg-border)",
+                background: selectedYear === "2025" ? "rgba(56, 189, 248, 0.18)" : "var(--bg-card)",
+                color: selectedYear === "2025" ? "#38bdf8" : "var(--text-secondary)",
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              title="Tahun 2025"
+            >
+              2025
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectYear("ALL")}
+              style={{
+                fontSize: "0.74rem",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "1px solid var(--bg-border)",
+                background: selectedYear === "ALL" ? "rgba(56, 189, 248, 0.18)" : "var(--bg-card)",
+                color: selectedYear === "ALL" ? "#38bdf8" : "var(--text-secondary)",
+                fontWeight: 600,
                 cursor: "pointer",
               }}
               title="Semua Periode"
             >
               Semua
             </button>
+
+            {/* Dropdown Pilihan Tahun */}
+            <select
+              value={AVAILABLE_YEARS.includes(selectedYear) ? selectedYear : selectedYear === "ALL" ? "ALL" : ""}
+              onChange={(e) => handleSelectYear(e.target.value)}
+              style={{
+                fontSize: "0.74rem",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "1px solid var(--bg-border)",
+                background: "var(--bg-card)",
+                color: AVAILABLE_YEARS.includes(selectedYear) && !["2026", "2025"].includes(selectedYear) ? "#38bdf8" : "var(--text-primary)",
+                fontWeight: 600,
+                cursor: "pointer",
+                outline: "none",
+              }}
+              title="Pilih Tahun Lainnya"
+            >
+              <option value="" disabled>Tahun Lainnya...</option>
+              <option value="2026">Tahun 2026</option>
+              <option value="2025">Tahun 2025</option>
+              <option value="2024">Tahun 2024</option>
+              <option value="2023">Tahun 2023</option>
+              <option value="2022">Tahun 2022</option>
+              <option value="2021">Tahun 2021</option>
+              <option value="2020">Tahun 2020</option>
+              <option value="2019">Tahun 2019</option>
+              <option value="2018">Tahun 2018</option>
+              <option value="ALL">Semua Tahun</option>
+            </select>
 
             <div
               style={{
@@ -3376,7 +3479,10 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
               <input
                 type="date"
                 value={calendarDateFrom}
-                onChange={(e) => setCalendarDateFrom(e.target.value)}
+                onChange={(e) => {
+                  setSelectedYear("CUSTOM");
+                  setCalendarDateFrom(e.target.value);
+                }}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -3391,7 +3497,10 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
               <input
                 type="date"
                 value={calendarDateTo}
-                onChange={(e) => setCalendarDateTo(e.target.value)}
+                onChange={(e) => {
+                  setSelectedYear("CUSTOM");
+                  setCalendarDateTo(e.target.value);
+                }}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -3405,8 +3514,51 @@ export default function DistributionsPage({ initialTab = "DO" }: { initialTab?: 
             </div>
           </div>
 
-          {/* Warehouse Multi-Select Filter & Export Excel */}
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "nowrap", flexShrink: 0 }}>
+          {/* Search Bar, Warehouse Multi-Select Filter & Export Excel */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flexShrink: 0 }}>
+            {/* Search Input Box */}
+            <div style={{ position: "relative", minWidth: "220px", flexShrink: 0 }}>
+              <Search
+                size={13}
+                style={{
+                  position: "absolute",
+                  left: "9px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--text-muted)",
+                }}
+              />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Cari No. DO / Customer / Sopir / PO..."
+                style={{
+                  width: "100%",
+                  padding: "5px 24px 5px 28px",
+                  fontSize: "0.76rem",
+                  borderRadius: "6px",
+                  border: "1px solid var(--bg-border)",
+                  background: "var(--bg-card)",
+                  color: "var(--text-primary)",
+                  outline: "none",
+                }}
+              />
+              {searchTerm && (
+                <X
+                  size={13}
+                  onClick={() => setSearchTerm("")}
+                  style={{
+                    position: "absolute",
+                    right: "8px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                  }}
+                />
+              )}
+            </div>
             <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
               <span
                 style={{

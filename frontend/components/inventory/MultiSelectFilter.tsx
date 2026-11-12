@@ -345,7 +345,29 @@ export default function MultiSelectFilter({
                   color: 'var(--text-muted, #828690)',
                 }}
               >
-                Tidak ada opsi yang cocok
+                <div>Tidak ada opsi yang cocok</div>
+                {searchTerm.trim() && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleToggle(searchTerm.trim());
+                    }}
+                    style={{
+                      marginTop: '8px',
+                      padding: '4px 10px',
+                      fontSize: '0.72rem',
+                      borderRadius: '4px',
+                      border: '1px solid #38bdf8',
+                      background: 'rgba(56, 189, 248, 0.15)',
+                      color: '#38bdf8',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                    }}
+                  >
+                    + Pilih &ldquo;{searchTerm.trim()}&rdquo;
+                  </button>
+                )}
               </div>
             ) : (
               filteredOptions.map((opt) => {
