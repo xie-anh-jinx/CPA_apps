@@ -1565,6 +1565,7 @@ async def export_distribution_excel(
         for r in rows:
             row_dict = dict(r)
             wh_meta = get_warehouse_master(row_dict.get("id_gudang"), row_dict.get("Gudang Asal"))
+            row_dict["Area"] = wh_meta.get("cpa_code") or row_dict.get("Area", "")
             row_dict["Code Area"] = wh_meta.get("code_area", "")
             row_dict["Actual Area Penjualan"] = wh_meta.get("actual_area", "")
             row_dict["Type WH"] = wh_meta.get("type_wh", "")
@@ -1614,7 +1615,9 @@ async def export_distribution_excel(
             df = pd.DataFrame(columns=[
                 "Area", "Nomor DO", "Tanggal DO", "Month Period",
                 "ID Customer", "Nama Customer", "Alamat Kirim", "Gudang Asal",
-                "Driver", "Plat Nomor", "Volume (Liter)", "Qty Kemasan",
+                "Volume (Liter)", "Qty Kemasan",
+                "Code Area", "Actual Area Penjualan", "Type WH",
+                "Driver", "Plat Nomor",
                 "Tanggal Kirim", "Receive Date", "Durasi DO ke Receive (Hari)",
                 "Return Date", "Selisih Hari (Return - Receive)",
                 "Nomor Invoice", "Tanggal Invoice", "Durasi DO ke Invoice (Hari)",

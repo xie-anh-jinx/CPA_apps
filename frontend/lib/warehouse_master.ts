@@ -35,7 +35,7 @@ export const WAREHOUSE_CODE_AREA_MAP: Record<string, string> = {
   "122": "CPA02",
   "123": "CPA02",
   "124": "CPA02",
-  "129": "CPA02",
+  "129": "CPA01", // SOFIFI - CPA02 (Code Area 01, Actual Area 02)
   // CPA02 - Kendari
   "7": "CPA02", "007": "CPA02",
   "24": "CPA02", "024": "CPA02",
@@ -116,7 +116,7 @@ export const WAREHOUSE_CODE_AREA_MAP: Record<string, string> = {
   "114": "CPA03",
   // CPA03 - Banjarmasin
   "11": "CPA03", "011": "CPA03",
-  "63": "CPA03", "063": "CPA03",
+  "63": "HO", "063": "HO",
   "64": "CPA03", "064": "CPA03",
   "112": "CPA03",
 
@@ -127,18 +127,18 @@ export const WAREHOUSE_CODE_AREA_MAP: Record<string, string> = {
   "3": "HO", "003": "HO",
   "4": "HO", "004": "HO",
   "14": "HO", "014": "HO",
-  "16": "HO", "016": "HO",
+  "16": "CPA02", "016": "CPA02",
   "46": "HO", "046": "HO",
   "51": "HO", "051": "HO",
   "52": "HO", "052": "HO",
   "72": "HO", "072": "HO",
-  "77": "HO", "077": "HO",
-  "88": "HO", "088": "HO",
-  "106": "HO",
-  "119": "HO",
-  "120": "HO",
-  "121": "HO",
-  "125": "HO",
+  "77": "CPA02", "077": "CPA02",
+  "88": "CPA01", "088": "CPA01",
+  "106": "CPA02",
+  "119": "CPA02",
+  "120": "CPA01",
+  "121": "CPA02",
+  "125": "CPA02",
 };
 
 export const KANTOR_CODE_AREA_MAP: Record<string, string> = {
@@ -437,15 +437,15 @@ export const WAREHOUSE_MASTER_METADATA: Record<string, WarehouseMasterRecord> = 
   "052": { id: "52", padId: "052", nama: "PINJAMAN SHELL - BPN", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "HO", lokasiWh: "Balikpapan", typeWh: "CPA WH" },
   "72": { id: "72", padId: "072", nama: "KONSINYASI ANAGA JAYA SARANA - TUHUP", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "HO", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
   "072": { id: "72", padId: "072", nama: "KONSINYASI ANAGA JAYA SARANA - TUHUP", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "HO", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
-  "77": { id: "77", padId: "077", nama: "KONSINYASI MACMAHON - PALU", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "02", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
-  "077": { id: "77", padId: "077", nama: "KONSINYASI MACMAHON - PALU", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "02", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
-  "88": { id: "88", padId: "088", nama: "KONSINYASI MACMAHON - TOKA", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "01", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
-  "088": { id: "88", padId: "088", nama: "KONSINYASI MACMAHON - TOKA", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "01", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
-  "106": { id: "106", padId: "106", nama: "KONSINYASI MACMAHON - LUWU", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "02", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
-  "119": { id: "119", padId: "119", nama: "MACMAHON - PALU", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "02", lokasiWh: "Palu", typeWh: "CPA WH" },
-  "120": { id: "120", padId: "120", nama: "MACMAHON - BITUNG", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "01", lokasiWh: "Bitung", typeWh: "CPA WH" },
-  "121": { id: "121", padId: "121", nama: "MACMAHON - MAKASSAR", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "02", lokasiWh: "Makassar", typeWh: "CPA WH" },
-  "125": { id: "125", padId: "125", nama: "MACMAHON - BALIKPAPAN", cabang: "HO - Balikpapan", codeArea: "HO", cpaCode: "HO", actualArea: "02", lokasiWh: "Balikpapan", typeWh: "CPA WH" },
+  "77": { id: "77", padId: "077", nama: "KONSINYASI MACMAHON - PALU", cabang: "HO - Balikpapan", codeArea: "02", cpaCode: "CPA02", actualArea: "02", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
+  "077": { id: "77", padId: "077", nama: "KONSINYASI MACMAHON - PALU", cabang: "HO - Balikpapan", codeArea: "02", cpaCode: "CPA02", actualArea: "02", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
+  "88": { id: "88", padId: "088", nama: "KONSINYASI MACMAHON - TOKA", cabang: "HO - Balikpapan", codeArea: "01", cpaCode: "CPA01", actualArea: "01", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
+  "088": { id: "88", padId: "088", nama: "KONSINYASI MACMAHON - TOKA", cabang: "HO - Balikpapan", codeArea: "01", cpaCode: "CPA01", actualArea: "01", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
+  "106": { id: "106", padId: "106", nama: "KONSINYASI MACMAHON - LUWU", cabang: "HO - Balikpapan", codeArea: "02", cpaCode: "CPA02", actualArea: "02", lokasiWh: "Konsinyasi", typeWh: "Konsinyasi" },
+  "119": { id: "119", padId: "119", nama: "MACMAHON - PALU", cabang: "HO - Balikpapan", codeArea: "02", cpaCode: "CPA02", actualArea: "02", lokasiWh: "Palu", typeWh: "CPA WH" },
+  "120": { id: "120", padId: "120", nama: "MACMAHON - BITUNG", cabang: "HO - Balikpapan", codeArea: "01", cpaCode: "CPA01", actualArea: "01", lokasiWh: "Bitung", typeWh: "CPA WH" },
+  "121": { id: "121", padId: "121", nama: "MACMAHON - MAKASSAR", cabang: "HO - Balikpapan", codeArea: "02", cpaCode: "CPA02", actualArea: "02", lokasiWh: "Makassar", typeWh: "CPA WH" },
+  "125": { id: "125", padId: "125", nama: "MACMAHON - BALIKPAPAN", cabang: "HO - Balikpapan", codeArea: "02", cpaCode: "CPA02", actualArea: "02", lokasiWh: "Balikpapan", typeWh: "CPA WH" },
 };
 
 export function getWarehouseMaster(
